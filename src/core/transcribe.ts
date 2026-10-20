@@ -77,7 +77,7 @@ function toSegment(ws: Word[]) {
 
 export async function transcribe(
   videoPath: string,
-  opts: { language?: string; modelPath?: string; run?: typeof run } = {},
+  opts: { language?: string; modelPath?: string; /** 분야 용어 힌트(예: "롱아이언, 백스윙") — 전문 용어 오인식을 줄인다 */ prompt?: string; run?: typeof run } = {},
 ): Promise<Transcript> {
   const exec = opts.run ?? run
   const language = opts.language ?? 'ko'
@@ -90,7 +90,8 @@ export async function transcribe(
     const wav = path.join(tmp, 'audio.wav')
     await exec('ffmpeg', ['-v', 'error', '-nostdin', '-y', '-i', videoPath, '-vn', '-ar', '16000', '-ac', '1', '-c:a', 'pcm_s16le', wav])
     const prefix = path.join(tmp, 'out')
-    await exec('whisper-cli', ['-m', modelPath, '-l', language, '-ml', '1', '-sow', '-ojf', '-np', '-of', prefix, '-f', wav], {
+    const hint = opts.prompt?.trim() ? ['--prompt', opts.prompt.trim()] : []
+    await exec('whisper-cli', ['-m', modelPath, '-l', language, '-ml', '1', '-sow', '-ojf', '-np', ...hint, '-of', prefix, '-f', wav], {
       timeoutMs: 20 * 60_000,
     })
     const json = JSON.parse(fs.readFileSync(`${prefix}.json`, 'utf8')) as unknown

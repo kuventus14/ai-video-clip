@@ -102,6 +102,22 @@ describe('transcribe', () => {
     expect(t.durationSec).toBeCloseTo(5, 0)
   })
 
+  test('용어 힌트(prompt)를 주면 whisper-cli 에 --prompt 로 넘기고, 안 주면 넘기지 않는다', async () => {
+    const argsOf: string[][] = []
+    const fake = async (file: string, args: string[]) => {
+      if (file === 'ffmpeg') fs.writeFileSync(args[args.length - 1]!, 'wav')
+      if (file === 'whisper-cli') {
+        argsOf.push(args)
+        fs.writeFileSync(`${args[args.indexOf('-of') + 1]}.json`, JSON.stringify({ transcription: [entry(0, 500, ' 안녕')] }))
+      }
+      return { stdout: '', stderr: '' }
+    }
+    await transcribe(fx.landscape, { run: fake, prompt: '롱아이언, 백스윙, 골프 레슨' })
+    await transcribe(fx.landscape, { run: fake })
+    expect(argsOf[0]![argsOf[0]!.indexOf('--prompt') + 1]).toBe('롱아이언, 백스윙, 골프 레슨')
+    expect(argsOf[1]).not.toContain('--prompt')
+  })
+
   test.skipIf(process.env.INTEGRATION !== '1' || !fs.existsSync(SAMPLE))('실제 샘플 영상을 한국어로 인식한다', async () => {
     const t = await transcribe(SAMPLE)
     expect(t.language).toBe('ko')
