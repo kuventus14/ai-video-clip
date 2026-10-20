@@ -27,22 +27,27 @@ const WORKER_HINT_MS = 15_000
 const isAbort = (e: unknown) => e instanceof DOMException && e.name === 'AbortError'
 const messageOf = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
-export function UploadForm() {
+/**
+ * 새 영상을 올리고 설명·용도·레퍼런스를 정해 분석을 시작하는 폼.
+ * resume 을 주면 이미 올려 둔(ready) 작업에서 이어서 시작한다 — 작업 화면에 들어 있는 형태라 제목·눈금자는 부모가 보여 주고,
+ * 시작하면 onStarted 로 알리고(주소는 그대로), "다른 영상" 은 그 작업을 지우고 새 영상 화면으로 보낸다.
+ */
+export function UploadForm({ resume, onStarted }: { resume?: JobDto; onStarted?: (job: JobDto) => void } = {}) {
   const router = useRouter()
 
   // 영상
-  const [file, setFile] = useState<{ name: string; size: number } | null>(null)
-  const [jobId, setJobId] = useState<string | null>(null)
+  const [file, setFile] = useState<{ name: string; size: number } | null>(resume ? { name: resume.sourceName ?? '올린 영상', size: 0 } : null)
+  const [jobId, setJobId] = useState<string | null>(resume?.id ?? null)
   const [uploading, setUploading] = useState(false)
-  const [uploaded, setUploaded] = useState(false)
+  const [uploaded, setUploaded] = useState(!!resume)
   const [fraction, setFraction] = useState(0)
   const [uploadError, setUploadError] = useState<string | null>(null)
   const ctrlRef = useRef<AbortController | null>(null)
-  const jobIdRef = useRef<string | null>(null)
+  const jobIdRef = useRef<string | null>(resume?.id ?? null)
 
   // 입력
-  const [description, setDescription] = useState('')
-  const [choice, setChoice] = useState<Choice>('auto')
+  const [description, setDescription] = useState(resume?.description ?? '')
+  const [choice, setChoice] = useState<Choice>(resume?.purposeChoice ?? 'auto')
   const [link, setLink] = useState('')
   const [linkError, setLinkError] = useState<string | null>(null)
   const [refFile, setRefFile] = useState<{ name: string } | null>(null)
@@ -145,6 +150,7 @@ export function UploadForm() {
     if (id) void removeJob(id).catch(() => {})
     resetVideo()
     setUploadError(null)
+    if (resume) router.push('/new') // 작업 화면 안에서는 올릴 곳이 없으니 새 영상 화면으로
   }
 
   async function attachReference(picked: File) {
@@ -180,8 +186,9 @@ export function UploadForm() {
     setSubmitting(true)
     setSubmitError(null)
     try {
-      await start(jobId, { description: description.trim(), purposeChoice: choice, reference: refFile ? 'uploaded' : trimmed || null })
-      router.push(`/jobs/${jobId}`)
+      const next = await start(jobId, { description: description.trim(), purposeChoice: choice, reference: refFile ? 'uploaded' : trimmed || null })
+      if (onStarted) onStarted(next)
+      else router.push(`/jobs/${jobId}`)
     } catch (e) {
       setSubmitError(e instanceof ApiError ? e.message : messageOf(e))
       setSubmitting(false)
@@ -193,13 +200,16 @@ export function UploadForm() {
   const blocker = !file ? '영상을 먼저 올려 주세요' : uploading ? '영상을 올리는 중이에요' : checking ? '영상을 확인하는 중이에요' : probeFailed ? '영상을 확인하지 못했어요' : refFraction !== null ? '레퍼런스 파일을 올리는 중이에요' : null
 
   return (
-    <div className="mx-auto flex w-full max-w-[760px] flex-col gap-6">
-      <div>
-        <h1 className="text-[22px] font-semibold leading-tight">새 영상</h1>
-        <p className="mt-1 text-[15px] text-ink-2">영상을 올리고 설명과 용도를 정하면 분석을 시작해요. 레퍼런스는 지금 넣거나, 분석이 끝난 뒤 추천 목록에서 골라도 돼요.</p>
-      </div>
-
-      <Steps current={0} state={rulerState} />
+    <div className={cx('flex w-full flex-col gap-6', !resume && 'mx-auto max-w-[760px]')}>
+      {resume ? null : (
+        <>
+          <div>
+            <h1 className="text-[22px] font-semibold leading-tight">새 영상</h1>
+            <p className="mt-1 text-[15px] text-ink-2">영상을 올리고 설명과 용도를 정하면 분석을 시작해요. 레퍼런스는 지금 넣거나, 분석이 끝난 뒤 추천 목록에서 골라도 돼요.</p>
+          </div>
+          <Steps current={0} state={rulerState} />
+        </>
+      )}
 
       <Card title="영상">
         {!file ? (
@@ -210,7 +220,7 @@ export function UploadForm() {
               <FileVideo size={20} strokeWidth={1.75} className="shrink-0 text-ink-3" aria-hidden="true" />
               <div className="min-w-0 flex-1">
                 <p className="truncate text-[15px] font-medium text-ink">{file.name}</p>
-                <p className="text-[13px] text-ink-3 tabular-nums">{formatBytes(file.size)}</p>
+                {file.size > 0 ? <p className="text-[13px] text-ink-3 tabular-nums">{formatBytes(file.size)}</p> : null}
               </div>
               {uploading ? (
                 <Button size="sm" onClick={discardVideo} icon={<X size={16} strokeWidth={1.75} aria-hidden="true" />}>

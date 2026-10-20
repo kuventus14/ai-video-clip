@@ -42,6 +42,8 @@ export interface JobDto {
   stage: string | null
   createdAt: string
   updatedAt: string
+  /** 지금 상태가 된 시각 — 진행 화면의 경과 시간은 여기서부터 센다 */
+  statusSince: string
   /** 요약의 한 줄, 없으면 파일 이름 */
   title: string
   sourceName: string | null

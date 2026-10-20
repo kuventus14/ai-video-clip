@@ -17,6 +17,8 @@ export interface Job {
   createdAt: string
   updatedAt: string
   status: JobStatus
+  /** 지금 상태가 된 시각(상태가 바뀔 때만 갱신된다) */
+  statusChangedAt: string
   stage: string | null
   errorMessage: string | null
   failedPhase: Phase | null
@@ -53,6 +55,7 @@ const FIELDS: Record<Exclude<keyof Job, 'id' | 'createdAt'>, [string, Kind]> = {
   ownerId: ['owner_id', 'text'],
   updatedAt: ['updated_at', 'text'],
   status: ['status', 'text'],
+  statusChangedAt: ['status_changed_at', 'text'],
   stage: ['stage', 'text'],
   errorMessage: ['error_message', 'text'],
   failedPhase: ['failed_phase', 'text'],
@@ -115,7 +118,7 @@ export class Jobs {
       const id = randomBytes(5).toString('hex')
       const t = now()
       try {
-        this.db.prepare('INSERT INTO jobs (id, created_at, updated_at, status, parent_job_id) VALUES (?, ?, ?, ?, ?)').run(id, t, t, 'created', init.parentJobId ?? null)
+        this.db.prepare('INSERT INTO jobs (id, created_at, updated_at, status, status_changed_at, parent_job_id) VALUES (?, ?, ?, ?, ?, ?)').run(id, t, t, 'created', t, init.parentJobId ?? null)
         return this.get(id)!
       } catch (e) {
         if (attempt === 4) throw e // id 가 겹치는 일은 사실상 없지만 겹치면 다시 뽑는다
@@ -167,10 +170,11 @@ export class Jobs {
   /** 프로그램이 죽어서 실행 중으로 남은 작업을 실패(중단)로 바꾼다. 바꾼 개수를 돌려준다. */
   resetInterrupted(): number {
     let total = 0
+    const t = now()
     for (const status of RUNNING_STATUSES) {
       const res = this.db
-        .prepare(`UPDATE jobs SET status = 'failed', failed_phase = ?, error_message = ?, updated_at = ? WHERE status = ?`)
-        .run(PHASE_OF[status], INTERRUPTED_MESSAGE, now(), status)
+        .prepare(`UPDATE jobs SET status = 'failed', failed_phase = ?, error_message = ?, updated_at = ?, status_changed_at = ? WHERE status = ?`)
+        .run(PHASE_OF[status], INTERRUPTED_MESSAGE, t, t, status)
       total += Number(res.changes)
     }
     return total
@@ -208,7 +212,9 @@ export class Jobs {
   }
 
   private setClause(patch: Patch): { sql: string; values: (string | number | null)[] } {
-    const entries = Object.entries({ ...patch, updatedAt: now() }) as [keyof typeof FIELDS, unknown][]
+    const t = now()
+    const stamped = 'status' in patch ? { ...patch, updatedAt: t, statusChangedAt: t } : { ...patch, updatedAt: t }
+    const entries = Object.entries(stamped) as [keyof typeof FIELDS, unknown][]
     const parts: string[] = []
     const values: (string | number | null)[] = []
     for (const [key, value] of entries) {

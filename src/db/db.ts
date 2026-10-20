@@ -37,6 +37,9 @@ const MIGRATIONS: string[] = [
     confirmed_at TEXT
   );
   CREATE INDEX idx_jobs_status ON jobs(status, created_at);`,
+  // 지금 상태가 된 시각 — 진행 화면의 경과 시간. 이미 있는 행은 마지막 수정 시각으로 채운다.
+  `ALTER TABLE jobs ADD COLUMN status_changed_at TEXT;
+  UPDATE jobs SET status_changed_at = updated_at;`,
 ]
 
 /** <dataDir>/app.db 를 열고(없으면 만들고) 마이그레이션한다. 화면 서버와 워커가 같은 파일을 연다(WAL). */

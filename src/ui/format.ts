@@ -1,5 +1,5 @@
 import { isQueued, isRunning } from '../db/status.ts'
-import type { JobStatus, Phase, PurposeValue } from '../shared/types.ts'
+import type { JobDto, JobStatus, Phase, PurposeValue } from '../shared/types.ts'
 
 const pad2 = (n: number) => String(n).padStart(2, '0')
 
@@ -136,4 +136,18 @@ export function pollIntervalMs(status: JobStatus): number | null {
 
 export function purposeLabel(p: PurposeValue): string {
   return p === 'post' ? '게시물 영상용(가로)' : '릴스·숏츠용(세로)'
+}
+
+/** 지금 보여 줄 용도: 확정된 것 > 사용자가 고른 것 > 자동 인식한 것 */
+export function shownPurpose(job: Pick<JobDto, 'purpose' | 'purposeChoice' | 'purposeGuess'>): PurposeValue | null {
+  return job.purpose ?? (job.purposeChoice !== 'auto' ? job.purposeChoice : (job.purposeGuess?.purpose ?? null))
+}
+
+/** 제작 시간 안내: 영상 길이의 2~3배쯤 걸린다. 56.8 → "약 2~3분", 아주 짧으면 "1분 안팎", 길이를 모르면 "". */
+export function estimateProduce(durationSec: number): string {
+  if (!Number.isFinite(durationSec) || durationSec <= 0) return ''
+  const upper = Math.max(1, Math.round((durationSec * 3) / 60))
+  if (upper <= 1) return '1분 안팎'
+  const lower = Math.min(upper, Math.max(1, Math.round((durationSec * 2) / 60)))
+  return `약 ${lower}~${upper}분`
 }

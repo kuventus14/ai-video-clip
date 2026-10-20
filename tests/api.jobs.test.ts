@@ -79,6 +79,19 @@ describe('만들기·조회', () => {
     expect(await list('')).toEqual([c.id, b.id, a.id])
   })
 
+  test('statusSince 는 지금 상태가 된 시각 — 상태가 바뀌면 갱신되고 로그만 쌓으면 그대로', async () => {
+    const made = await create()
+    expect(made.statusSince).toBe(made.createdAt)
+    const { jobs } = getContext()
+    await new Promise((r) => setTimeout(r, 5))
+    jobs.log(made.id, 'x', '로그')
+    const afterLog = (await (await jobGet(new Request(url(`/api/jobs/${made.id}`)), params(made.id))).json()) as JobDto
+    expect(afterLog.statusSince).toBe(made.createdAt)
+    jobs.transition(made.id, ['created'], 'queued_probe')
+    const afterMove = (await (await jobGet(new Request(url(`/api/jobs/${made.id}`)), params(made.id))).json()) as JobDto
+    expect(afterMove.statusSince > made.createdAt).toBe(true)
+  })
+
   test('결과 영상의 길이·크기(리포트의 output)는 resultInfo 로, 없거나 형식이 틀리면 null', async () => {
     const a = await create()
     const b = await create()

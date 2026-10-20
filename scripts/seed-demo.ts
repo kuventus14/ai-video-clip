@@ -99,6 +99,8 @@ interface Seed {
   shape?: Shape
   hue?: number
   withResult?: boolean
+  /** 지금 상태가 된 지 몇 초 됐는지(진행 화면의 경과 시간). 없으면 만든 시각 */
+  statusAgoSec?: number
   /** 요약의 한 줄(= 목록의 제목). 요약이 있는 작업만 */
   oneLine?: string
   /** 지금으로부터 몇 시간 전에 만들었는지 */
@@ -110,10 +112,10 @@ const base = (name: string, shape: Shape): Partial<Omit<Job, 'id' | 'createdAt'>
 
 const SEEDS: Seed[] = [
   { hoursAgo: 0.1, shape: 'portrait', hue: 0, patch: { ...base('롱아이언_레슨.mp4', 'portrait'), status: 'ready' } },
-  { hoursAgo: 0.3, shape: 'portrait', hue: 60, patch: { ...base('벙커샷_연습.mov', 'portrait'), status: 'analyzing', stage: '말을 글로 옮기는 중', description: '벙커에서 공을 한 번에 빼내는 연습 영상' }, log: [['probe', '영상 정보를 확인했어요'], ['analysis', '음성을 글로 옮기는 중']] },
+  { statusAgoSec: 75, hoursAgo: 0.3, shape: 'portrait', hue: 60, patch: { ...base('벙커샷_연습.mov', 'portrait'), status: 'analyzing', stage: '말을 글로 옮기는 중', description: '벙커에서 공을 한 번에 빼내는 연습 영상' }, log: [['probe', '영상 정보를 확인했어요'], ['analysis', '음성을 글로 옮기는 중']] },
   { oneLine: '퍼팅 라인 읽는 법, 초보용', hoursAgo: 0.6, shape: 'portrait', hue: 120, patch: { ...base('퍼팅_라인.mp4', 'portrait'), status: 'awaiting_reference', summary: SUMMARY, recommendations: RECOMMENDATIONS, description: '퍼팅 라인 읽는 법' } },
   { oneLine: '롱아이언 체중 이동 핵심 3초', hoursAgo: 1, shape: 'portrait', hue: 180, patch: { ...base('롱아이언_릴스.mp4', 'portrait'), status: 'awaiting_plan', summary: SUMMARY, description: '롱아이언 체중 이동', referenceSource: RECOMMENDATIONS[0]!.url, requestText: '제목 카드와 자막 스타일을 따라 해 주세요', planCard: PLAN_CARD, purpose: 'short', purposeChoice: 'auto' } },
-  { oneLine: '드라이버 슬라이스 잡는 그립', hoursAgo: 1.5, shape: 'portrait', hue: 240, patch: { ...base('드라이버_슬라이스.mp4', 'portrait'), status: 'producing', stage: '자막을 입히는 중', summary: SUMMARY, referenceSource: RECOMMENDATIONS[1]!.url, planCard: PLAN_CARD, purpose: 'short' }, log: [['plan', '계획을 만들었어요'], ['produce', '말이 끊기는 구간을 잘랐어요'], ['produce', '자막을 입히는 중']] },
+  { oneLine: '드라이버 슬라이스 잡는 그립', statusAgoSec: 193, hoursAgo: 1.5, shape: 'portrait', hue: 240, patch: { ...base('드라이버_슬라이스.mp4', 'portrait'), status: 'producing', stage: '자막을 입히는 중', summary: SUMMARY, referenceSource: RECOMMENDATIONS[1]!.url, planCard: PLAN_CARD, purpose: 'short' }, log: [['plan', '계획을 만들었어요'], ['produce', '말이 끊기는 구간을 잘랐어요'], ['produce', '자막을 입히는 중']] },
   { hoursAgo: 2, shape: 'portrait', hue: 300, withResult: true, patch: { ...base('롱아이언_릴스_편집본.mp4', 'portrait'), status: 'awaiting_confirm', summary: SUMMARY, referenceSource: RECOMMENDATIONS[0]!.url, planCard: PLAN_CARD, purpose: 'short', report: REPORT, attempts: 2 } },
   { hoursAgo: 26, shape: 'landscape', hue: 30, withResult: true, patch: { ...base('레슨_풀버전.mp4', 'landscape'), status: 'confirmed', summary: { ...SUMMARY, oneLine: '아이언 스윙 전체 레슨(가로 영상)' }, purpose: 'post', planCard: PLAN_CARD, report: { ...REPORT, purpose: { resolved: 'post' }, output: { durationSec: 171.4, width: 1920, height: 1080 }, qa: { passed: true, findings: [] }, suggestions: [], appliedCorrections: [] }, attempts: 1, confirmedAt: new Date(Date.now() - 25 * 3600_000).toISOString() } },
   { hoursAgo: 24 * 4, shape: 'portrait', hue: 90, withResult: true, patch: { ...base('퍼팅_꿀팁.mp4', 'portrait'), status: 'confirmed', summary: { ...SUMMARY, oneLine: '퍼팅 라인 읽는 세 가지 방법' }, purpose: 'short', planCard: PLAN_CARD, report: { ...REPORT, qa: { passed: true, findings: [] }, suggestions: [] }, attempts: 1, confirmedAt: new Date(Date.now() - 24 * 4 * 3600_000).toISOString() } },
@@ -139,7 +141,8 @@ for (const seed of SEEDS) {
   for (const [stage, message] of seed.log ?? []) jobs.log(job.id, stage, message)
   // 만든 시각을 과거로 돌린다(기록 화면의 "어제"·날짜 표시를 보려고)
   const created = new Date(Date.now() - seed.hoursAgo * 3600_000).toISOString()
-  db.prepare('UPDATE jobs SET created_at = ?, updated_at = ? WHERE id = ?').run(created, created, job.id)
+  const since = seed.statusAgoSec === undefined ? created : new Date(Date.now() - seed.statusAgoSec * 1000).toISOString()
+  db.prepare('UPDATE jobs SET created_at = ?, updated_at = ?, status_changed_at = ? WHERE id = ?').run(created, since, since, job.id)
 }
 
 db.close()

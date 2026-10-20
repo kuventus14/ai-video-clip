@@ -82,6 +82,23 @@ describe('startJobPolling', () => {
     h.poller.stop()
   })
 
+  it('onError 에는 문구와 함께 원래 오류도 온다 (화면이 404 를 구분할 수 있게)', async () => {
+    const seen: unknown[] = []
+    const err = new ApiError(404, '작업을 찾을 수 없어요')
+    const poller = startJobPolling('abc1234567', { fetchJob: async () => { throw err }, onJob: () => {}, onError: (_m, e) => seen.push(e) })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(seen).toEqual([err])
+    poller.stop()
+  })
+
+  it('주소가 잘못돼 서버가 400 으로 거절해도 멈춘다 (다시 읽어 봐야 같은 답)', async () => {
+    const h = harness([new ApiError(400, '잘못된 작업 주소예요')])
+    await vi.advanceTimersByTimeAsync(0)
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(h.errors).toEqual(['잘못된 작업 주소예요'])
+    expect(h.fetchJob).toHaveBeenCalledTimes(1)
+  })
+
   it('작업이 없으면(404) 알리고 멈춘다', async () => {
     const h = harness([new ApiError(404, '작업을 찾을 수 없어요')])
     await vi.advanceTimersByTimeAsync(0)

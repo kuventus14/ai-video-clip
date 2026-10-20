@@ -64,6 +64,7 @@ export function toJobDto(job: Job): JobDto {
     stage: job.stage,
     createdAt: job.createdAt,
     updatedAt: job.updatedAt,
+    statusSince: job.statusChangedAt,
     title: (summary.success && summary.data.oneLine) || job.sourceName || '이름 없는 작업',
     sourceName: job.sourceName,
     sourceInfo: job.sourceInfo,

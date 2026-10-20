@@ -1,8 +1,8 @@
 import { Film, Trash2 } from 'lucide-react'
 import Link from 'next/link'
 import { isRunning } from '../../src/db/status.ts'
-import type { JobDto, PurposeValue } from '../../src/shared/types.ts'
-import { formatDuration, formatKoreanDate, isBusy, NEXT_ACTION, progressState, purposeLabel, STATUS_LABEL, STEPS, stepForJob } from '../../src/ui/format.ts'
+import type { JobDto } from '../../src/shared/types.ts'
+import { formatDuration, formatKoreanDate, isBusy, NEXT_ACTION, progressState, purposeLabel, shownPurpose, STATUS_LABEL, STEPS, stepForJob } from '../../src/ui/format.ts'
 import { Badge } from '../ui/Badge.tsx'
 import { Button } from '../ui/Button.tsx'
 import { cx } from '../ui/cx.ts'
@@ -13,11 +13,6 @@ import { Steps } from '../ui/Steps.tsx'
 const CARD_BASE =
   'relative border border-line bg-panel transition-colors duration-150 hover:bg-sunken/60 has-[a:focus-visible]:outline-2 has-[a:focus-visible]:outline-offset-2 has-[a:focus-visible]:outline-ring'
 const STRETCHED_LINK = "outline-none after:absolute after:inset-0 after:content-['']"
-
-/** 지금 보여 줄 용도: 확정된 것 > 사용자가 고른 것 > 자동 인식한 것 */
-function shownPurpose(job: JobDto): PurposeValue | null {
-  return job.purpose ?? (job.purposeChoice !== 'auto' ? job.purposeChoice : (job.purposeGuess?.purpose ?? null))
-}
 
 function Thumb({ job, className, timecode }: { job: JobDto; className?: string; timecode?: string }) {
   return (

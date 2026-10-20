@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { beforeEach, describe, expect, test } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { openDb } from '../src/db/db.ts'
 import { Jobs } from '../src/db/jobs.ts'
 import { canTransition, PHASE_OF, QUEUED_OF, QUEUED_TO_RUNNING } from '../src/db/status.ts'
@@ -90,6 +90,43 @@ describe('Jobs.transition — 조건부 상태 변경 (Review Focus 2)', () => {
   test('허용되지 않는 전환(canTransition 이 거짓)은 던진다', () => {
     const j = jobs.create()
     expect(() => jobs.transition(j.id, ['created'], 'producing')).toThrow()
+  })
+})
+
+describe('statusChangedAt — 지금 상태가 된 시각 (진행 화면의 경과 시간)', () => {
+  afterEach(() => vi.useRealTimers())
+
+  test('create 는 만든 시각으로 시작하고, 상태가 바뀔 때만 갱신된다 (log·다른 필드 수정은 그대로)', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-10-20T10:00:00.000Z'))
+    const j = jobs.create()
+    expect(j.statusChangedAt).toBe('2026-10-20T10:00:00.000Z')
+
+    vi.setSystemTime(new Date('2026-10-20T10:00:05.000Z'))
+    jobs.log(j.id, 'x', '로그')
+    jobs.update(j.id, { description: '설명' })
+    expect(jobs.get(j.id)!.statusChangedAt).toBe('2026-10-20T10:00:00.000Z')
+    expect(jobs.get(j.id)!.updatedAt).toBe('2026-10-20T10:00:05.000Z')
+
+    vi.setSystemTime(new Date('2026-10-20T10:00:09.000Z'))
+    jobs.transition(j.id, ['created'], 'queued_probe')
+    expect(jobs.get(j.id)!.statusChangedAt).toBe('2026-10-20T10:00:09.000Z')
+
+    vi.setSystemTime(new Date('2026-10-20T10:00:12.000Z'))
+    jobs.update(j.id, { status: 'ready' })
+    expect(jobs.get(j.id)!.statusChangedAt).toBe('2026-10-20T10:00:12.000Z')
+  })
+
+  test('claimNext·resetInterrupted 가 바꾼 상태도 시각이 갱신된다', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-10-20T11:00:00.000Z'))
+    const j = jobs.create()
+    jobs.transition(j.id, ['created'], 'queued_probe')
+    vi.setSystemTime(new Date('2026-10-20T11:01:00.000Z'))
+    expect(jobs.claimNext()!.statusChangedAt).toBe('2026-10-20T11:01:00.000Z')
+    vi.setSystemTime(new Date('2026-10-20T11:02:00.000Z'))
+    jobs.resetInterrupted()
+    expect(jobs.get(j.id)!.statusChangedAt).toBe('2026-10-20T11:02:00.000Z')
   })
 })
 

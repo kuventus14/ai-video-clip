@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { JobStatus } from '../src/shared/types.ts'
-import { formatBytes, formatDuration, formatKoreanDate, formatViews, isBusy, pollIntervalMs, progressState, purposeLabel, NEXT_ACTION, STATUS_LABEL, STEPS, stepFor, stepForJob } from '../src/ui/format.ts'
+import { estimateProduce, formatBytes, formatDuration, formatKoreanDate, formatViews, isBusy, pollIntervalMs, progressState, purposeLabel, NEXT_ACTION, shownPurpose, STATUS_LABEL, STEPS, stepFor, stepForJob } from '../src/ui/format.ts'
 
 const ALL_STATUSES: JobStatus[] = ['created', 'queued_probe', 'probing', 'ready', 'queued_analysis', 'analyzing', 'awaiting_reference', 'queued_plan', 'planning', 'awaiting_plan', 'queued_produce', 'producing', 'awaiting_confirm', 'confirmed', 'failed']
 
@@ -133,6 +133,34 @@ describe('progressState', () => {
     expect(progressState('created')).toBe('waiting')
     expect(progressState('confirmed')).toBe('done')
     expect(progressState('failed')).toBe('failed')
+  })
+})
+
+describe('estimateProduce — 제작은 영상 길이의 2~3배쯤', () => {
+  it('분 단위로 반올림해 범위로 말한다', () => {
+    expect(estimateProduce(56.8)).toBe('약 2~3분')
+    expect(estimateProduce(300)).toBe('약 10~15분')
+    expect(estimateProduce(600)).toBe('약 20~30분')
+    expect(estimateProduce(30)).toBe('약 1~2분')
+  })
+  it('아주 짧으면 1분 안팎', () => {
+    expect(estimateProduce(10)).toBe('1분 안팎')
+    expect(estimateProduce(20)).toBe('1분 안팎')
+  })
+  it('길이를 모르면(0·NaN·음수) 빈 문자열', () => {
+    expect(estimateProduce(0)).toBe('')
+    expect(estimateProduce(Number.NaN)).toBe('')
+    expect(estimateProduce(-4)).toBe('')
+  })
+})
+
+describe('shownPurpose — 확정된 값 > 직접 고른 값 > 자동 인식', () => {
+  const guess = { purpose: 'short' as const, confidence: 0.8, reasons: [] }
+  it('우선순위', () => {
+    expect(shownPurpose({ purpose: 'post', purposeChoice: 'short', purposeGuess: guess })).toBe('post')
+    expect(shownPurpose({ purpose: null, purposeChoice: 'post', purposeGuess: guess })).toBe('post')
+    expect(shownPurpose({ purpose: null, purposeChoice: 'auto', purposeGuess: guess })).toBe('short')
+    expect(shownPurpose({ purpose: null, purposeChoice: 'auto', purposeGuess: null })).toBeNull()
   })
 })
 
