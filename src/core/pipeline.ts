@@ -7,14 +7,14 @@ import { ensureH264, probeVideo } from './media.ts'
 import { trackPeople, type PersonTrack } from './person.ts'
 import { runQa, type QaReport } from './qa.ts'
 import { applyCorrections, partitionCorrections, proofreadCues, upscaleFactor, type CueCorrection, type Finding } from './qaChecks.ts'
-import { canvasFor, detectPurpose, resolvePurpose } from './purpose.ts'
+import { canvasFor, detectPurpose, resolvePurpose, type PurposeGuess } from './purpose.ts'
 import { computeCropPath, cropReversalsPerSec, type CropPath } from './reframe.ts'
 import { analyzeReference, detectSceneCuts, FEASIBILITY, type StyleSpec } from './styleSpec.ts'
 import { fetchReference } from './reference.ts'
 import { groupWordsIntoCues, remapKeyframes, remapWords } from './timeline.ts'
 import { transcribe } from './transcribe.ts'
 import { describeVideo, type VideoSummary } from './understand.ts'
-import type { CaptionCue, Purpose, Span, Transcript, VideoInfo } from './types.ts'
+import type { CaptionCue, Purpose, ReframeMode, Span, Transcript, VideoInfo } from './types.ts'
 
 export class InputError extends Error {
   kind: 'too-short' | 'too-long' | 'unreadable'
@@ -129,80 +129,182 @@ function reframeCardLines(reframe: ReturnType<typeof chooseReframeMode>, info: V
 
 const hintFromSummary = (s: VideoSummary) => [s.topic, s.genre, ...s.searchQueries].join(', ').slice(0, HINT_MAX_CHARS)
 
-export async function runEdit(o: EditOptions, overrides: Partial<PipelineDeps> = {}): Promise<EditResult> {
+type StageCallback = (s: Stage, detail?: string) => void
+
+/** 1단계 결과 — 영상을 이해한 내용. JSON 으로 저장했다 읽어도 그대로 쓸 수 있다(앱은 analysis.json 으로 보관). */
+export interface Analysis {
+  version: 1
+  description?: string
+  /** H.264 로 변환했다면 변환본, 아니면 원본 경로 */
+  sourcePath: string
+  info: VideoInfo
+  transcript: Transcript
+  summary: VideoSummary
+  purposeGuess: PurposeGuess
+  /** 분석 때 레퍼런스를 함께 받았다면(CLI 경로) 그 정보 */
+  referenceInfo?: VideoInfo
+  spec?: StyleSpec
+}
+
+/** 2단계 결과 — 사용자에게 보여 줄 "이렇게 이해했어요" 와 실제 편집 방침. JSON 으로 저장했다 읽어도 된다(앱은 prepared.json). */
+export interface Prepared {
+  purpose: Purpose
+  /** 사용자가 고른 값(자동이면 'auto') */
+  purposeChoice: Purpose | 'auto'
+  purposeGuess: PurposeGuess
+  plan: EditPlan
+  planCard: string[]
+  reframe: ReframeMode
+  referenceSource?: string
+  spec?: StyleSpec
+}
+
+export interface AnalyzeInput {
+  videoPath: string
+  workDir: string
+  description?: string
+  /** 앱은 분석 뒤에 레퍼런스를 고르므로 넘기지 않는다. CLI(runEdit)만 넘긴다. */
+  reference?: string
+  onStage?: StageCallback
+}
+
+async function fetchAndAnalyzeReference(d: PipelineDeps, source: string, workDir: string): Promise<{ spec: StyleSpec; info: VideoInfo }> {
+  const ref = await d.fetchReference(source, path.join(workDir, 'ref'))
+  try {
+    return { spec: await d.analyzeReference({ path: ref.path, info: ref.info }), info: ref.info }
+  } finally {
+    await ref.cleanup()
+  }
+}
+
+/** 파일 정보 없이 스펙만 있을 때, 레퍼런스의 방향을 용도 인식용 가짜 크기로 바꾼다. */
+function referenceSizeOf(spec: StyleSpec): { width: number; height: number } {
+  return spec.orientation === 'portrait' ? { width: 1080, height: 1920 } : spec.orientation === 'landscape' ? { width: 1920, height: 1080 } : { width: 1080, height: 1080 }
+}
+
+/** 1단계: 입력 확인 → (변환) → 음성 인식 → (레퍼런스) → 용도 추정 → 영상 이해 */
+export async function analyzeInput(i: AnalyzeInput, overrides: Partial<PipelineDeps> = {}): Promise<Analysis> {
   const d: PipelineDeps = { ...DEFAULTS, ...overrides }
-  const stage = (s: Stage, detail?: string) => o.onStage?.(s, detail)
-  const outDir = path.resolve(o.outDir)
+  const stage: StageCallback = (s, detail) => i.onStage?.(s, detail)
+
+  stage('probe')
+  let info: VideoInfo
+  try {
+    info = await d.probeVideo(i.videoPath)
+  } catch (e) {
+    throw new InputError('unreadable', `영상을 읽을 수 없어요: ${(e as Error).message}`)
+  }
+  if (info.durationSec < MIN_SEC) throw new InputError('too-short', `영상이 너무 짧아요 (${info.durationSec.toFixed(1)}초). 1초 이상이어야 해요.`)
+  if (info.durationSec > MAX_SEC) throw new InputError('too-long', `영상이 너무 길어요 (${Math.round(info.durationSec)}초). 10분 이하로 올려 주세요.`)
+
+  const norm = await d.ensureH264(i.videoPath, info, i.workDir)
+  if (norm.converted) stage('normalize', 'H.264 mp4 로 변환했어요')
+  const src = norm.path
+  info = norm.info
+
+  // 음성 인식 (설명이 있으면 처음부터 용어 힌트로)
+  const description = (i.description ?? '').trim()
+  stage('transcribe')
+  let transcript: Transcript = await d.transcribe(src, description ? { prompt: description.slice(0, HINT_MAX_CHARS) } : undefined)
+
+  // 레퍼런스: 분석하고 곧바로 지운다
+  let spec: StyleSpec | undefined
+  let refInfo: VideoInfo | undefined
+  if (i.reference) {
+    stage('reference')
+    ;({ spec, info: refInfo } = await fetchAndAnalyzeReference(d, i.reference, i.workDir))
+  }
+
+  stage('purpose')
+  const purposeGuess = detectPurpose({ info, reference: refInfo, description })
+
+  stage('understand')
+  const summary = await d.describeVideo({ info, transcript, userDescription: i.description, workDir: i.workDir })
+  const lowCount = transcript.words.filter((w) => w.confidence < LOW_CONFIDENCE).length
+  if (transcript.hasSpeech && !description && lowCount >= HINT_RETRANSCRIBE_MIN_LOW_WORDS) {
+    stage('transcribe', '전문 용어 힌트로 다시 인식해요')
+    transcript = await d.transcribe(src, { prompt: hintFromSummary(summary) })
+  }
+
+  return { version: 1, description: description || undefined, sourcePath: src, info, transcript, summary, purposeGuess, referenceInfo: refInfo, spec }
+}
+
+export interface PrepareInput {
+  analysis: Analysis
+  workDir: string
+  /** 새로 고른 레퍼런스(링크 또는 파일 경로) */
+  reference?: string
+  /** 이미 분석한 같은 레퍼런스의 스타일 명세서 — 있으면 다시 받지 않는다 */
+  knownSpec?: StyleSpec
+  request?: string
+  purposeChoice: Purpose | 'auto'
+  onStage?: StageCallback
+}
+
+/** 2단계: (레퍼런스 받기·분석) → 용도 확정 → 요청 해석 → "이렇게 이해했어요" 카드 */
+export async function prepareEdit(i: PrepareInput, overrides: Partial<PipelineDeps> = {}): Promise<Prepared> {
+  const d: PipelineDeps = { ...DEFAULTS, ...overrides }
+  const stage: StageCallback = (s, detail) => i.onStage?.(s, detail)
+  const a = i.analysis
+
+  let spec = i.knownSpec ?? (i.reference ? undefined : a.spec)
+  let refInfo = a.referenceInfo
+  if (!spec && i.reference) {
+    stage('reference')
+    ;({ spec, info: refInfo } = await fetchAndAnalyzeReference(d, i.reference, i.workDir))
+  }
+
+  // 용도는 레퍼런스가 정해진 지금 다시 정한다. 사용자가 고른 값이 항상 우선.
+  const purposeGuess = detectPurpose({ info: a.info, reference: refInfo ?? (spec ? referenceSizeOf(spec) : undefined), description: a.description })
+  const purpose = resolvePurpose(purposeGuess, i.purposeChoice)
+  const canvas = canvasFor(purpose)
+
+  stage('plan')
+  const specUsed = spec ?? defaultStyleSpec(purpose)
+  const plan = await d.interpretRequest({ spec: specUsed, userText: i.request, summary: a.summary, hasReference: spec !== undefined })
+  const reframe = chooseReframeMode(a.info, canvas)
+  const baseCard = !spec && !(i.request ?? '').trim()
+    ? [
+        '이렇게 이해했어요: 레퍼런스가 없어서 기본 스타일로 편집해요.',
+        '• 컷: 말 사이의 긴 쉼과 "음·어" 같은 군더더기를 정리해요',
+        '• 자막: 말하는 대로 넣고, 오타·오인식은 검수에서 고쳐요',
+      ]
+    : planCardLines(plan, specUsed)
+  const planCard = [...baseCard, ...reframeCardLines(reframe, a.info, canvas)]
+  return { purpose, purposeChoice: i.purposeChoice, purposeGuess, plan, planCard, reframe, referenceSource: i.reference, spec }
+}
+
+export interface ProduceInput {
+  analysis: Analysis
+  prepared: Prepared
+  outDir: string
+  /** 주지 않으면 outDir 안에 고유 작업 폴더를 만들고 끝나면(keepWork 가 아니면) 지운다 */
+  workDir?: string
+  quality?: Quality
+  captions?: 'auto' | 'off'
+  keepWork?: boolean
+  onStage?: StageCallback
+}
+
+/** 3단계: 컷 → (사람 추적) → 자막 → 만들기·검수·재작업 → result.mp4 와 report.json */
+export async function produceEdit(i: ProduceInput, overrides: Partial<PipelineDeps> = {}): Promise<EditResult> {
+  const d: PipelineDeps = { ...DEFAULTS, ...overrides }
+  const stage: StageCallback = (s, detail) => i.onStage?.(s, detail)
+  const outDir = path.resolve(i.outDir)
   fs.mkdirSync(outDir, { recursive: true })
   // 이 실행이 직접 만든 고유 폴더만 쓰고 지운다 — 결과 폴더에 원래 있던 파일은 건드리지 않는다
-  const work = fs.mkdtempSync(path.join(outDir, '.vae-work-'))
+  const ownWork = i.workDir === undefined
+  const work = i.workDir ?? fs.mkdtempSync(path.join(outDir, '.vae-work-'))
+
+  const { analysis, prepared } = i
+  const { info, transcript, summary } = analysis
+  const src = analysis.sourcePath
+  const { purpose, plan, planCard, reframe } = prepared
+  const guess = prepared.purposeGuess
+  const canvas = canvasFor(purpose)
+  const style = deriveAppliedStyle(plan, prepared.spec ?? defaultStyleSpec(purpose), summary, purpose)
 
   try {
-    // 1) 입력 확인
-    stage('probe')
-    let info: VideoInfo
-    try {
-      info = await d.probeVideo(o.videoPath)
-    } catch (e) {
-      throw new InputError('unreadable', `영상을 읽을 수 없어요: ${(e as Error).message}`)
-    }
-    if (info.durationSec < MIN_SEC) throw new InputError('too-short', `영상이 너무 짧아요 (${info.durationSec.toFixed(1)}초). 1초 이상이어야 해요.`)
-    if (info.durationSec > MAX_SEC) throw new InputError('too-long', `영상이 너무 길어요 (${Math.round(info.durationSec)}초). 10분 이하로 올려 주세요.`)
-
-    const norm = await d.ensureH264(o.videoPath, info, work)
-    if (norm.converted) stage('normalize', 'H.264 mp4 로 변환했어요')
-    const src = norm.path
-    info = norm.info
-
-    // 2) 음성 인식 (설명이 있으면 처음부터 용어 힌트로)
-    const description = (o.description ?? '').trim()
-    stage('transcribe')
-    let transcript: Transcript = await d.transcribe(src, description ? { prompt: description.slice(0, HINT_MAX_CHARS) } : undefined)
-
-    // 3) 레퍼런스: 분석하고 곧바로 지운다
-    let spec: StyleSpec | undefined
-    let refInfo: VideoInfo | undefined
-    if (o.reference) {
-      stage('reference')
-      const ref = await d.fetchReference(o.reference, path.join(work, 'ref'))
-      try {
-        refInfo = ref.info
-        spec = await d.analyzeReference({ path: ref.path, info: ref.info })
-      } finally {
-        await ref.cleanup()
-      }
-    }
-
-    // 4) 용도, 영상 이해
-    stage('purpose')
-    const guess = detectPurpose({ info, reference: refInfo, description })
-    const purpose = resolvePurpose(guess, o.purpose)
-    const canvas = canvasFor(purpose)
-
-    stage('understand')
-    const summary = await d.describeVideo({ info, transcript, userDescription: o.description, workDir: work })
-    const lowCount = transcript.words.filter((w) => w.confidence < LOW_CONFIDENCE).length
-    if (transcript.hasSpeech && !description && lowCount >= HINT_RETRANSCRIBE_MIN_LOW_WORDS) {
-      stage('transcribe', '전문 용어 힌트로 다시 인식해요')
-      transcript = await d.transcribe(src, { prompt: hintFromSummary(summary) })
-    }
-
-    // 5) 편집 계획
-    stage('plan')
-    const specUsed = spec ?? defaultStyleSpec(purpose)
-    const plan = await d.interpretRequest({ spec: specUsed, userText: o.request, summary, hasReference: spec !== undefined })
-    const style = deriveAppliedStyle(plan, specUsed, summary, purpose)
-    const reframe = chooseReframeMode(info, canvas)
-    const baseCard = !spec && !(o.request ?? '').trim()
-      ? [
-          '이렇게 이해했어요: 레퍼런스가 없어서 기본 스타일로 편집해요.',
-          '• 컷: 말 사이의 긴 쉼과 "음·어" 같은 군더더기를 정리해요',
-          '• 자막: 말하는 대로 넣고, 오타·오인식은 검수에서 고쳐요',
-        ]
-      : planCardLines(plan, specUsed)
-    const planCard = [...baseCard, ...reframeCardLines(reframe, info, canvas)]
-    o.onPlan?.(planCard, purpose)
-
     // 6) 컷
     stage('cuts')
     const silences = await d.detectSilences(src)
@@ -224,7 +326,7 @@ export async function runEdit(o: EditOptions, overrides: Partial<PipelineDeps> =
 
     // 8) 자막: 컷 이후 시간으로 바꾸고, 렌더 전에 한 번 교정한다 (원문과 너무 다른 교정은 제안으로만 남긴다)
     const outWords = remapWords(transcript.words, kept)
-    const captionsOff = o.captions === 'off'
+    const captionsOff = i.captions === 'off'
     let maxChars = style.captions.maxChars
     let cues: CaptionCue[] = captionsOff ? [] : groupWordsIntoCues(outWords, { maxChars })
     const applied: CueCorrection[] = []
@@ -244,7 +346,7 @@ export async function runEdit(o: EditOptions, overrides: Partial<PipelineDeps> =
     }
 
     // 9) 만들고 검수하고, 필요하면 최대 2번 다시 만든다
-    let quality: Quality = o.quality ?? 'looks'
+    let quality: Quality = i.quality ?? 'looks'
     const history: { attempt: number; reasons: string[]; actions: string[] }[] = []
     let attempt = 1
     let correctionsApplied = false // 검수 교정 때문에 도는 재작업은 1회로 제한한다(모델이 매번 다른 답을 내도 계속 렌더하지 않게)
@@ -355,8 +457,8 @@ export async function runEdit(o: EditOptions, overrides: Partial<PipelineDeps> =
         {
           schema: 1,
           createdAt: new Date().toISOString(),
-          input: { path: o.videoPath, durationSec: info.durationSec, width: info.width, height: info.height },
-          purpose: { resolved: purpose, guess, userChoice: o.purpose ?? 'auto' },
+          input: { path: info.path, durationSec: info.durationSec, width: info.width, height: info.height },
+          purpose: { resolved: purpose, guess, userChoice: prepared.purposeChoice },
           summary,
           plan,
           planCard,
@@ -377,6 +479,22 @@ export async function runEdit(o: EditOptions, overrides: Partial<PipelineDeps> =
 
     stage('done')
     return { resultPath, purpose, plan, planCard, qa: finalQa, attempts: attempt, delivered: true, appliedCorrections: applied, suggestions, summary, reframe }
+  } finally {
+    if (ownWork && !i.keepWork) fs.rmSync(work, { recursive: true, force: true })
+  }
+}
+
+/** 세 단계를 이어 한 번에 끝낸다 (CLI). 단계 순서·동작은 세 함수로 나누기 전과 같다. */
+export async function runEdit(o: EditOptions, overrides: Partial<PipelineDeps> = {}): Promise<EditResult> {
+  const outDir = path.resolve(o.outDir)
+  fs.mkdirSync(outDir, { recursive: true })
+  // 이 실행이 직접 만든 고유 폴더만 쓰고 지운다 — 결과 폴더에 원래 있던 파일은 건드리지 않는다
+  const work = fs.mkdtempSync(path.join(outDir, '.vae-work-'))
+  try {
+    const analysis = await analyzeInput({ videoPath: o.videoPath, workDir: work, description: o.description, reference: o.reference, onStage: o.onStage }, overrides)
+    const prepared = await prepareEdit({ analysis, workDir: work, request: o.request, purposeChoice: o.purpose ?? 'auto', onStage: o.onStage }, overrides)
+    o.onPlan?.(prepared.planCard, prepared.purpose)
+    return await produceEdit({ analysis, prepared, outDir, workDir: work, quality: o.quality, captions: o.captions, onStage: o.onStage }, overrides)
   } finally {
     if (!o.keepWork) fs.rmSync(work, { recursive: true, force: true })
   }
