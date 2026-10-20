@@ -3,3 +3,7 @@ node_modules
 data
 dist
 .superpowers
+.next
+data-demo
+next-env.d.ts
+tsconfig.tsbuildinfo

@@ -31,7 +31,7 @@ export interface AskOpts {
 const SAFE_KEYS = ['HOME', 'USER', 'LOGNAME', 'SHELL', 'TMPDIR', 'LANG', 'SSH_AUTH_SOCK', 'CLAUDE_CODE_OAUTH_TOKEN', 'ANTHROPIC_API_KEY']
 
 function cleanEnv(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = {}
+  const env = {} as NodeJS.ProcessEnv // Next 의 타입 정의는 NODE_ENV 를 필수로 만든다 — 여기서는 화이트리스트로 짓는 빈 환경이다
   for (const k of SAFE_KEYS) if (process.env[k]) env[k] = process.env[k]
   const home = os.homedir()
   env.HOME ||= home

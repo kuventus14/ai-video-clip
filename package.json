@@ -8,17 +8,27 @@
   "scripts": {
     "test": "vitest run",
     "edit": "tsx src/cli/edit.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "web:dev": "next dev -H 127.0.0.1 -p ${VAE_PORT:-4848}",
+    "web:build": "next build",
+    "web:start": "next start -H 127.0.0.1 -p ${VAE_PORT:-4848}"
   },
   "type": "module",
   "private": "true",
   "dependencies": {
     "@fontsource/noto-sans-kr": "^5.3.1",
+    "@tailwindcss/postcss": "^4.3.3",
     "gsap": "^3.15.0",
+    "next": "^16.4.2",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "tailwindcss": "^4.3.3",
     "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/node": "^26.6.5",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
     "vitest": "^5.0.5"
