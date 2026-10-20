@@ -134,7 +134,16 @@ export async function producePhase({ jobs, d, job, dir, onStage }: PhaseContext)
   } catch {
     // 썸네일이 없어도 결과는 쓸 수 있다
   }
-  const report = readJson<unknown>(path.join(outDir, 'report.json')) ?? null
+  // 목록·결과 화면이 쓰도록 결과 영상을 직접 재서 리포트에 붙인다(렌더가 계획과 1초쯤 달라도 화면이 맞는 값을 보이게). 못 재도 결과는 쓸 수 있다.
+  let output: { durationSec: number; width: number; height: number } | undefined
+  try {
+    const info = await d.probeVideo(result.resultPath)
+    output = { durationSec: info.durationSec, width: info.width, height: info.height }
+  } catch {
+    // 길이 표시만 비게 된다
+  }
+  const written = readJson<unknown>(path.join(outDir, 'report.json')) ?? null
+  const report = output && written && typeof written === 'object' ? { ...written, output } : written
   jobs.transition(job.id, ['producing'], 'awaiting_confirm', {
     resultPath: result.resultPath,
     report,

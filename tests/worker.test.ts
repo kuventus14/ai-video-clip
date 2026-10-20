@@ -227,6 +227,26 @@ describe('produce 단계', () => {
     expect(f.calls.produce[0]).toMatchObject({ quality: 'delivery', captions: 'off', outDir: path.join(jobs.jobDir(j.id), 'out') })
     expect(after.log.some((l) => l.message.includes('렌더링'))).toBe(true)
   })
+
+  test('결과 영상을 직접 재서 길이·크기를 리포트에 남긴다 (목록의 길이 표시용)', async () => {
+    const j = job('queued_produce')
+    writeAnalysis(j.id)
+    fs.writeFileSync(path.join(jobs.jobDir(j.id), 'prepared.json'), JSON.stringify(PREPARED))
+    const probeVideo = async (p: string) => (p.endsWith('result.mp4') ? { ...INFO, durationSec: 44.2, width: 1080, height: 1920 } : INFO)
+    await runOnce(jobs, fakes({ probeVideo }).deps)
+    expect(jobs.get(j.id)!.report).toMatchObject({ qa: { passed: true }, output: { durationSec: 44.2, width: 1080, height: 1920 } })
+  })
+
+  test('결과를 재지 못해도 작업은 실패하지 않고 리포트는 그대로다', async () => {
+    const j = job('queued_produce')
+    writeAnalysis(j.id)
+    fs.writeFileSync(path.join(jobs.jobDir(j.id), 'prepared.json'), JSON.stringify(PREPARED))
+    await runOnce(jobs, fakes({ probeVideo: async () => { throw new Error('ffprobe 실패') } }).deps)
+    const after = jobs.get(j.id)!
+    expect(after.status).toBe('awaiting_confirm')
+    expect(after.report).toMatchObject({ qa: { passed: true } })
+    expect(after.report).not.toHaveProperty('output')
+  })
 })
 
 describe('실패 처리와 순서', () => {

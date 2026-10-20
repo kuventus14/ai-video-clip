@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { JobStatus } from '../src/shared/types.ts'
-import { formatDuration, formatKoreanDate, formatViews, isBusy, pollIntervalMs, purposeLabel, STATUS_LABEL, STEPS, stepFor, stepForJob } from '../src/ui/format.ts'
+import { formatDuration, formatKoreanDate, formatViews, isBusy, pollIntervalMs, progressState, purposeLabel, NEXT_ACTION, STATUS_LABEL, STEPS, stepFor, stepForJob } from '../src/ui/format.ts'
 
 const ALL_STATUSES: JobStatus[] = ['created', 'queued_probe', 'probing', 'ready', 'queued_analysis', 'analyzing', 'awaiting_reference', 'queued_plan', 'planning', 'awaiting_plan', 'queued_produce', 'producing', 'awaiting_confirm', 'confirmed', 'failed']
 
@@ -106,6 +106,26 @@ describe('isBusy / pollIntervalMs', () => {
     expect(pollIntervalMs('ready')).toBe(5000)
     expect(pollIntervalMs('confirmed')).toBeNull()
     expect(pollIntervalMs('failed')).toBeNull()
+  })
+})
+
+describe('progressState', () => {
+  it('눈금자의 재생헤드 모양을 상태로 정한다', () => {
+    expect(progressState('analyzing')).toBe('busy')
+    expect(progressState('queued_plan')).toBe('busy')
+    expect(progressState('ready')).toBe('waiting')
+    expect(progressState('awaiting_confirm')).toBe('waiting')
+    expect(progressState('created')).toBe('waiting')
+    expect(progressState('confirmed')).toBe('done')
+    expect(progressState('failed')).toBe('failed')
+  })
+})
+
+describe('NEXT_ACTION', () => {
+  it('사용자가 할 일이 있는 상태에만 안내 문구가 있다', () => {
+    const waiting = ALL_STATUSES.filter((s) => NEXT_ACTION[s])
+    expect(waiting).toEqual(['ready', 'awaiting_reference', 'awaiting_plan', 'awaiting_confirm'])
+    for (const s of waiting) expect(NEXT_ACTION[s]).toMatch(/요$/)
   })
 })
 

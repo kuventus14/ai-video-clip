@@ -35,12 +35,7 @@ export function Steps({ current, state, compact = false, className }: { current:
           {isCurrent ? <span aria-hidden="true" className="playhead" data-tone={state === 'failed' ? 'bad' : undefined} data-motion={state === 'busy' ? 'run' : 'rest'} /> : null}
         </div>
         <div aria-hidden="true" className="ruler-ticks" />
-        {compact ? (
-          <span className="sr-only">
-            {label}
-            {isCurrent ? ` (${NOTE[state]})` : s === 'done' ? ' (끝)' : ''}
-          </span>
-        ) : (
+        {compact ? null : (
           <div className={cx('mt-1 flex items-baseline gap-1.5 pr-1 text-[12px] leading-tight sm:text-[13px]', labelClass(s, isCurrent, state))}>
             <span className="hidden tabular-nums sm:inline" aria-hidden="true">
               {i + 1}
@@ -55,9 +50,17 @@ export function Steps({ current, state, compact = false, className }: { current:
     )
   })
 
-  return (
-    <ol aria-label="진행 단계" className={cx('ruler grid list-none grid-cols-6 p-0', compact && 'pt-1', !compact && 'pt-2', className)}>
+  const ruler = (
+    <ol aria-label={compact ? undefined : '진행 단계'} aria-hidden={compact || undefined} className={cx('ruler grid list-none grid-cols-6 p-0', compact ? 'pt-1' : 'pt-2', !compact && className)}>
       {segments}
     </ol>
+  )
+  if (!compact) return ruler
+  // 목록 행에서는 눈금자 전체를 한 문장으로 읽어 준다(여섯 칸을 하나씩 읽으면 행마다 너무 길다)
+  const spoken = state === 'done' ? '모든 단계 끝' : `${STEPS[current]} 단계, ${NOTE[state]}`
+  return (
+    <div role="img" aria-label={spoken} className={className}>
+      {ruler}
+    </div>
   )
 }

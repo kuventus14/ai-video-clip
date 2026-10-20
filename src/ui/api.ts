@@ -49,7 +49,7 @@ export const approve = (id: string, input: ApproveInput = {}) => request<JobDto>
 export const confirm = (id: string) => request<JobDto>('POST', jobUrl(id, '/confirm'))
 export const retry = (id: string) => request<JobDto>('POST', jobUrl(id, '/retry'))
 export const otherVersion = (id: string) => request<JobDto>('POST', jobUrl(id, '/other-version'))
-export const removeJob = (id: string) => request<JobDto>('DELETE', jobUrl(id))
+export const removeJob = (id: string) => request<{ ok: true }>('DELETE', jobUrl(id))
 
 /**
  * 파일을 본문 그대로 PUT 한다. fetch 는 올리는 진행률을 알려 주지 않아 XMLHttpRequest 를 쓴다.

@@ -3,7 +3,7 @@ import { cx } from './cx.ts'
 import { Spinner } from './Spinner.tsx'
 
 export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger'
-export type ButtonSize = 'md' | 'sm'
+export type ButtonSize = 'md' | 'sm' | 'icon'
 
 const BASE =
   'inline-flex select-none items-center justify-center gap-2 whitespace-nowrap rounded-control font-medium transition-colors duration-150 ' +
@@ -19,6 +19,7 @@ const VARIANT: Record<ButtonVariant, string> = {
 const SIZE: Record<ButtonSize, string> = {
   md: 'h-10 px-4 text-[15px]',
   sm: 'h-9 px-3 text-[13px]',
+  icon: 'size-9',
 }
 
 /** 버튼처럼 보여야 하는 링크(next/link 등)에 붙이는 클래스. */

@@ -61,6 +61,8 @@ export interface JobDto {
   recommendations: Recommendation[]
   planCard: string[] | null
   report: ReportDto | null
+  /** 결과 영상의 길이·크기(직접 잰 값). 결과가 없거나 못 쟀으면 null */
+  resultInfo: { durationSec: number; width: number; height: number } | null
   media: { source?: string; result?: string; thumb?: string }
   log: { t: string; stage: string; message: string }[]
   error: string | null

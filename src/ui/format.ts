@@ -61,6 +61,14 @@ export const STATUS_LABEL: Record<JobStatus, string> = {
   failed: '실패',
 }
 
+/** 내가 할 일이 있는 상태(워커가 아니라 사용자를 기다리는 상태)의 안내. 이 상태가 아니면 항목이 없다. */
+export const NEXT_ACTION: Partial<Record<JobStatus, string>> = {
+  ready: '설명과 용도를 정하고 시작해 주세요',
+  awaiting_reference: '레퍼런스를 골라 주세요',
+  awaiting_plan: '이해한 내용을 확인해 주세요',
+  awaiting_confirm: '결과를 확인해 주세요',
+}
+
 export const STEPS = ['업로드', '분석', '레퍼런스', '계획 확인', '제작', '결과'] as const
 export type StepIndex = 0 | 1 | 2 | 3 | 4 | 5
 
@@ -97,6 +105,13 @@ export function stepForJob(job: { status: JobStatus; failedPhase: Phase | null }
 /** 워커가 하는 중이거나 순서를 기다리는 중 — 진행 화면을 보여 준다. */
 export function isBusy(status: JobStatus): boolean {
   return isQueued(status) || isRunning(status)
+}
+
+/** 눈금자의 재생헤드 모양: 워커가 하는 중(busy) / 내 차례(waiting) / 끝(done) / 멈춤(failed) */
+export function progressState(status: JobStatus): 'busy' | 'waiting' | 'done' | 'failed' {
+  if (status === 'confirmed') return 'done'
+  if (status === 'failed') return 'failed'
+  return isBusy(status) ? 'busy' : 'waiting'
 }
 
 /** 화면이 작업을 다시 읽어 올 간격(ms). 확정·실패는 더 바뀔 일이 없어 null. */

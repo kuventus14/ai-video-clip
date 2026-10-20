@@ -40,6 +40,13 @@ function toReportDto(report: unknown): ReportDto | null {
   }
 }
 
+/** 결과 영상을 잰 값(워커가 리포트에 붙인다). 없거나 형식이 틀리면 null */
+const OutputSchema = z.object({ output: z.object({ durationSec: z.number(), width: z.number(), height: z.number() }) })
+function toResultInfo(report: unknown): JobDto['resultInfo'] {
+  const parsed = OutputSchema.safeParse(report)
+  return parsed.success ? parsed.data.output : null
+}
+
 const exists = (p: string | null) => (p ? fs.existsSync(p) : false)
 
 /** 내부 경로·원본 파일 경로를 숨기고, 파일이 있는 것만 /api/jobs/<id>/media/<종류> 주소로 채운 화면용 작업. */
@@ -73,6 +80,7 @@ export function toJobDto(job: Job): JobDto {
     recommendations: job.recommendations,
     planCard: job.planCard,
     report: toReportDto(job.report),
+    resultInfo: toResultInfo(job.report),
     media,
     log: job.log.slice(-30),
     error: job.errorMessage,

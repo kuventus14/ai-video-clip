@@ -78,6 +78,21 @@ describe('만들기·조회', () => {
     expect(await list('?filter=active')).toEqual([c.id, a.id])
     expect(await list('')).toEqual([c.id, b.id, a.id])
   })
+
+  test('결과 영상의 길이·크기(리포트의 output)는 resultInfo 로, 없거나 형식이 틀리면 null', async () => {
+    const a = await create()
+    const b = await create()
+    const c = await create()
+    const { jobs } = getContext()
+    const qa = { passed: true, findings: [] }
+    jobs.update(a.id, { report: { qa, output: { durationSec: 44.2, width: 1080, height: 1920 } } })
+    jobs.update(b.id, { report: { qa } })
+    jobs.update(c.id, { report: { output: { durationSec: '길다' } } })
+    const get = async (id: string) => (await (await jobGet(new Request(url(`/api/jobs/${id}`)), params(id))).json()) as JobDto
+    expect((await get(a.id)).resultInfo).toEqual({ durationSec: 44.2, width: 1080, height: 1920 })
+    expect((await get(b.id)).resultInfo).toBeNull()
+    expect((await get(c.id)).resultInfo).toBeNull()
+  })
 })
 
 describe('영상 업로드 (스트리밍)', () => {
