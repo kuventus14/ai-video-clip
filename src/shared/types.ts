@@ -19,6 +19,56 @@ export type JobStatus =
 /** 워커가 하는 일의 단계. 실패하면 어느 단계에서 실패했는지 기억한다. */
 export type Phase = 'probe' | 'analysis' | 'plan' | 'produce'
 
+export type PurposeValue = 'post' | 'short'
+
+/** 검수 리포트(report.json)에서 화면에 보여 주는 부분 */
+export interface ReportDto {
+  passed: boolean
+  attempts: number
+  reframe: string
+  purpose: PurposeValue | null
+  findings: { id: string; severity: 'high' | 'medium' | 'info'; message: string; atSec?: number }[]
+  appliedCorrections: { index: number; text: string; reason: string }[]
+  suggestions: { index: number; text: string; reason: string }[]
+  /** 이 버전의 검수가 확인하지 않는 항목 */
+  unchecked: string[]
+}
+
+/** API 가 화면에 돌려주는 작업. 내부 경로·원본 파일 경로는 들어 있지 않다. */
+export interface JobDto {
+  id: string
+  status: JobStatus
+  /** 지금 하는 일(한국어). 진행 중일 때만 */
+  stage: string | null
+  createdAt: string
+  updatedAt: string
+  /** 요약의 한 줄, 없으면 파일 이름 */
+  title: string
+  sourceName: string | null
+  sourceInfo: { durationSec: number; width: number; height: number } | null
+  purposeGuess: { purpose: PurposeValue; confidence: number; reasons: string[] } | null
+  purposeChoice: 'auto' | PurposeValue
+  /** 확정된 용도(계획 단계 이후) */
+  purpose: PurposeValue | null
+  description: string
+  requestText: string
+  /** 레퍼런스 링크, 또는 올린 파일이면 "파일: 이름" */
+  referenceSource: string | null
+  hasUploadedReference: boolean
+  captionsMode: 'auto' | 'off'
+  quality: 'draft' | 'looks' | 'delivery'
+  summary: { topic: string; genre: string; oneLine: string; hookTitle: string; searchQueries: string[] } | null
+  recommendations: Recommendation[]
+  planCard: string[] | null
+  report: ReportDto | null
+  media: { source?: string; result?: string; thumb?: string }
+  log: { t: string; stage: string; message: string }[]
+  error: string | null
+  failedPhase: Phase | null
+  parentJobId: string | null
+  confirmedAt: string | null
+}
+
 /** 레퍼런스 추천 목록의 한 항목 */
 export interface Recommendation {
   id: string
