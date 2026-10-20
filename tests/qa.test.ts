@@ -98,6 +98,14 @@ describe('runQa', () => {
     expect(r.findings.some((f) => f.id.startsWith('cue-') || f.id === 'low-confidence')).toBe(false)
   })
 
+  test('자막을 끄고 만든 영상은 자막 점검을 건너뛰고 그렇다고 알린다', async () => {
+    const a = fakeAsk()
+    const r = await runQa(base({ skipCaptions: true, cues: [], words: [word('안녕', 0, 0.1)] }), { ask: a.ask, track: fakeTrack().fn })
+    expect(r.findings.find((f) => f.id === 'captions-off')).toMatchObject({ severity: 'info' })
+    expect(a.calls).toHaveLength(0)
+    expect(r.findings.some((f) => f.id === 'low-confidence' || f.id === 'no-speech')).toBe(false)
+  })
+
   test('원본엔 소리가 있었는데 결과물에 소리가 없으면 high', async () => {
     const r = await runQa(base({ sourceInfo: { ...silent, hasAudio: true }, outputPath: fx.silent, canvas: POST, reframe: 'none' }), { ask: fakeAsk().ask, track: fakeTrack().fn })
     expect(r.findings.find((f) => f.id === 'output-no-audio')).toMatchObject({ severity: 'high' })

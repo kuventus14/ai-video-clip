@@ -21,6 +21,10 @@ export interface VideoInfo {
   fps: number
   hasAudio: boolean
   videoBitrate: number | null
+  /** ffprobe codec_name (h264, hevc …) */
+  videoCodec?: string
+  /** 회전 메타데이터(도). 0 이면 없음 */
+  rotation?: number
 }
 
 export interface Word {

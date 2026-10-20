@@ -26,6 +26,8 @@ export interface QaInput {
   words: Word[]
   maxChars: number
   summary: { topic: string; genre: string }
+  /** 자막을 끄고 만든 영상이면 true — 자막 점검을 건너뛴다 */
+  skipCaptions?: boolean
 }
 
 export interface QaReport {
@@ -76,7 +78,9 @@ export async function runQa(
   findings.push(...checkResolution(i.sourceInfo, i.canvas, i.reframe))
 
   // 5) 자막
-  if (!i.words.length) {
+  if (i.skipCaptions) {
+    findings.push({ id: 'captions-off', severity: 'info', message: '자막을 끄고 만든 영상이라 자막 점검은 건너뛰었어요.', fixHint: 'none' })
+  } else if (!i.words.length) {
     findings.push({ id: 'no-speech', severity: 'info', message: '음성이 없어 자막 점검을 건너뛰었어요.', fixHint: 'none' })
   } else {
     findings.push(...checkCueTiming(i.cues, out.durationSec, i.maxChars))

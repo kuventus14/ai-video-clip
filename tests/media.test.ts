@@ -3,7 +3,8 @@ import os from 'node:os'
 import path from 'node:path'
 import { beforeAll, describe, expect, test } from 'vitest'
 import { ToolError } from '../src/core/exec.ts'
-import { extractFrames, probeVideo } from '../src/core/media.ts'
+import { run } from '../src/core/exec.ts'
+import { ensureH264, extractFrames, probeVideo } from '../src/core/media.ts'
 import { ensureFixtures, type Fixtures } from './helpers/fixtures.ts'
 
 let fx: Fixtures
@@ -46,12 +47,64 @@ describe('probeVideo', () => {
     expect([info.width, info.height]).toEqual([1080, 1920])
   })
 
+  test('코덱과 회전 값도 읽는다', async () => {
+    const info = await probeVideo(fx.landscape)
+    expect(info.videoCodec).toBe('h264')
+    expect(info.rotation).toBe(0)
+    expect(Math.abs((await probeVideo(fx.rotated)).rotation ?? 0)).toBe(90)
+  })
+
   test('영상이 아닌 파일은 ToolError', async () => {
     const txt = path.join(os.tmpdir(), `not-video-${process.pid}.txt`)
     fs.writeFileSync(txt, '영상 아님')
     await expect(probeVideo(txt)).rejects.toBeInstanceOf(ToolError)
     fs.rmSync(txt)
   })
+})
+
+describe('ensureH264', () => {
+  const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'h264-'))
+
+  test('이미 H.264 mp4 이고 회전이 없으면 그대로 쓴다', async () => {
+    const info = await probeVideo(fx.landscape)
+    const r = await ensureH264(fx.landscape, info, tmp())
+    expect(r.converted).toBe(false)
+    expect(r.path).toBe(fx.landscape)
+    expect(r.info).toBe(info)
+  })
+
+  test('HEVC(아이폰 기본 코덱)는 H.264 mp4 로 바꾼다 — 크기·길이는 그대로', async () => {
+    const dir = tmp()
+    const hevc = path.join(dir, '아이폰 영상.mov')
+    await run('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=size=640x360:rate=30:d=1', '-c:v', 'libx265', '-tag:v', 'hvc1', '-pix_fmt', 'yuv420p', hevc])
+    const info = await probeVideo(hevc)
+    expect(info.videoCodec).toBe('hevc')
+    const r = await ensureH264(hevc, info, dir)
+    expect(r.converted).toBe(true)
+    expect(r.path.endsWith('.mp4')).toBe(true)
+    expect(path.dirname(r.path)).toBe(dir)
+    expect(r.info.videoCodec).toBe('h264')
+    expect([r.info.width, r.info.height]).toEqual([640, 360])
+    expect(r.info.durationSec).toBeGreaterThan(0.9)
+    expect(fs.existsSync(hevc)).toBe(true) // 원본은 건드리지 않는다
+  }, 120_000)
+
+  test('회전 메타데이터가 있으면 화면 방향을 구워 넣어 회전을 없앤다', async () => {
+    const info = await probeVideo(fx.rotated)
+    const r = await ensureH264(fx.rotated, info, tmp())
+    expect(r.converted).toBe(true)
+    expect([r.info.width, r.info.height]).toEqual([1080, 1920])
+    expect(r.info.rotation ?? 0).toBe(0)
+  }, 120_000)
+
+  test('확장자가 mp4 가 아니면 H.264 여도 mp4 로 바꾼다', async () => {
+    const dir = tmp()
+    const mov = path.join(dir, 'clip.mov')
+    fs.copyFileSync(fx.silent, mov)
+    const r = await ensureH264(mov, await probeVideo(mov), dir)
+    expect(r.converted).toBe(true)
+    expect(r.path.endsWith('.mp4')).toBe(true)
+  }, 120_000)
 })
 
 describe('extractFrames', () => {
