@@ -183,7 +183,14 @@ export async function runEdit(o: EditOptions, overrides: Partial<PipelineDeps> =
     const plan = await d.interpretRequest({ spec: specUsed, userText: o.request, summary })
     const style = deriveAppliedStyle(plan, specUsed, summary, purpose)
     const reframe = chooseReframeMode(info, canvas)
-    const planCard = [...planCardLines(plan, specUsed), ...reframeCardLines(reframe, info, canvas)]
+    const baseCard = !spec && !(o.request ?? '').trim()
+      ? [
+          '이렇게 이해했어요: 레퍼런스가 없어서 기본 스타일로 편집해요.',
+          '• 컷: 말 사이의 긴 쉼과 "음·어" 같은 군더더기를 정리해요',
+          '• 자막: 말하는 대로 넣고, 오타·오인식은 검수에서 고쳐요',
+        ]
+      : planCardLines(plan, specUsed)
+    const planCard = [...baseCard, ...reframeCardLines(reframe, info, canvas)]
     o.onPlan?.(planCard, purpose)
 
     // 6) 컷

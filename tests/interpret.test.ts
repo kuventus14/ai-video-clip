@@ -89,6 +89,14 @@ describe('planCardLines', () => {
     expect(lines).toMatch(/자막 스타일.*비슷하게/)
   })
 
+  test('참고할 항목 없이 조정만 있으면 "지정한 항목 없음" 대신 요청을 반영한다고 말한다', () => {
+    const lines = planCardLines(plan({ mode: 'targeted', take: [], adjust: [{ field: 'pacing', instruction: '컷을 더 빠르게' }] }), spec())
+    expect(lines[0]).toContain('이렇게 이해했어요')
+    expect(lines[0]).toContain('요청하신 대로')
+    expect(lines.join('\n')).not.toContain('지정한 항목 없음')
+    expect(lines.join('\n')).toContain('컷을 더 빠르게')
+  })
+
   test('제외·지원 불가 요청도 보여 준다', () => {
     const lines = planCardLines(
       plan({ mode: 'targeted', take: ['captions'], skip: ['pacing'], unsupported: [{ request: '카메라 워크', reason: '지원하지 않아요', alternative: '컷으로 비슷한 분위기를 내요' }] }),

@@ -151,6 +151,22 @@ describe('runEdit — 흐름', () => {
     expect(seen[0]!.before).not.toContain('build')
   })
 
+  test('레퍼런스도 요청도 없으면 카드는 기본 스타일로 편집한다고 말하고 레퍼런스를 따른다고 하지 않는다', async () => {
+    const { run } = setup()
+    const r = await run()
+    const card = r.planCard.join('\n')
+    expect(r.planCard[0]).toContain('레퍼런스가 없어서 기본 스타일')
+    expect(card).not.toContain('레퍼런스의 편집 스타일')
+    expect(card).toMatch(/자막/)
+    expect(card).toMatch(/컷/)
+  })
+
+  test('레퍼런스가 있으면 레퍼런스를 따른다는 카드가 나온다', async () => {
+    const { run } = setup()
+    const r = await run({ reference: '/ref.mp4' })
+    expect(r.planCard[0]).toContain('레퍼런스의 편집 스타일')
+  })
+
   test('(l) report.json 을 남긴다', async () => {
     const { run } = setup()
     const r = await run()

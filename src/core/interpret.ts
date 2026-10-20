@@ -110,7 +110,9 @@ export function planCardLines(plan: EditPlan, spec: StyleSpec): string[] {
   lines.push(
     plan.mode === 'full-reference'
       ? '이렇게 이해했어요: 레퍼런스의 편집 스타일을 최대한 따라 해요.'
-      : `이렇게 이해했어요: 레퍼런스에서 ${plan.take.map((f) => LABEL[f]).join(', ') || '(지정한 항목 없음)'}을(를) 참고해요.`,
+      : plan.take.length
+        ? `이렇게 이해했어요: 레퍼런스에서 ${plan.take.map((f) => LABEL[f]).join(', ')}을(를) 참고해요.`
+        : '이렇게 이해했어요: 요청하신 대로 편집해요.',
   )
   for (const f of plan.take) {
     if (FEASIBILITY[f] === 'unsupported') continue
