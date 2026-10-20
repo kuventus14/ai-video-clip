@@ -47,6 +47,21 @@ export function remapWords(words: Word[], kept: Span[]): Word[] {
   return out.sort((x, y) => x.start - y.start)
 }
 
+/** 원본 시간의 구간들을 남은 구간과 겹치는 부분만 컷 이후 시간으로 옮긴다 (시작 시각 순). */
+export function remapSpans(spans: Span[], kept: Span[]): Span[] {
+  const off = offsets(kept)
+  const out: Span[] = []
+  for (const s of spans) {
+    for (const [i, k] of kept.entries()) {
+      const a = Math.max(s.start, k.start)
+      const b = Math.min(s.end, k.end)
+      if (b - a <= EPS) continue
+      out.push({ start: round6(off[i]! + a - k.start), end: round6(off[i]! + b - k.start) })
+    }
+  }
+  return out.sort((x, y) => x.start - y.start)
+}
+
 function interpolate(kf: CropKeyframe[], t: number): number {
   const first = kf[0]!
   const lastKf = kf.at(-1)!

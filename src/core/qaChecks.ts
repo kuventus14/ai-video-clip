@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { askClaude } from './llm.ts'
 import type { PersonBox, PersonTrack } from './person.ts'
-import type { Canvas, CaptionCue, ReframeMode, Span, Word } from './types.ts'
+import type { Canvas, CaptionCue, Purpose, ReframeMode, Span, Word } from './types.ts'
 
 export type Severity = 'high' | 'medium' | 'info'
 export type FixHint = 'recaption' | 'rerender-quality' | 'recrop' | 'none'
@@ -22,6 +22,9 @@ const MIN_CUE_SEC = 0.3
 const FRAMING_BAND: [number, number] = [0.25, 0.75]
 const FRAMING_PASS_RATIO = 0.8
 const EDGE_TOUCH = 0.005
+const CLOSEUP_BODY_WIDTH = 0.8
+const MIN_SAFE_SIMILARITY = 0.6
+const SHORT_MAX_SEC = 180
 
 /** 원본 화면이 출력 캔버스에서 확대되는 배율 (1 이하면 줄어듦) */
 export function upscaleFactor(src: { width: number; height: number }, canvas: Canvas, mode: ReframeMode): number {
@@ -139,6 +142,59 @@ export async function proofreadCues(
   return corrections.filter((c) => c.index < cues.length && c.text.trim() !== cues[c.index]!.text.trim())
 }
 
+function levenshtein(a: string, b: string): number {
+  const prev = Array.from({ length: b.length + 1 }, (_, j) => j)
+  for (let i = 1; i <= a.length; i++) {
+    let diagonal = prev[0]!
+    prev[0] = i
+    for (let j = 1; j <= b.length; j++) {
+      const up = prev[j]!
+      prev[j] = Math.min(prev[j]! + 1, prev[j - 1]! + 1, diagonal + (a[i - 1] === b[j - 1] ? 0 : 1))
+      diagonal = up
+    }
+  }
+  return prev[b.length]!
+}
+
+/**
+ * 교정이 원문에서 글자 몇 개만 바뀌는 안전한 수정인지(띄어쓰기를 뺀 글자 유사도 ≥ 0.6).
+ * 음성 인식이 못 알아들은 말을 모델이 추측으로 새로 쓰는 교정은 근거가 없어 자동 적용하지 않는다.
+ */
+export function isSafeCorrection(original: string, corrected: string): boolean {
+  const a = original.replace(/\s/g, '')
+  const b = corrected.replace(/\s/g, '')
+  if (!b) return false
+  if (a === b) return true
+  return 1 - levenshtein(a, b) / Math.max(a.length, b.length) >= MIN_SAFE_SIMILARITY
+}
+
+/** 교정 제안을 자동 적용해도 되는 것과 제안으로만 남길 것으로 나눈다. 범위 밖 index 는 버린다. */
+export function partitionCorrections(cues: CaptionCue[], corrections: CueCorrection[]): { safe: CueCorrection[]; unsafe: CueCorrection[] } {
+  const safe: CueCorrection[] = []
+  const unsafe: CueCorrection[] = []
+  for (const c of corrections) {
+    const cue = cues[c.index]
+    if (!cue) continue
+    ;(isSafeCorrection(cue.text, c.text) ? safe : unsafe).push(c)
+  }
+  return { safe, unsafe }
+}
+
+/** 용도에 비해 영상이 너무 길면 알린다 (릴스·숏츠는 3분 이하). */
+export function checkDuration(purpose: Purpose, durationSec: number): Finding[] {
+  if (purpose === 'short' && durationSec > SHORT_MAX_SEC) {
+    return [
+      {
+        id: 'duration-for-purpose',
+        severity: 'medium',
+        message: `릴스·숏츠용인데 영상이 ${Math.round(durationSec)}초로 길어요. 보통 3분(${SHORT_MAX_SEC}초) 이하여야 올릴 수 있어요.`,
+        fixHint: 'none',
+      },
+    ]
+  }
+  return []
+}
+
 export function applyCorrections(cues: CaptionCue[], corrections: CueCorrection[]): CaptionCue[] {
   const out = cues.map((c) => ({ ...c }))
   for (const c of corrections) if (c.index >= 0 && c.index < out.length) out[c.index]!.text = c.text
@@ -152,18 +208,33 @@ export function checkFraming(track: PersonTrack, mode: ReframeMode, _canvas: Can
   if (mode !== 'track') return []
   let withPerson = 0
   let good = 0
+  let closeupUnjudged = 0
+  const largest = (boxes: PersonBox[]) => boxes.reduce((a, b) => (area(b) > area(a) ? b : a))
   for (const s of track.samples) {
     const humans = s.boxes.filter((b) => b.kind === 'human')
-    const pool = humans.length ? humans : s.boxes.filter((b) => b.kind === 'face')
-    if (!pool.length) continue
+    const faces = s.boxes.filter((b) => b.kind === 'face')
+    let judged: PersonBox
+    if (humans.length && largest(humans).w > CLOSEUP_BODY_WIDTH) {
+      // 클로즈업: 몸이 화면 폭을 거의 채워 가장자리에 닿는 게 정상이므로 얼굴 박스로 판정한다
+      if (!faces.length) {
+        closeupUnjudged++
+        continue
+      }
+      judged = largest(faces)
+    } else {
+      const pool = humans.length ? humans : faces
+      if (!pool.length) continue
+      judged = largest(pool)
+    }
     withPerson++
-    const p = pool.reduce((a, b) => (area(b) > area(a) ? b : a))
-    const cx = p.x + p.w / 2
-    const touchesEdge = p.x < EDGE_TOUCH || p.x + p.w > 1 - EDGE_TOUCH
+    const cx = judged.x + judged.w / 2
+    const touchesEdge = judged.x < EDGE_TOUCH || judged.x + judged.w > 1 - EDGE_TOUCH
     if (cx >= FRAMING_BAND[0] && cx <= FRAMING_BAND[1] && !touchesEdge) good++
   }
   if (withPerson === 0) {
-    return [{ id: 'framing-no-person', severity: 'info', message: '사람을 찾지 못해 인물 구도는 확인하지 못했어요.', fixHint: 'none' }]
+    return closeupUnjudged > 0
+      ? [{ id: 'framing-closeup', severity: 'info', message: '인물이 화면을 가득 채우는 클로즈업이라 구도를 정확히 확인하지 못했어요.', fixHint: 'none' }]
+      : [{ id: 'framing-no-person', severity: 'info', message: '사람을 찾지 못해 인물 구도는 확인하지 못했어요.', fixHint: 'none' }]
   }
   if (good / withPerson < FRAMING_PASS_RATIO) {
     return [

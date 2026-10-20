@@ -36,7 +36,7 @@ const PROMPT_RULES = [
 ].join('\n')
 
 export async function interpretRequest(
-  i: { spec: StyleSpec; userText?: string; summary: VideoSummary },
+  i: { spec: StyleSpec; userText?: string; summary: VideoSummary; /** 레퍼런스를 분석했는지 (기본 true) */ hasReference?: boolean },
   deps: { ask?: typeof askClaude } = {},
 ): Promise<EditPlan> {
   const text = (i.userText ?? '').trim()
@@ -51,15 +51,20 @@ export async function interpretRequest(
   }
 
   const ask = deps.ask ?? askClaude
+  const hasReference = i.hasReference ?? true
   const { feasibility: _omit, ...specForPrompt } = i.spec
   const prompt = [
     PROMPT_RULES,
     '',
     `내 영상: ${i.summary.genre} — ${i.summary.oneLine}`,
-    `레퍼런스 스타일(측정·분석 결과): ${JSON.stringify(specForPrompt)}`,
+    hasReference
+      ? `레퍼런스 스타일(측정·분석 결과): ${JSON.stringify(specForPrompt)}`
+      : '레퍼런스 없음 — 따라 할 레퍼런스가 없으므로 take·skip 은 비워 두고, 사용자의 요청은 adjust(조정)와 unsupported(지원 불가)로만 정리하세요.',
     `사용자 요청: ${text}`,
   ].join('\n')
-  const plan = await ask({ prompt, schema: EditPlan, effort: 'low' })
+  const asked = await ask({ prompt, schema: EditPlan, effort: 'low' })
+  // 레퍼런스가 없으면 "레퍼런스에서 참고할 항목" 은 있을 수 없다
+  const plan: EditPlan = hasReference ? asked : { ...asked, mode: 'targeted', take: [], skip: [] }
 
   const camera = text.match(CAMERA_VFX)
   if (camera && !plan.unsupported.some((u) => CAMERA_VFX.test(u.request))) {
@@ -119,7 +124,13 @@ export function planCardLines(plan: EditPlan, spec: StyleSpec): string[] {
     lines.push(`• ${LABEL[f]}: ${detail(f, spec)}${FEASIBILITY[f] === 'approximate' ? ' (비슷하게만 가능해요)' : ''}`)
   }
   for (const f of plan.skip) lines.push(`• ${LABEL[f]}: 따라 하지 않아요`)
-  for (const a of plan.adjust) lines.push(`• ${LABEL[a.field]}: ${a.instruction}`)
+  for (const a of plan.adjust) {
+    lines.push(
+      isAdjustApplied(a)
+        ? `• ${LABEL[a.field]}: ${a.instruction}`
+        : `• ${LABEL[a.field]}: "${a.instruction}" 는 이번 버전에서 반영하지 못했어요`,
+    )
+  }
   for (const f of STYLE_FIELDS) if (FEASIBILITY[f] === 'unsupported') lines.push(`• ${LABEL[f]}: 이번 버전에서는 지원하지 않아요`)
   for (const u of plan.unsupported) lines.push(`• 요청하신 "${u.request}": ${u.reason}${u.alternative ? ` — ${u.alternative}` : ''}`)
   return lines
@@ -153,6 +164,13 @@ function direction(text: string, up: RegExp, down: RegExp): 1 | -1 | 0 {
   return u && !d ? 1 : d && !u ? -1 : 0
 }
 
+/** 이 조정 문구가 실제 편집 스타일에 반영되는가 (카드가 반영되지 않는 것을 반영된 듯 말하지 않게) */
+export function isAdjustApplied(a: { field: StyleField; instruction: string }): boolean {
+  if (a.field === 'pacing') return direction(a.instruction, FASTER, SLOWER) !== 0
+  if (a.field === 'captions') return direction(a.instruction, BIGGER, SMALLER) !== 0
+  return false
+}
+
 export function deriveAppliedStyle(plan: EditPlan, spec: StyleSpec, summary: VideoSummary, purpose: Purpose): AppliedStyle {
   const takes = (f: StyleField) => plan.take.includes(f) && !plan.skip.includes(f)
   const adjustText = (f: StyleField) => plan.adjust.filter((a) => a.field === f).map((a) => a.instruction).join(' ')
@@ -174,20 +192,16 @@ export function deriveAppliedStyle(plan: EditPlan, spec: StyleSpec, summary: Vid
   }
 
   let padSec = 0.25
-  let transition: AppliedStyle['transition'] = 'hard-cut'
   if (takes('pacing')) {
     const cpm = spec.pacing.cutsPerMinute
-    if (cpm >= 20) {
-      padSec = 0.12
-      transition = 'punch-zoom'
-    } else if (cpm <= 8) padSec = 0.3
-    else padSec = 0.2
+    padSec = cpm >= 20 ? 0.12 : cpm <= 8 ? 0.3 : 0.2
   }
   const pace = direction(adjustText('pacing'), FASTER, SLOWER)
-  if (pace === 1) {
-    padSec = round2(Math.max(0.08, padSec * 0.6))
-    transition = 'punch-zoom'
-  } else if (pace === -1) padSec = round2(Math.min(0.5, padSec * 1.5))
+  if (pace === 1) padSec = round2(Math.max(0.08, padSec * 0.6))
+  else if (pace === -1) padSec = round2(Math.min(0.5, padSec * 1.5))
+
+  // 전환 효과는 컷 속도가 아니라 레퍼런스의 주된 전환을 따른다 (크로스페이드·기타는 하드컷으로 근사)
+  const transition: AppliedStyle['transition'] = takes('transitions') && spec.transitions.dominant === 'punch-zoom' ? 'punch-zoom' : 'hard-cut'
 
   const hookTitle = takes('hookTitle') && spec.hookTitle.present ? { text: summary.hookTitle, durationSec: 2.5 } : undefined
   return { captions, ...(hookTitle ? { hookTitle } : {}), transition, padSec }

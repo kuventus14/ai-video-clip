@@ -46,18 +46,20 @@ export async function probeVideo(videoPath: string): Promise<VideoInfo> {
   }
 }
 
+/** hyperframes 가 변환 없이 정상 렌더링하는 것을 실험으로 확인한 코덱(회전 메타데이터가 있어도 된다) */
+const NATIVE_CODECS = new Set(['h264', 'hevc'])
+
 /**
- * 브라우저가 못 읽는 원본(HEVC·ProRes, mp4 가 아닌 컨테이너, 회전 메타데이터)을 H.264 mp4 로 바꿔 준다.
- * 이미 괜찮으면 그대로 돌려준다. 원본 파일은 건드리지 않는다.
+ * hyperframes 가 못 읽을 수 있는 드문 코덱(mpeg4·ProRes 등)만 H.264 mp4 로 바꿔 준다.
+ * H.264·HEVC 는 컨테이너나 회전 메타데이터와 상관없이 그대로 돌려준다 — 4K 아이폰 영상을 통째로 다시 인코딩하면 수십 분이 걸린다.
+ * 원본 파일은 건드리지 않는다.
  */
 export async function ensureH264(
   videoPath: string,
   info: VideoInfo,
   workDir: string,
 ): Promise<{ path: string; info: VideoInfo; converted: boolean }> {
-  const isMp4 = path.extname(videoPath).toLowerCase() === '.mp4'
-  const rotated = (info.rotation ?? 0) % 360 !== 0
-  if (info.videoCodec === 'h264' && isMp4 && !rotated) return { path: videoPath, info, converted: false }
+  if (!info.videoCodec || NATIVE_CODECS.has(info.videoCodec)) return { path: videoPath, info, converted: false }
 
   fs.mkdirSync(workDir, { recursive: true })
   const out = path.join(workDir, 'source-h264.mp4')
@@ -66,7 +68,7 @@ export async function ensureH264(
     [
       '-v', 'error', '-nostdin', '-y', '-i', videoPath,
       '-map', '0:v:0', '-map', '0:a:0?',
-      '-c:v', 'libx264', '-crf', '16', '-preset', 'medium', '-pix_fmt', 'yuv420p',
+      '-c:v', 'libx264', '-crf', '16', '-preset', 'veryfast', '-pix_fmt', 'yuv420p',
       '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', out,
     ],
     { timeoutMs: 60 * 60_000 },

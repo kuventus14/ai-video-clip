@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { beforeAll, describe, expect, test } from 'vitest'
 import { run } from '../src/core/exec.ts'
-import type { askClaude } from '../src/core/llm.ts'
+import { LlmError, type askClaude } from '../src/core/llm.ts'
 import { probeVideo } from '../src/core/media.ts'
 import type { PersonTrack } from '../src/core/person.ts'
 import type { trackPeople } from '../src/core/person.ts'
@@ -121,9 +121,42 @@ describe('runQa', () => {
 
   test('신뢰도가 낮은 단어는 findings 에 남고 교정기에 의심 단어로 전달된다', async () => {
     const a = fakeAsk()
-    const r = await runQa(base({ words: [word('백싱', 0, 0.19), word('좋아요', 1)] }), { ask: a.ask, track: fakeTrack().fn })
+    const r = await runQa(base({ cues: [{ text: '백싱을 낮게', start: 0, end: 1 }], words: [word('백싱', 0, 0.19), word('좋아요', 1)] }), { ask: a.ask, track: fakeTrack().fn })
     expect(r.findings.some((f) => f.id === 'low-confidence' && f.message.includes('백싱'))).toBe(true)
     expect((a.calls[0] as { prompt: string }).prompt).toContain('백싱')
+  })
+
+  test('(I5) 이미 교정돼 자막에서 사라진 단어는 의심 단어로 다시 보내지 않고 저신뢰 경고도 내지 않는다', async () => {
+    const a = fakeAsk()
+    const r = await runQa(base({ cues: [{ text: '백스윙을 낮게', start: 0, end: 1 }], words: [word('백싱', 0, 0.19), word('좋아요', 1)] }), { ask: a.ask, track: fakeTrack().fn })
+    expect(r.findings.some((f) => f.id === 'low-confidence')).toBe(false)
+    expect((a.calls[0] as { prompt: string }).prompt).not.toContain('의심')
+  })
+
+  test('(M4) 교정 LLM 이 실패해도 검수는 끝까지 돌고 info 로 알린다', async () => {
+    const failingAsk = (async () => {
+      throw new LlmError('timeout', '시간 초과')
+    }) as unknown as typeof askClaude
+    const r = await runQa(base(), { ask: failingAsk, track: fakeTrack().fn })
+    expect(r.findings.find((f) => f.id === 'proofread-failed')).toMatchObject({ severity: 'info', fixHint: 'none' })
+    expect(r.corrections).toEqual([])
+    expect(r.passed).toBe(true)
+  })
+
+  describe('(I4) 원본에도 있던 검은 구간', () => {
+    test('원본의 같은 시간대가 검으면 결함으로 보지 않는다', async () => {
+      const r = await runQa(base({ outputPath: blackVideo, sourcePath: blackVideo, kept: [{ start: 0, end: 3 }] }), { ask: fakeAsk().ask, track: fakeTrack().fn })
+      expect(r.findings.some((f) => f.id === 'black-frames')).toBe(false)
+    })
+    test('원본에는 없던 검은 구간은 그대로 high', async () => {
+      const r = await runQa(base({ outputPath: blackVideo, sourcePath: fx.landscape, kept: [{ start: 0, end: 3 }] }), { ask: fakeAsk().ask, track: fakeTrack().fn })
+      expect(r.findings.some((f) => f.id === 'black-frames' && f.severity === 'high')).toBe(true)
+    })
+  })
+
+  test('(I8) purpose 를 주면 길이 점검을 하고, 짧은 영상에는 경고가 없다', async () => {
+    const r = await runQa(base({ purpose: 'short' }), { ask: fakeAsk().ask, track: fakeTrack().fn })
+    expect(r.findings.some((f) => f.id === 'duration-for-purpose')).toBe(false)
   })
 
   test('track 모드가 아니면 사람 인식을 돌리지 않는다', async () => {

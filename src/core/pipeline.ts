@@ -6,9 +6,9 @@ import { deriveAppliedStyle, interpretRequest, planCardLines, type EditPlan } fr
 import { ensureH264, probeVideo } from './media.ts'
 import { trackPeople, type PersonTrack } from './person.ts'
 import { runQa, type QaReport } from './qa.ts'
-import { applyCorrections, proofreadCues, upscaleFactor, type CueCorrection, type Finding } from './qaChecks.ts'
+import { applyCorrections, partitionCorrections, proofreadCues, upscaleFactor, type CueCorrection, type Finding } from './qaChecks.ts'
 import { canvasFor, detectPurpose, resolvePurpose } from './purpose.ts'
-import { computeCropPath, type CropPath } from './reframe.ts'
+import { computeCropPath, cropReversalsPerSec, type CropPath } from './reframe.ts'
 import { analyzeReference, detectSceneCuts, FEASIBILITY, type StyleSpec } from './styleSpec.ts'
 import { fetchReference } from './reference.ts'
 import { groupWordsIntoCues, remapKeyframes, remapWords } from './timeline.ts'
@@ -37,7 +37,7 @@ export interface EditOptions {
   request?: string
   quality?: Quality
   captions?: 'auto' | 'off'
-  /** 작업 폴더(<outDir>/work)를 끝난 뒤에도 남긴다 */
+  /** 작업 폴더(<outDir>/.vae-work-…)를 끝난 뒤에도 남긴다 */
   keepWork?: boolean
   onStage?: (s: Stage, detail?: string) => void
   /** 편집 계획이 정해진 직후(렌더 전)에 "이렇게 이해했어요" 카드와 용도를 알려 준다 */
@@ -54,6 +54,8 @@ export interface EditResult {
   delivered: true
   /** 자동으로 적용한 자막 교정 */
   appliedCorrections: CueCorrection[]
+  /** 원문과 많이 달라서(또는 재작업 한도를 넘어) 자동 적용하지 않은 자막 교정 제안 */
+  suggestions: CueCorrection[]
   summary: VideoSummary
   reframe: ReturnType<typeof chooseReframeMode>
 }
@@ -87,8 +89,17 @@ const MAX_ATTEMPTS = 3 // 최초 + 재작업 2회
 const LOW_CONFIDENCE = 0.5
 const HINT_RETRANSCRIBE_MIN_LOW_WORDS = 5
 const HINT_MAX_CHARS = 200
+const CROP_JITTER_PER_SEC = 1
 const LADDER: Quality[] = ['draft', 'looks', 'delivery']
 const nextQuality = (q: Quality): Quality => LADDER[Math.min(LADDER.length - 1, LADDER.indexOf(q) + 1)]!
+
+/** 이 버전의 검수가 확인하지 않는 항목 — 리포트에 그대로 남겨 "다 검사했다"고 오해하지 않게 한다. */
+const UNCHECKED = [
+  '음성 재전사와의 대조(자막이 실제 말과 맞는지 음성으로 다시 확인)',
+  '자막과 음성의 싱크',
+  '자막이 화면 밖으로 잘리거나 제목 카드와 겹치는지',
+  '원본 대비 비트레이트 하락',
+]
 
 /** 레퍼런스가 없을 때 쓰는 무난한 기본 스타일 */
 function defaultStyleSpec(purpose: Purpose): StyleSpec {
@@ -122,10 +133,9 @@ export async function runEdit(o: EditOptions, overrides: Partial<PipelineDeps> =
   const d: PipelineDeps = { ...DEFAULTS, ...overrides }
   const stage = (s: Stage, detail?: string) => o.onStage?.(s, detail)
   const outDir = path.resolve(o.outDir)
-  const work = path.join(outDir, 'work')
   fs.mkdirSync(outDir, { recursive: true })
-  fs.rmSync(work, { recursive: true, force: true })
-  fs.mkdirSync(work, { recursive: true })
+  // 이 실행이 직접 만든 고유 폴더만 쓰고 지운다 — 결과 폴더에 원래 있던 파일은 건드리지 않는다
+  const work = fs.mkdtempSync(path.join(outDir, '.vae-work-'))
 
   try {
     // 1) 입력 확인
@@ -180,7 +190,7 @@ export async function runEdit(o: EditOptions, overrides: Partial<PipelineDeps> =
     // 5) 편집 계획
     stage('plan')
     const specUsed = spec ?? defaultStyleSpec(purpose)
-    const plan = await d.interpretRequest({ spec: specUsed, userText: o.request, summary })
+    const plan = await d.interpretRequest({ spec: specUsed, userText: o.request, summary, hasReference: spec !== undefined })
     const style = deriveAppliedStyle(plan, specUsed, summary, purpose)
     const reframe = chooseReframeMode(info, canvas)
     const baseCard = !spec && !(o.request ?? '').trim()
@@ -208,27 +218,36 @@ export async function runEdit(o: EditOptions, overrides: Partial<PipelineDeps> =
     if (reframe === 'track') {
       stage('track')
       track = await d.trackPeople(src, { sampleFps: 4 })
-      shotCuts = await d.detectSceneCuts(src)
+      shotCuts = await d.detectSceneCuts(src, { maxSec: info.durationSec }) // 기본 180초 한계에 걸리지 않게 영상 전체를 본다
       cropPath = computeCrop()
     }
 
-    // 8) 자막: 컷 이후 시간으로 바꾸고, 렌더 전에 한 번 교정한다
+    // 8) 자막: 컷 이후 시간으로 바꾸고, 렌더 전에 한 번 교정한다 (원문과 너무 다른 교정은 제안으로만 남긴다)
     const outWords = remapWords(transcript.words, kept)
     const captionsOff = o.captions === 'off'
     let maxChars = style.captions.maxChars
     let cues: CaptionCue[] = captionsOff ? [] : groupWordsIntoCues(outWords, { maxChars })
     const applied: CueCorrection[] = []
+    const suggestions: CueCorrection[] = []
+    const extraFindings: Finding[] = []
     if (cues.length) {
-      const suspectWords = outWords.filter((w) => w.confidence < LOW_CONFIDENCE).map((w) => w.text)
-      const fixes = await d.proofreadCues(cues, { topic: summary.topic, genre: summary.genre, suspectWords })
-      cues = applyCorrections(cues, fixes)
-      applied.push(...fixes)
+      try {
+        const suspectWords = outWords.filter((w) => w.confidence < LOW_CONFIDENCE).map((w) => w.text)
+        const fixes = await d.proofreadCues(cues, { topic: summary.topic, genre: summary.genre, suspectWords })
+        const part = partitionCorrections(cues, fixes)
+        cues = applyCorrections(cues, part.safe)
+        applied.push(...part.safe)
+        suggestions.push(...part.unsafe)
+      } catch (e) {
+        extraFindings.push({ id: 'proofread-failed', severity: 'info', message: `자막 교정 점검을 하지 못했어요 (${(e as Error).message})`, fixHint: 'none' })
+      }
     }
 
     // 9) 만들고 검수하고, 필요하면 최대 2번 다시 만든다
     let quality: Quality = o.quality ?? 'looks'
     const history: { attempt: number; reasons: string[]; actions: string[] }[] = []
     let attempt = 1
+    let correctionsApplied = false // 검수 교정 때문에 도는 재작업은 1회로 제한한다(모델이 매번 다른 답을 내도 계속 렌더하지 않게)
     let qa: QaReport
     let renderedPath: string
     for (;;) {
@@ -259,17 +278,33 @@ export async function runEdit(o: EditOptions, overrides: Partial<PipelineDeps> =
         maxChars,
         summary: { topic: summary.topic, genre: summary.genre },
         skipCaptions: captionsOff,
+        purpose,
+        sourcePath: src,
+        kept,
       })
 
-      const actionable = qa.findings.filter((f) => f.severity === 'high' && f.fixHint !== 'none')
-      if ((actionable.length === 0 && qa.corrections.length === 0) || attempt >= MAX_ATTEMPTS) break
+      const isActionable = (f: Finding): boolean => {
+        if (f.severity !== 'high' || f.fixHint === 'none') return false
+        if (f.fixHint === 'rerender-quality') return quality !== 'delivery' // 이미 최고 화질이면 다시 렌더해도 달라질 게 없다
+        if (f.fixHint === 'recaption') return !captionsOff && applied.length === 0 // 교정을 이미 적용했다면 재묶기로 그 교정을 되돌리지 않는다
+        if (f.fixHint === 'recrop') return track !== undefined
+        return true
+      }
+      const actionable = qa.findings.filter(isActionable)
+      const qaFixes = partitionCorrections(cues, qa.corrections)
+      const useCorrections = qaFixes.safe.length > 0 && !correctionsApplied
+      if (attempt >= MAX_ATTEMPTS || (actionable.length === 0 && !useCorrections)) {
+        suggestions.push(...qaFixes.safe, ...qaFixes.unsafe) // 적용하지 못한 교정은 제안으로 남긴다
+        break
+      }
 
       stage('rework')
       const actions: string[] = []
-      if (qa.corrections.length) {
-        cues = applyCorrections(cues, qa.corrections)
-        applied.push(...qa.corrections)
-        actions.push(`자막 ${qa.corrections.length}곳 교정`)
+      if (useCorrections) {
+        cues = applyCorrections(cues, qaFixes.safe)
+        applied.push(...qaFixes.safe)
+        correctionsApplied = true
+        actions.push(`자막 ${qaFixes.safe.length}곳 교정`)
       }
       const hints = new Set(actionable.map((f) => f.fixHint))
       if (hints.has('rerender-quality')) {
@@ -280,7 +315,7 @@ export async function runEdit(o: EditOptions, overrides: Partial<PipelineDeps> =
         cropPath = computeCrop({ timeConstantSec: 1.2, deadband: 0.06, preferLargest: true })
         actions.push('크롭을 더 부드럽게 다시 계산')
       }
-      if (hints.has('recaption') && !qa.corrections.length && !captionsOff) {
+      if (hints.has('recaption') && !useCorrections && !captionsOff && applied.length === 0) {
         maxChars = Math.max(6, maxChars - 2)
         cues = groupWordsIntoCues(outWords, { maxChars })
         actions.push(`자막을 한 줄 ${maxChars}자로 다시 묶음`)
@@ -295,7 +330,22 @@ export async function runEdit(o: EditOptions, overrides: Partial<PipelineDeps> =
         ? { id: 'crop-no-person', severity: 'medium', message: '사람을 찾지 못해 화면 중앙으로 잘랐어요.', fixHint: 'none' }
         : { id: 'crop-low-coverage', severity: 'medium', message: '사람이 보이는 구간이 적어서 일부는 화면 중앙으로 잘렸어요.', fixHint: 'none' },
     )
-    const finalQa: QaReport = { ...qa, findings: [...qa.findings, ...cropFindings] }
+    const jitter = cropPath ? cropReversalsPerSec(cropPath.keyframes) : 0
+    if (jitter > CROP_JITTER_PER_SEC) {
+      cropFindings.push({
+        id: 'crop-jitter',
+        severity: 'medium',
+        message: `크롭이 초당 ${jitter.toFixed(1)}번 좌우로 방향을 바꿔요. 사람이 여러 명이거나 움직임이 많은 영상이면 화면이 흔들려 보일 수 있어요.`,
+        fixHint: 'none',
+      })
+    }
+    const suggestionFindings: Finding[] = suggestions.map((s) => ({
+      id: 'caption-suggestion',
+      severity: 'info',
+      message: `자막 ${s.index + 1}번을 "${s.text}" 로 고치는 게 좋을 수 있어요 (원문과 많이 달라서 자동으로 적용하지 않았어요).`,
+      fixHint: 'none',
+    }))
+    const finalQa: QaReport = { ...qa, findings: [...qa.findings, ...extraFindings, ...cropFindings, ...suggestionFindings] }
     const resultPath = path.join(outDir, 'result.mp4')
     fs.copyFileSync(renderedPath, resultPath)
 
@@ -316,6 +366,8 @@ export async function runEdit(o: EditOptions, overrides: Partial<PipelineDeps> =
           attempts: attempt,
           history,
           appliedCorrections: applied,
+          suggestions,
+          unchecked: UNCHECKED,
           qa: finalQa,
         },
         null,
@@ -324,7 +376,7 @@ export async function runEdit(o: EditOptions, overrides: Partial<PipelineDeps> =
     )
 
     stage('done')
-    return { resultPath, purpose, plan, planCard, qa: finalQa, attempts: attempt, delivered: true, appliedCorrections: applied, summary, reframe }
+    return { resultPath, purpose, plan, planCard, qa: finalQa, attempts: attempt, delivered: true, appliedCorrections: applied, suggestions, summary, reframe }
   } finally {
     if (!o.keepWork) fs.rmSync(work, { recursive: true, force: true })
   }

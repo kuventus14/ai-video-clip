@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import type { PersonBox, PersonTrack } from '../src/core/person.ts'
-import { computeCropPath } from '../src/core/reframe.ts'
+import { computeCropPath, cropReversalsPerSec } from '../src/core/reframe.ts'
 
 const SRC = { srcW: 1920, srcH: 1080, target: { width: 1080, height: 1920 } }
 const CROP_W = (1080 / 1920) * (1080 / 1920) // (target 비율) × srcH / srcW = 0.31640625
@@ -89,6 +89,50 @@ describe('computeCropPath', () => {
       const boxes = [person(0.3, 0.05, 0.3), person(0.45, 0.1, 0.6)]
       const p = path(trackOf(() => boxes), { smoothing: { preferLargest: true } })
       for (const k of p.keyframes) expect(k.centerX).toBeCloseTo(0.45, 2)
+    })
+  })
+
+  describe('(I2) 대상 선택에 히스테리시스', () => {
+    const jitter = (i: number, k: number) => Math.sin(i * 1.7 + k * 2.3) * 0.01
+
+    test('두 사람의 합집합 폭이 크롭 폭 근처에서 흔들려도 크롭이 좌우로 왔다 갔다 하지 않는다', () => {
+      const t = trackOf(
+        (time) => {
+          const i = Math.round(time * 4)
+          return [person(0.3 + jitter(i, 0), 0.08, 0.5), person(0.52 + jitter(i, 1), 0.08, 0.5)]
+        },
+        { duration: 20 },
+      )
+      const p = path(t, { durationSec: 20 })
+      const xs = p.keyframes.map((k) => k.centerX)
+      expect(cropReversalsPerSec(p.keyframes)).toBeLessThan(0.2)
+      expect(Math.max(...xs) - Math.min(...xs)).toBeLessThan(0.03)
+    })
+
+    test('멀리 떨어진 두 사람은 처음 따라가던 사람을 계속 따라간다 (크기가 번갈아 더 커 보여도)', () => {
+      const t = trackOf((time) => [person(0.1, 0.1, 0.5), person(0.9, 0.1, Math.round(time * 4) % 2 ? 0.52 : 0.5)])
+      const xs = path(t).keyframes.map((k) => k.centerX)
+      expect(Math.max(...xs) - Math.min(...xs)).toBeLessThan(1e-6)
+    })
+
+    test('따라가던 사람이 사라지면 남은 사람(가장 큰 박스)으로 옮겨 간다', () => {
+      const t = trackOf((time) => (time < 5 ? [person(0.1, 0.1, 0.5), person(0.9, 0.1, 0.4)] : [person(0.9, 0.1, 0.4)]))
+      const last = path(t).keyframes.at(-1)!
+      expect(last.centerX).toBeGreaterThan(0.8)
+    })
+  })
+
+  describe('cropReversalsPerSec', () => {
+    test('일정하거나 한 방향이면 0', () => {
+      expect(cropReversalsPerSec([{ t: 0, centerX: 0.5 }, { t: 1, centerX: 0.5 }, { t: 2, centerX: 0.5 }])).toBe(0)
+      expect(cropReversalsPerSec([{ t: 0, centerX: 0.3 }, { t: 1, centerX: 0.4 }, { t: 2, centerX: 0.5 }])).toBe(0)
+    })
+    test('좌우로 번갈아 움직이면 방향 전환 횟수 / 길이(초)', () => {
+      const zig = [0.5, 0.6, 0.5, 0.6, 0.5].map((centerX, i) => ({ t: i, centerX }))
+      expect(cropReversalsPerSec(zig)).toBeCloseTo(3 / 4, 6)
+    })
+    test('키프레임이 둘 이하면 0', () => {
+      expect(cropReversalsPerSec([{ t: 0, centerX: 0.5 }])).toBe(0)
     })
   })
 

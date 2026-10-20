@@ -73,37 +73,42 @@ describe('ensureH264', () => {
     expect(r.info).toBe(info)
   })
 
-  test('HEVC(아이폰 기본 코덱)는 H.264 mp4 로 바꾼다 — 크기·길이는 그대로', async () => {
+  // 실험으로 확인: hyperframes 0.8.181 은 HEVC 와 회전 메타데이터가 있는 영상도 변환 없이 색·방향 맞게 렌더링한다.
+  // 4K 아이폰 영상을 통째로 다시 인코딩하면 수십 분이 걸려서, 그런 흔한 입력은 그대로 쓴다.
+  test('HEVC(아이폰 기본 코덱)는 hyperframes 가 그대로 읽으므로 변환하지 않는다', async () => {
     const dir = tmp()
     const hevc = path.join(dir, '아이폰 영상.mov')
     await run('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=size=640x360:rate=30:d=1', '-c:v', 'libx265', '-tag:v', 'hvc1', '-pix_fmt', 'yuv420p', hevc])
     const info = await probeVideo(hevc)
     expect(info.videoCodec).toBe('hevc')
     const r = await ensureH264(hevc, info, dir)
+    expect(r.converted).toBe(false)
+    expect(r.path).toBe(hevc)
+  }, 120_000)
+
+  test('회전 메타데이터가 있는 영상과 mp4 가 아닌 H.264 컨테이너도 그대로 쓴다', async () => {
+    const info = await probeVideo(fx.rotated)
+    expect((await ensureH264(fx.rotated, info, tmp())).converted).toBe(false)
+    const dir = tmp()
+    const mov = path.join(dir, 'clip.mov')
+    fs.copyFileSync(fx.silent, mov)
+    expect((await ensureH264(mov, await probeVideo(mov), dir)).converted).toBe(false)
+  })
+
+  test('hyperframes 가 못 읽을 수 있는 드문 코덱(mpeg4 등)만 H.264 mp4 로 바꾼다 — 크기·길이는 그대로, 원본은 보존', async () => {
+    const dir = tmp()
+    const odd = path.join(dir, '옛날 영상.avi')
+    await run('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=size=640x360:rate=30:d=1', '-c:v', 'mpeg4', odd])
+    const info = await probeVideo(odd)
+    expect(info.videoCodec).toBe('mpeg4')
+    const r = await ensureH264(odd, info, dir)
     expect(r.converted).toBe(true)
     expect(r.path.endsWith('.mp4')).toBe(true)
     expect(path.dirname(r.path)).toBe(dir)
     expect(r.info.videoCodec).toBe('h264')
     expect([r.info.width, r.info.height]).toEqual([640, 360])
     expect(r.info.durationSec).toBeGreaterThan(0.9)
-    expect(fs.existsSync(hevc)).toBe(true) // 원본은 건드리지 않는다
-  }, 120_000)
-
-  test('회전 메타데이터가 있으면 화면 방향을 구워 넣어 회전을 없앤다', async () => {
-    const info = await probeVideo(fx.rotated)
-    const r = await ensureH264(fx.rotated, info, tmp())
-    expect(r.converted).toBe(true)
-    expect([r.info.width, r.info.height]).toEqual([1080, 1920])
-    expect(r.info.rotation ?? 0).toBe(0)
-  }, 120_000)
-
-  test('확장자가 mp4 가 아니면 H.264 여도 mp4 로 바꾼다', async () => {
-    const dir = tmp()
-    const mov = path.join(dir, 'clip.mov')
-    fs.copyFileSync(fx.silent, mov)
-    const r = await ensureH264(mov, await probeVideo(mov), dir)
-    expect(r.converted).toBe(true)
-    expect(r.path.endsWith('.mp4')).toBe(true)
+    expect(fs.existsSync(odd)).toBe(true)
   }, 120_000)
 })
 

@@ -160,6 +160,34 @@ describe('buildProject', () => {
   })
 })
 
+describe('hyperframes 통합 — 변환 없이 읽는 입력 (I7 실험을 고정)', () => {
+  async function lumaAt(file: string, t: number): Promise<number> {
+    const { stdout } = await run('ffmpeg', ['-v', 'error', '-ss', String(t), '-i', file, '-frames:v', '1', '-vf', 'signalstats,metadata=print:file=-', '-f', 'null', '-'])
+    return Number(stdout.match(/lavfi\.signalstats\.YAVG=([0-9.]+)/)![1])
+  }
+
+  test.each([
+    ['HEVC mp4', async (dir: string) => {
+      const p = path.join(dir, 'hevc.mp4')
+      await run('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=size=1280x720:rate=30:d=2', '-f', 'lavfi', '-i', 'sine=frequency=440:d=2', '-c:v', 'libx265', '-tag:v', 'hvc1', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', p])
+      return p
+    }, [1920, 1080]],
+    ['회전 메타데이터가 있는 H.264', async () => fx.rotated, [1080, 1920]],
+  ] as const)('%s 를 변환 없이 렌더링하면 검은 화면이 아니고 크기가 맞다', async (_name, make, size) => {
+    const dir = work()
+    const src = await make(dir)
+    const info = await probeVideo(src)
+    const canvas = { width: size[0], height: size[1] }
+    const { projectDir } = await buildProject({ workDir: dir, sourcePath: src, info, canvas, kept: [{ start: 0, end: 2 }], cues: [], reframe: chooseReframeMode(info, canvas), style: STYLE })
+    const out = path.join(dir, 'out.mp4')
+    await renderProject(projectDir, { outPath: out, quality: 'draft' })
+    const o = await probeVideo(out)
+    expect([o.width, o.height]).toEqual(size)
+    expect(o.hasAudio || !info.hasAudio).toBe(true)
+    expect(await lumaAt(out, 1)).toBeGreaterThan(20)
+  }, 300_000)
+})
+
 describe('hyperframes 통합', () => {
   test('check 를 통과하고 draft 렌더가 캔버스 크기·길이·오디오를 지킨다', async () => {
     const { projectDir } = await buildProject(input({ crop: [{ t: 0, centerX: 0.5 }, { t: 4, centerX: 0.6 }] }))

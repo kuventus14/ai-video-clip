@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { groupWordsIntoCues, remapKeyframes, remapTime, remapWords } from '../src/core/timeline.ts'
+import { groupWordsIntoCues, remapKeyframes, remapSpans, remapTime, remapWords } from '../src/core/timeline.ts'
 import type { Word } from '../src/core/types.ts'
 
 const w = (text: string, start: number, end: number): Word => ({ text, start, end, confidence: 0.9 })
@@ -37,6 +37,18 @@ describe('remapWords', () => {
   })
   test('경계에 닿기만 하는 단어는 버린다', () => {
     expect(remapWords([w('닿음', 2, 2.3)], KEPT)).toEqual([])
+  })
+})
+
+describe('remapSpans (I4)', () => {
+  test('원본 구간을 남은 구간과 겹치는 부분만 컷 이후 시간으로 옮긴다', () => {
+    expect(remapSpans([{ start: 1, end: 3 }, { start: 2.5, end: 5 }], KEPT)).toEqual([{ start: 1, end: 2 }, { start: 2, end: 3 }])
+  })
+  test('완전히 제거된 구간과 경계에 닿기만 하는 구간은 버린다', () => {
+    expect(remapSpans([{ start: 2.2, end: 3.8 }, { start: 2, end: 2 }], KEPT)).toEqual([])
+  })
+  test('시작 시각 순으로 돌려준다', () => {
+    expect(remapSpans([{ start: 5, end: 6 }, { start: 0, end: 1 }], KEPT)).toEqual([{ start: 0, end: 1 }, { start: 3, end: 4 }])
   })
 })
 

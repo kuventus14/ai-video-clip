@@ -6,11 +6,14 @@ import {
   checkAudioLevels,
   checkBlackSegments,
   checkCueTiming,
+  checkDuration,
   checkFraming,
   checkResolution,
   flagLowConfidence,
+  isSafeCorrection,
   parseBlackdetect,
   parseVolumeDetect,
+  partitionCorrections,
   proofreadCues,
   upscaleFactor,
 } from '../src/core/qaChecks.ts'
@@ -157,6 +160,44 @@ describe('proofreadCues / applyCorrections', () => {
   })
 })
 
+describe('isSafeCorrection / partitionCorrections (I5)', () => {
+  test('글자 몇 개만 바뀌는 교정은 안전하다', () => {
+    expect(isSafeCorrection('백싱을 넓게 낮게', '백스윙을 넓게 낮게')).toBe(true)
+    expect(isSafeCorrection('요렁이 있어? 이렇게 하면 나는 잘', '요령이 있어? 이렇게 하면 나는 잘')).toBe(true)
+    expect(isSafeCorrection('오, 꽃이 죽인다. 좀', '오, 꼬임이 죽인다. 좀')).toBe(true)
+    expect(isSafeCorrection('동아이언', '롱아이언')).toBe(true)
+  })
+  test('원문과 너무 다른 교정(추측으로 새로 쓴 문장)은 안전하지 않다', () => {
+    expect(isSafeCorrection('동화연칠', '동작 연습')).toBe(false)
+    expect(isSafeCorrection('안녕하세요', '완전히 다른 문장입니다')).toBe(false)
+  })
+  test('띄어쓰기만 바뀌면 안전하고, 빈 문장은 안전하지 않다', () => {
+    expect(isSafeCorrection('롱 아이언을 칠때', '롱아이언을 칠 때')).toBe(true)
+    expect(isSafeCorrection('안녕', '')).toBe(false)
+  })
+  test('partitionCorrections: 안전한 것과 아닌 것을 나누고 범위 밖 index 는 버린다', () => {
+    const cues: CaptionCue[] = [{ text: '백싱을 낮게', start: 0, end: 1 }, { text: '동화연칠', start: 1, end: 2 }]
+    const safe = { index: 0, text: '백스윙을 낮게', reason: 'term' as const }
+    const wild = { index: 1, text: '동작 연습', reason: 'typo' as const }
+    const out = partitionCorrections(cues, [safe, wild, { index: 9, text: '무시', reason: 'typo' }])
+    expect(out).toEqual({ safe: [safe], unsafe: [wild] })
+  })
+})
+
+describe('checkDuration (I8)', () => {
+  test('릴스·숏츠용인데 3분을 넘으면 medium 경고', () => {
+    const f = checkDuration('short', 200)
+    expect(f).toHaveLength(1)
+    expect(f[0]).toMatchObject({ id: 'duration-for-purpose', severity: 'medium', fixHint: 'none' })
+    expect(f[0]!.message).toContain('200')
+  })
+  test('3분 이하이거나 게시물용이면 경고 없음', () => {
+    expect(checkDuration('short', 180)).toEqual([])
+    expect(checkDuration('short', 60)).toEqual([])
+    expect(checkDuration('post', 600)).toEqual([])
+  })
+})
+
 describe('checkFraming', () => {
   const box = (cx: number, w = 0.2, kind: 'human' | 'face' = 'human'): PersonBox => ({ x: cx - w / 2, y: 0.2, w, h: 0.6, confidence: 0.9, kind })
   const track = (boxesOf: (i: number) => PersonBox[], n = 10): PersonTrack => ({ width: 1080, height: 1920, samples: Array.from({ length: n }, (_, i) => ({ t: i * 0.25, boxes: boxesOf(i) })) })
@@ -182,6 +223,23 @@ describe('checkFraming', () => {
     expect(f).toHaveLength(1)
     expect(f[0]).toMatchObject({ id: 'framing-no-person', severity: 'info', fixHint: 'none' })
   })
+  describe('(I3) 클로즈업 — 몸 박스가 화면 폭의 80% 를 넘으면 얼굴 박스로 판정한다', () => {
+    const body: PersonBox = { x: 0, y: 0.1, w: 1, h: 0.9, confidence: 0.9, kind: 'human' }
+    const face = (x: number): PersonBox => ({ x, y: 0.15, w: 0.24, h: 0.2, confidence: 0.9, kind: 'face' })
+
+    test('몸이 화면 가득이어도 얼굴이 중앙이면 통과', () => {
+      expect(checkFraming(track(() => [body, face(0.38)]), 'track', SHORT)).toEqual([])
+    })
+    test('얼굴이 가장자리로 쏠리면 high + recrop', () => {
+      expect(checkFraming(track(() => [body, face(0)]), 'track', SHORT)[0]).toMatchObject({ id: 'framing', severity: 'high', fixHint: 'recrop' })
+    })
+    test('얼굴이 안 잡히면 판단하지 않고 info 만 남긴다 (재작업을 돌리지 않는다)', () => {
+      const f = checkFraming(track(() => [body]), 'track', SHORT)
+      expect(f).toHaveLength(1)
+      expect(f[0]).toMatchObject({ id: 'framing-closeup', severity: 'info', fixHint: 'none' })
+    })
+  })
+
   test('track 이 아니면 구도를 따지지 않는다', () => {
     expect(checkFraming(track(() => [box(0.05, 0.1)]), 'blur-fill', POST)).toEqual([])
     expect(checkFraming(track(() => []), 'none', POST)).toEqual([])

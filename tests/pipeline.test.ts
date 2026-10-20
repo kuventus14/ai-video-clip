@@ -177,12 +177,53 @@ describe('runEdit — 흐름', () => {
     expect(report.summary.genre).toBe('골프 레슨')
   })
 
+  const workDirs = (dir: string) => fs.readdirSync(dir).filter((f) => f.startsWith('.vae-work-'))
+
   test('(p) 작업 폴더는 끝나면 지우고, keepWork 면 남긴다', async () => {
     await setup().run()
-    expect(fs.existsSync(path.join(work, 'out', 'work'))).toBe(false)
+    expect(workDirs(path.join(work, 'out'))).toEqual([])
     const kept = setup()
     await kept.run({ outDir: path.join(work, 'out2'), keepWork: true })
-    expect(fs.existsSync(path.join(work, 'out2', 'work'))).toBe(true)
+    expect(workDirs(path.join(work, 'out2'))).toHaveLength(1)
+  })
+
+  test('(C1) --out 폴더에 원래 있던 work 폴더와 파일은 건드리지 않는다 (성공·실패 모두)', async () => {
+    const out = path.join(work, 'out-existing')
+    fs.mkdirSync(path.join(out, 'work'), { recursive: true })
+    fs.writeFileSync(path.join(out, 'work', 'notes.txt'), '소중한 파일')
+    await setup().run({ outDir: out })
+    expect(fs.readFileSync(path.join(out, 'work', 'notes.txt'), 'utf8')).toBe('소중한 파일')
+    await setup({}, { videoInfo: info({ durationSec: 700 }) }).run({ outDir: out }).catch(() => {})
+    expect(fs.readFileSync(path.join(out, 'work', 'notes.txt'), 'utf8')).toBe('소중한 파일')
+  })
+
+  test('(I1) 장면 전환 감지는 원본 전체 길이를 본다 (기본 180초 한계에 걸리지 않게)', async () => {
+    const calls: { maxSec?: number }[] = []
+    const { run } = setup({ detectSceneCuts: async (_p, o) => (calls.push(o ?? {}), []) }, { videoInfo: info({ width: 1920, height: 1080, durationSec: 400 }) })
+    await run({ purpose: 'short' })
+    expect(calls[0]!.maxSec).toBeGreaterThanOrEqual(400)
+  })
+
+  test('(I8) 검수에 용도·원본 경로·남은 구간을 넘기고, report.json 에 검수하지 않은 항목을 남긴다', async () => {
+    const { rec, run } = setup()
+    await run()
+    expect(rec.qas[0]!.purpose).toBe('short')
+    expect(rec.qas[0]!.sourcePath).toBe('/in/영상.mp4')
+    expect(rec.qas[0]!.kept).toEqual([{ start: 0, end: 56.8 }])
+    const report = JSON.parse(fs.readFileSync(path.join(work, 'out', 'report.json'), 'utf8'))
+    expect(report.unchecked.length).toBeGreaterThan(0)
+    expect(report.unchecked.join(' ')).toContain('재전사')
+  })
+
+  test('(I8) 크롭이 계속 왔다 갔다 하면 crop-jitter 경고를 남긴다', async () => {
+    const flip: PersonTrack = {
+      width: 1920,
+      height: 1080,
+      samples: Array.from({ length: 60 }, (_, i) => ({ t: i * 0.25, boxes: [{ x: i % 2 ? 0.7 : 0.1, y: 0.2, w: 0.1, h: 0.5, confidence: 0.9, kind: 'human' as const }] })),
+    }
+    const { run } = setup({ trackPeople: async () => flip }, { videoInfo: info({ width: 1920, height: 1080, durationSec: 15 }) })
+    const r = await run({ purpose: 'short' })
+    expect(r.qa.findings.some((f) => f.id === 'crop-jitter')).toBe(true)
   })
 
   test('원본이 H.264 mp4 가 아니어서 변환되면 normalize 단계를 거치고 변환본으로 작업한다', async () => {
@@ -252,15 +293,74 @@ describe('runEdit — 재작업', () => {
     expect(r.qa.passed).toBe(true)
   })
 
-  test('(c) 계속 high 이면 최초 + 재작업 2회에서 멈추고 문제를 남긴 채 전달한다, 품질은 한 단계씩 올린다', async () => {
-    const bad = failing(high('black-frames', 'rerender-quality'))
+  test('(c) 계속 high(조치 가능)이면 최초 + 재작업 2회에서 멈추고 문제를 남긴 채 전달한다', async () => {
+    const bad = failing(high('cue-overlap', 'recaption'))
     const { rec, run } = setup({}, { qaQueue: [bad, bad, bad, bad] })
     const r = await run()
     expect(r.attempts).toBe(3)
     expect(r.delivered).toBe(true)
     expect(r.qa.passed).toBe(false)
-    expect(rec.renders.map((x) => x.quality)).toEqual(['looks', 'delivery', 'delivery'])
+    expect(rec.builds).toHaveLength(3)
     expect(fs.readFileSync(r.resultPath, 'utf8')).toBe('render-3')
+  })
+
+  test('(I4) 화질 재작업은 looks → delivery 로 한 번 올리고, 이미 최고 화질이면 더 하지 않는다', async () => {
+    const bad = failing(high('black-frames', 'rerender-quality'))
+    const up = setup({}, { qaQueue: [bad, bad, bad] })
+    const r = await up.run()
+    expect(up.rec.renders.map((x) => x.quality)).toEqual(['looks', 'delivery'])
+    expect(r.attempts).toBe(2)
+    const max = setup({}, { qaQueue: [bad] })
+    const r2 = await max.run({ quality: 'delivery', outDir: path.join(work, 'out-max') })
+    expect(r2.attempts).toBe(1)
+    expect(max.rec.renders).toHaveLength(1)
+  })
+
+  test('(I5) 원문과 너무 다른 교정은 자동 적용하지 않고 제안으로만 남긴다', async () => {
+    const wild = { index: 0, text: '완전히 다른 문장이에요 정말로 그래요', reason: 'typo' as const }
+    const { rec, run } = setup({ proofreadCues: async () => [wild] })
+    const r = await run()
+    expect(rec.builds[0]!.cues[0]!.text).toBe('안녕하세요 롱아이언 팁입니다')
+    expect(r.appliedCorrections).toEqual([])
+    expect(r.suggestions).toEqual([wild])
+    expect(r.qa.findings.some((f) => f.id === 'caption-suggestion' && f.severity === 'info')).toBe(true)
+    const report = JSON.parse(fs.readFileSync(path.join(work, 'out', 'report.json'), 'utf8'))
+    expect(report.suggestions).toEqual([wild])
+  })
+
+  test('(I5) 검수가 매번 교정을 내놓아도 교정 때문에 도는 재작업은 1회뿐이다', async () => {
+    const mk = (text: string): QaReport => ({ passed: true, findings: [], corrections: [{ index: 0, text, reason: 'spacing' }], checkedAt: 'x' })
+    const c2 = mk('안녕하세요 롱아이언 팁입니다?')
+    const { rec, run } = setup({}, { qaQueue: [mk('안녕하세요 롱아이언 팁입니다!'), c2, PASS] })
+    const r = await run()
+    expect(r.attempts).toBe(2)
+    expect(rec.builds).toHaveLength(2)
+    expect(r.suggestions).toContainEqual(c2.corrections[0])
+  })
+
+  test('(M4) 렌더 전 교정 호출이 실패해도 편집은 계속하고 리포트에 알린다', async () => {
+    const { run } = setup({ proofreadCues: async () => { throw new Error('사용량 제한') } })
+    const r = await run()
+    expect(r.delivered).toBe(true)
+    expect(r.qa.findings.some((f) => f.id === 'proofread-failed' && f.severity === 'info')).toBe(true)
+  })
+
+  test('(M3) 이미 교정을 적용했다면 recaption 재묶기로 그 교정을 되돌리지 않는다', async () => {
+    const fix = { index: 0, text: '안녕하세요 롱아이언 팁입니다!', reason: 'spacing' as const }
+    const { rec, run } = setup({ proofreadCues: async () => [fix] }, { qaQueue: [failing(high('cue-overlap', 'recaption'))] })
+    const r = await run()
+    expect(r.attempts).toBe(1)
+    expect(rec.builds[0]!.cues[0]!.text).toBe('안녕하세요 롱아이언 팁입니다!')
+    expect(r.appliedCorrections).toEqual([fix])
+  })
+
+  test('(I6) 요청 해석에는 레퍼런스가 있는지 알린다', async () => {
+    const seen: (boolean | undefined)[] = []
+    const empty = { mode: 'targeted' as const, take: [], skip: [], adjust: [], unsupported: [] }
+    const { run } = setup({ interpretRequest: async (i) => (seen.push(i.hasReference), empty) })
+    await run({ request: '컷을 더 빠르게' })
+    await run({ request: '컷을 더 빠르게', reference: '/ref.mp4', outDir: path.join(work, 'out-ref') })
+    expect(seen).toEqual([false, true])
   })
 
   test('조치할 수 없는 high(fixHint none)만 있으면 재작업 없이 그대로 전달한다', async () => {
@@ -280,12 +380,13 @@ describe('runEdit — 재작업', () => {
   })
 
   test('재작업에서 교정만 남아 있어도(high 없음) 교정을 적용해 다시 만든다', async () => {
-    const q1: QaReport = { passed: true, findings: [], corrections: [{ index: 0, text: '고친 자막', reason: 'typo' }], checkedAt: 'x' }
+    const fix = { index: 0, text: '안녕하세요 롱아이언 팁입니다!', reason: 'typo' as const }
+    const q1: QaReport = { passed: true, findings: [], corrections: [fix], checkedAt: 'x' }
     const { rec, run } = setup({}, { qaQueue: [q1, PASS] })
     const r = await run()
     expect(r.attempts).toBe(2)
-    expect(rec.builds[1]!.cues[0]!.text).toBe('고친 자막')
-    expect(r.appliedCorrections).toContainEqual({ index: 0, text: '고친 자막', reason: 'typo' })
+    expect(rec.builds[1]!.cues[0]!.text).toBe('안녕하세요 롱아이언 팁입니다!')
+    expect(r.appliedCorrections).toContainEqual(fix)
   })
 })
 

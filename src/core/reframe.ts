@@ -29,18 +29,60 @@ const CUT_LEAD_SEC = 0.001
 
 const area = (b: PersonBox) => b.w * b.h
 
-/** 한 샘플에서 따라갈 x 중심. 몸이 있으면 몸, 없으면 얼굴. 없으면 null. */
-function pickCenter(boxes: PersonBox[], cropWidth: number, preferLargest: boolean): number | null {
-  const humans = boxes.filter((b) => b.kind === 'human')
-  const pool = humans.length ? humans : boxes.filter((b) => b.kind === 'face')
-  if (!pool.length) return null
-  if (!preferLargest) {
-    const minX = Math.min(...pool.map((b) => b.x))
-    const maxX = Math.max(...pool.map((b) => b.x + b.w))
-    if (maxX - minX <= cropWidth) return (minX + maxX) / 2
+const UNION_ENTER = 0.9 // 합집합 폭이 크롭 폭의 이 비율 이하로 줄어야 "모두 함께" 모드로 돌아온다
+const UNION_LEAVE = 1.05 // 이 비율을 넘어야 "한 사람만" 모드로 나간다 (경계에서 왔다 갔다 하지 않게 하는 히스테리시스)
+
+const centerOf = (b: PersonBox) => b.x + b.w / 2
+
+/**
+ * 샘플마다 따라갈 x 중심(없으면 null). 몸이 있으면 몸, 없으면 얼굴.
+ * 모두 크롭 폭에 들어오면 합집합의 중심, 아니면 한 사람을 따른다 — 이 선택은 히스테리시스를 두고,
+ * 한 사람을 따를 때는 처음 고른 사람과 가장 가까운 박스를 계속 따라가 크기가 번갈아 커 보여도 흔들리지 않는다.
+ */
+function selectCenters(samples: PersonTrack['samples'], cropWidth: number, preferLargest: boolean): (number | null)[] {
+  let mode: 'union' | 'single' | null = null
+  let tracked: number | null = null
+  return samples.map((s) => {
+    const humans = s.boxes.filter((b) => b.kind === 'human')
+    const pool = humans.length ? humans : s.boxes.filter((b) => b.kind === 'face')
+    if (!pool.length) return null
+
+    if (!preferLargest) {
+      const minX = Math.min(...pool.map((b) => b.x))
+      const maxX = Math.max(...pool.map((b) => b.x + b.w))
+      const unionW = maxX - minX
+      if (mode === null) mode = unionW <= cropWidth ? 'union' : 'single'
+      else if (mode === 'union' && unionW > cropWidth * UNION_LEAVE) mode = 'single'
+      else if (mode === 'single' && unionW <= cropWidth * UNION_ENTER) mode = 'union'
+      if (mode === 'union') {
+        tracked = null
+        return (minX + maxX) / 2
+      }
+    }
+
+    const pick =
+      tracked === null
+        ? pool.reduce((a, b) => (area(b) > area(a) ? b : a))
+        : pool.reduce((a, b) => (Math.abs(centerOf(b) - tracked!) < Math.abs(centerOf(a) - tracked!) ? b : a))
+    tracked = centerOf(pick)
+    return tracked
+  })
+}
+
+/** 크롭 중심이 좌우로 방향을 바꾼 횟수 / 길이(초). 클수록 크롭이 흔들린다. */
+export function cropReversalsPerSec(keyframes: CropKeyframe[]): number {
+  if (keyframes.length < 3) return 0
+  let prevSign = 0
+  let reversals = 0
+  for (let i = 1; i < keyframes.length; i++) {
+    const d = keyframes[i]!.centerX - keyframes[i - 1]!.centerX
+    if (Math.abs(d) < 1e-6) continue
+    const sign = Math.sign(d)
+    if (prevSign !== 0 && sign !== prevSign) reversals++
+    prevSign = sign
   }
-  const largest = pool.reduce((a, b) => (area(b) > area(a) ? b : a))
-  return largest.x + largest.w / 2
+  const span = keyframes.at(-1)!.t - keyframes[0]!.t
+  return span > 0 ? reversals / span : 0
 }
 
 export function computeCropPath(
@@ -53,7 +95,7 @@ export function computeCropPath(
   const cropWidth = (o.target.width / o.target.height) * (o.srcH / o.srcW)
 
   const samples = [...track.samples].sort((a, b) => a.t - b.t)
-  const centers = samples.map((s) => pickCenter(s.boxes, cropWidth, sm.preferLargest ?? false))
+  const centers = selectCenters(samples, cropWidth, sm.preferLargest ?? false)
   const coverage = samples.length ? centers.filter((c) => c !== null).length / samples.length : 0
 
   if (cropWidth >= 1) return { keyframes: [{ t: 0, centerX: 0.5 }], cropWidth, coverage, warnings: [] }
