@@ -180,7 +180,8 @@ describe('isSafeCorrection / partitionCorrections (I5)', () => {
     const safe = { index: 0, text: '백스윙을 낮게', reason: 'term' as const }
     const wild = { index: 1, text: '동작 연습', reason: 'typo' as const }
     const out = partitionCorrections(cues, [safe, wild, { index: 9, text: '무시', reason: 'typo' }])
-    expect(out).toEqual({ safe: [safe], unsafe: [wild] })
+    // 화면(결과 확인)이 "원문 → 수정" 을 보여 줄 수 있게 고치기 전 글을 original 로 붙인다
+    expect(out).toEqual({ safe: [{ ...safe, original: '백싱을 낮게' }], unsafe: [{ ...wild, original: '동화연칠' }] })
   })
 })
 

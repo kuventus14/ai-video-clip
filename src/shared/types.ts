@@ -28,8 +28,10 @@ export interface ReportDto {
   reframe: string
   purpose: PurposeValue | null
   findings: { id: string; severity: 'high' | 'medium' | 'info'; message: string; atSec?: number }[]
-  appliedCorrections: { index: number; text: string; reason: string }[]
-  suggestions: { index: number; text: string; reason: string }[]
+  /** 자동으로 고친 자막. text 는 고친 글, original 은 고치기 전 글(옛 리포트에는 없다), reason 은 typo|term|spacing */
+  appliedCorrections: { index: number; text: string; reason: string; original?: string }[]
+  /** 자동 적용하지 않고 제안으로만 남긴 교정 */
+  suggestions: { index: number; text: string; reason: string; original?: string }[]
   /** 이 버전의 검수가 확인하지 않는 항목 */
   unchecked: string[]
 }

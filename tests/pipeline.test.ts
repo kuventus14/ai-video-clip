@@ -322,10 +322,10 @@ describe('runEdit — 재작업', () => {
     const r = await run()
     expect(rec.builds[0]!.cues[0]!.text).toBe('안녕하세요 롱아이언 팁입니다')
     expect(r.appliedCorrections).toEqual([])
-    expect(r.suggestions).toEqual([wild])
+    expect(r.suggestions).toEqual([{ ...wild, original: '안녕하세요 롱아이언 팁입니다' }])
     expect(r.qa.findings.some((f) => f.id === 'caption-suggestion' && f.severity === 'info')).toBe(true)
     const report = JSON.parse(fs.readFileSync(path.join(work, 'out', 'report.json'), 'utf8'))
-    expect(report.suggestions).toEqual([wild])
+    expect(report.suggestions).toEqual([{ ...wild, original: '안녕하세요 롱아이언 팁입니다' }])
   })
 
   test('(I5) 검수가 매번 교정을 내놓아도 교정 때문에 도는 재작업은 1회뿐이다', async () => {
@@ -335,7 +335,7 @@ describe('runEdit — 재작업', () => {
     const r = await run()
     expect(r.attempts).toBe(2)
     expect(rec.builds).toHaveLength(2)
-    expect(r.suggestions).toContainEqual(c2.corrections[0])
+    expect(r.suggestions).toContainEqual({ ...c2.corrections[0]!, original: expect.any(String) })
   })
 
   test('(M4) 렌더 전 교정 호출이 실패해도 편집은 계속하고 리포트에 알린다', async () => {
@@ -351,7 +351,7 @@ describe('runEdit — 재작업', () => {
     const r = await run()
     expect(r.attempts).toBe(1)
     expect(rec.builds[0]!.cues[0]!.text).toBe('안녕하세요 롱아이언 팁입니다!')
-    expect(r.appliedCorrections).toEqual([fix])
+    expect(r.appliedCorrections).toEqual([{ ...fix, original: '안녕하세요 롱아이언 팁입니다' }])
   })
 
   test('(I6) 요청 해석에는 레퍼런스가 있는지 알린다', async () => {
@@ -386,7 +386,7 @@ describe('runEdit — 재작업', () => {
     const r = await run()
     expect(r.attempts).toBe(2)
     expect(rec.builds[1]!.cues[0]!.text).toBe('안녕하세요 롱아이언 팁입니다!')
-    expect(r.appliedCorrections).toContainEqual(fix)
+    expect(r.appliedCorrections).toContainEqual({ ...fix, original: '안녕하세요 롱아이언 팁입니다' })
   })
 })
 
@@ -412,7 +412,7 @@ describe('runEdit — 자막과 음성', () => {
     const { rec, run } = setup({ proofreadCues: async () => [{ index: 0, text: '안녕하세요 롱아이언', reason: 'term' }] })
     const r = await run()
     expect(rec.builds[0]!.cues[0]!.text).toBe('안녕하세요 롱아이언')
-    expect(r.appliedCorrections).toEqual([{ index: 0, text: '안녕하세요 롱아이언', reason: 'term' }])
+    expect(r.appliedCorrections).toEqual([{ index: 0, text: '안녕하세요 롱아이언', reason: 'term', original: '안녕하세요 롱아이언 팁입니다' }])
   })
 
   test('컷 이후의 출력 시간으로 자막과 구간이 넘어간다 (무음 제거)', async () => {

@@ -13,7 +13,7 @@ const SummarySchema = z.object({
 })
 
 const Finding = z.object({ id: z.string(), severity: z.enum(['high', 'medium', 'info']), message: z.string(), atSec: z.number().optional() })
-const Correction = z.object({ index: z.number(), text: z.string(), reason: z.string() })
+const Correction = z.object({ index: z.number(), text: z.string(), reason: z.string(), original: z.string().optional() })
 const ReportSchema = z.object({
   qa: z.object({ passed: z.boolean(), findings: z.array(Finding) }),
   attempts: z.number().default(1),

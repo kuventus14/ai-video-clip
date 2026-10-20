@@ -57,6 +57,12 @@ export function formatKoreanDate(iso: string, now: Date = new Date()): string {
   return d.getFullYear() === now.getFullYear() ? md : `${d.getFullYear()}년 ${md}`
 }
 
+/** formatKoreanDate 의 결과 뒤에 "에" 를 붙인다. "어제" 는 "어제에" 가 어색해 그대로 둔다. */
+export function atDate(dateText: string): string {
+  if (!dateText) return ''
+  return dateText === '어제' ? dateText : `${dateText}에`
+}
+
 export const STATUS_LABEL: Record<JobStatus, string> = {
   created: '올리는 중',
   queued_probe: '확인 대기',

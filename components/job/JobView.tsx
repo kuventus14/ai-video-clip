@@ -4,7 +4,7 @@ import { SearchX, TriangleAlert } from 'lucide-react'
 import Link from 'next/link'
 import { useEffect, useState, type ReactNode } from 'react'
 import type { JobDto } from '../../src/shared/types.ts'
-import { formatKoreanDate, progressState, purposeLabel, shownPurpose, stepForJob } from '../../src/ui/format.ts'
+import { atDate, formatKoreanDate, progressState, purposeLabel, shownPurpose, stepForJob } from '../../src/ui/format.ts'
 import { useJob } from '../../src/ui/useJob.ts'
 import { Badge } from '../ui/Badge.tsx'
 import { Button, buttonClass } from '../ui/Button.tsx'
@@ -17,6 +17,7 @@ import { JobInfo } from './JobInfo.tsx'
 import { PlanApproval } from './PlanApproval.tsx'
 import { ProgressPanel } from './ProgressPanel.tsx'
 import { ReferencePicker } from './ReferencePicker.tsx'
+import { ResultReview } from './ResultReview.tsx'
 import { UploadForm } from './UploadForm.tsx'
 
 /** 작업 화면. 작업을 읽어 오고 상태가 바뀌면 본문을 알맞은 패널로 바꾼다. */
@@ -73,7 +74,7 @@ export function JobView({ id }: { id: string }) {
         <h1 className="break-words text-[22px] font-semibold leading-tight">{job.title}</h1>
         <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[13px] text-ink-3">
           {purpose ? <Badge>{purposeLabel(purpose)}</Badge> : null}
-          <span>{formatKoreanDate(job.createdAt)}에 만들었어요</span>
+          <span>{atDate(formatKoreanDate(job.createdAt))} 만들었어요</span>
         </div>
       </div>
 
@@ -139,6 +140,9 @@ function bodyFor(job: JobDto, { refresh, pickerOpen, setPickerOpen }: BodyContex
       return { node: <ReferencePicker job={job} onChanged={refresh} /> }
     case 'awaiting_plan':
       return { node: pickerOpen ? picker : <PlanApproval job={job} onChanged={refresh} onEditReference={() => setPickerOpen(true)} /> }
+    case 'awaiting_confirm':
+    case 'confirmed':
+      return { node: <ResultReview job={job} onChanged={refresh} />, wide: true }
     case 'failed':
       if (job.failedPhase === 'plan' && pickerOpen) return { node: picker }
       return { node: <FailedPanel job={job} onChanged={refresh} onEditReference={() => setPickerOpen(true)} /> }

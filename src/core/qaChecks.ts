@@ -113,6 +113,8 @@ export interface CueCorrection {
   index: number
   text: string
   reason: 'typo' | 'term' | 'spacing'
+  /** 고치기 전의 자막 글. partitionCorrections 가 붙인다(리포트·결과 화면의 "원문 → 수정" 용) */
+  original?: string
 }
 
 const Corrections = z.object({
@@ -175,7 +177,7 @@ export function partitionCorrections(cues: CaptionCue[], corrections: CueCorrect
   for (const c of corrections) {
     const cue = cues[c.index]
     if (!cue) continue
-    ;(isSafeCorrection(cue.text, c.text) ? safe : unsafe).push(c)
+    ;(isSafeCorrection(cue.text, c.text) ? safe : unsafe).push({ ...c, original: cue.text })
   }
   return { safe, unsafe }
 }

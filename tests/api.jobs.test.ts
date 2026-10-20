@@ -92,6 +92,16 @@ describe('만들기·조회', () => {
     expect(afterMove.statusSince > made.createdAt).toBe(true)
   })
 
+  test('리포트의 교정·제안에는 고치기 전 글(original)이 함께 오고, 옛 리포트(original 없음)도 읽힌다', async () => {
+    const a = await create()
+    const { jobs } = getContext()
+    const qa = { passed: true, findings: [] }
+    jobs.update(a.id, { report: { qa, appliedCorrections: [{ index: 2, text: '롱아이언은 체중 이동이에요', reason: 'term', original: '롱 아이런은 체중 이동이에요' }], suggestions: [{ index: 5, text: '다운스윙', reason: 'spacing' }] } })
+    const dto = (await (await jobGet(new Request(url(`/api/jobs/${a.id}`)), params(a.id))).json()) as JobDto
+    expect(dto.report?.appliedCorrections).toEqual([{ index: 2, text: '롱아이언은 체중 이동이에요', reason: 'term', original: '롱 아이런은 체중 이동이에요' }])
+    expect(dto.report?.suggestions).toEqual([{ index: 5, text: '다운스윙', reason: 'spacing' }])
+  })
+
   test('결과 영상의 길이·크기(리포트의 output)는 resultInfo 로, 없거나 형식이 틀리면 null', async () => {
     const a = await create()
     const b = await create()

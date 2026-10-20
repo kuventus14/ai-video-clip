@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { JobStatus } from '../src/shared/types.ts'
-import { LOW_CONFIDENCE, estimateProduce, formatBytes, formatDuration, formatKoreanDate, formatViews, isBusy, pollIntervalMs, progressState, purposeLabel, purposeNote, NEXT_ACTION, shownPurpose, STATUS_LABEL, STEPS, stepFor, stepForJob } from '../src/ui/format.ts'
+import { LOW_CONFIDENCE, atDate, estimateProduce, formatBytes, formatDuration, formatKoreanDate, formatViews, isBusy, pollIntervalMs, progressState, purposeLabel, purposeNote, NEXT_ACTION, shownPurpose, STATUS_LABEL, STEPS, stepFor, stepForJob } from '../src/ui/format.ts'
 
 const ALL_STATUSES: JobStatus[] = ['created', 'queued_probe', 'probing', 'ready', 'queued_analysis', 'analyzing', 'awaiting_reference', 'queued_plan', 'planning', 'awaiting_plan', 'queued_produce', 'producing', 'awaiting_confirm', 'confirmed', 'failed']
 
@@ -72,6 +72,17 @@ describe('formatKoreanDate', () => {
   })
   it('날짜가 아닌 값은 빈 문자열', () => {
     expect(formatKoreanDate('not a date', now)).toBe('')
+  })
+})
+
+describe('atDate — "…에" 붙이기', () => {
+  it('날짜·시각에는 "에", 어제는 "어제" 그대로', () => {
+    expect(atDate('오늘 14:05')).toBe('오늘 14:05에')
+    expect(atDate('10월 18일')).toBe('10월 18일에')
+    expect(atDate('어제')).toBe('어제')
+  })
+  it('빈 값은 빈 문자열', () => {
+    expect(atDate('')).toBe('')
   })
 })
 

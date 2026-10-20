@@ -80,8 +80,11 @@ const REPORT = {
   qa: {
     passed: false,
     findings: [
+      { id: 'cue-overlap', severity: 'high', message: '자막 3번과 4번이 겹쳐 보일 수 있어요. 시간 간격이 너무 짧아요.', atSec: 8.2 },
       { id: 'caption-low-confidence', severity: 'medium', message: '자막 "체중이동이" 는 음성 인식 확신이 낮아요. 직접 들어보고 확인해 주세요.', atSec: 12.4 },
+      { id: 'crop-jitter', severity: 'medium', message: '크롭이 초당 0.9번 좌우로 방향을 바꿔요. 사람이 여러 명이거나 움직임이 많은 영상이면 화면이 흔들려 보일 수 있어요.' },
       { id: 'quality-upscale', severity: 'info', message: '원본이 720p 라서 1080p 로 키웠어요. 글자 주변이 조금 부드러워 보일 수 있어요.' },
+      { id: 'caption-suggestion', severity: 'info', message: '자막 10번을 "다운스윙 때 손목의 각도를 오래 유지해요" 로 고치는 게 좋을 수 있어요 (원문과 많이 달라서 자동으로 적용하지 않았어요).' },
     ],
   },
   attempts: 2,
@@ -89,11 +92,12 @@ const REPORT = {
   purpose: { resolved: 'short' },
   output: { durationSec: 44.2, width: 1080, height: 1920 },
   appliedCorrections: [
-    { index: 3, text: '롱아이언은 체중 이동이 핵심이에요', reason: '"롱 아이런" 오타를 고쳤어요' },
-    { index: 7, text: '임팩트 직전까지 왼발에 체중을 실어요', reason: '"임펙트" 를 표준 표기로 고쳤어요' },
+    { index: 2, text: '롱아이언은 체중 이동이 핵심이에요', reason: 'term', original: '롱 아이런은 체중이동이 핵심이에요' },
+    { index: 6, text: '임팩트 직전까지 왼발에 체중을 실어요', reason: 'typo', original: '임펙트 직전까지 왼발에 체중을 실어요' },
+    { index: 11, text: '백스윙을 낮고 넓게 가져가면서 상체와 하체의 꼬임을 만들어 주면 다운스윙에서 힘이 한꺼번에 실려요', reason: 'spacing', original: '백스윙을 낮고 넓게 가져가면서 상체와 하체의 꼬임을 만들어주면 다운 스윙에서 힘이 한꺼번에 실려요' },
   ],
-  suggestions: [{ index: 9, text: '다운스윙에서 손목을 유지해요', reason: '"다운 스윙" 은 붙여 쓰는 편이 더 자연스러워요' }],
-  unchecked: ['소리 크기가 구간마다 고른지', '배경 음악과 말소리가 겹치는지', '화면 전환이 어색한 곳이 있는지'],
+  suggestions: [{ index: 9, text: '다운스윙 때 손목의 각도를 오래 유지해요', reason: 'typo', original: '다운 스윙때 손목을 유지하고 회전' }],
+  unchecked: ['음성 재전사와의 대조(자막이 실제 말과 맞는지 음성으로 다시 확인)', '자막과 음성의 싱크', '자막이 화면 밖으로 잘리거나 제목 카드와 겹치는지', '원본 대비 비트레이트 하락'],
 }
 
 interface Seed {
@@ -139,6 +143,9 @@ for (const seed of SEEDS) {
     const result = path.join(dir, 'result.mp4')
     makeVideo(result, shape, (seed.hue ?? 0) + 40)
     patch.resultPath = result
+    // "다른 버전도 만들기" 가 부모의 분석 결과를 가져오므로, 결과가 있는 작업에는 최소한의 analysis.json 을 둔다
+    const info = { ...INFO[shape], path: source }
+    fs.writeFileSync(path.join(dir, 'analysis.json'), JSON.stringify({ version: 1, sourcePath: source, info, summary: SUMMARY }))
   }
   jobs.update(job.id, patch)
   for (const [stage, message] of seed.log ?? []) jobs.log(job.id, stage, message)
