@@ -151,3 +151,17 @@ export function estimateProduce(durationSec: number): string {
   const lower = Math.min(upper, Math.max(1, Math.round((durationSec * 2) / 60)))
   return `약 ${lower}~${upper}분`
 }
+
+/** 자동 인식 확신이 이보다 낮으면 직접 골라 보라고 권한다 */
+export const LOW_CONFIDENCE = 0.65
+
+/** 용도 선택 아래 한 줄: 자동 인식 결과와 이유, 확신이 낮을 때의 권유, 직접 고른 값이 우선이라는 말 */
+export function purposeNote(choice: 'auto' | PurposeValue, guess: JobDto['purposeGuess']): string {
+  if (!guess) return choice === 'auto' ? '영상을 올리면 가로·세로 비율과 길이를 보고 자동으로 정해요.' : '직접 고른 값으로 만들어요.'
+  const reason = guess.reasons[0] ? ` — ${guess.reasons[0]}` : ''
+  if (choice === 'auto') {
+    const low = guess.confidence < LOW_CONFIDENCE ? ' 확신이 낮아요. 직접 골라 보세요.' : ''
+    return `자동 인식: ${purposeLabel(guess.purpose)}${reason}.${low}`
+  }
+  return guess.purpose === choice ? `직접 고른 값이에요. 자동 인식도 같았어요${reason}.` : `직접 고른 값으로 만들어요. (자동 인식은 ${purposeLabel(guess.purpose)} 였어요.)`
+}

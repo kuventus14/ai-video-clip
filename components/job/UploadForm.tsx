@@ -1,26 +1,25 @@
 'use client'
 
-import { CircleCheck, FileVideo, Paperclip, X } from 'lucide-react'
+import { CircleCheck, FileVideo, X } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { useEffect, useRef, useState } from 'react'
-import { UNSUPPORTED_FORMAT_MESSAGE, VIDEO_EXTS, videoExtOf } from '../../src/shared/media.ts'
+import { UNSUPPORTED_FORMAT_MESSAGE, videoExtOf } from '../../src/shared/media.ts'
 import type { JobDto } from '../../src/shared/types.ts'
-import { ApiError, createJob, removeJob, start, uploadReferenceFile, uploadVideo } from '../../src/ui/api.ts'
-import { formatBytes, formatDuration, purposeLabel } from '../../src/ui/format.ts'
+import { ApiError, createJob, removeJob, start, uploadVideo } from '../../src/ui/api.ts'
+import { formatBytes, formatDuration } from '../../src/ui/format.ts'
+import { BAD_LINK_MESSAGE, checkLink } from '../../src/ui/reference.ts'
 import { useJob } from '../../src/ui/useJob.ts'
+import { ActionBar } from '../ui/ActionBar.tsx'
 import { Button } from '../ui/Button.tsx'
 import { Card } from '../ui/Card.tsx'
 import { cx } from '../ui/cx.ts'
-import { Field, Input, Textarea } from '../ui/Field.tsx'
-import { Segmented } from '../ui/Segmented.tsx'
+import { Field, Textarea } from '../ui/Field.tsx'
 import { Spinner } from '../ui/Spinner.tsx'
 import { Steps } from '../ui/Steps.tsx'
 import { Dropzone } from './Dropzone.tsx'
+import { PurposeChooser, type PurposeChoice } from './PurposeChooser.tsx'
+import { ReferenceInput } from './ReferenceInput.tsx'
 
-type Choice = 'auto' | 'post' | 'short'
-
-/** 자동 인식 확신이 이보다 낮으면 직접 골라 보라고 권한다 */
-const LOW_CONFIDENCE = 0.65
 /** 영상 확인(워커)이 이 시간 넘게 시작되지 않으면 처리 프로그램이 꺼져 있을 수 있다고 알려 준다 */
 const WORKER_HINT_MS = 15_000
 
@@ -47,13 +46,11 @@ export function UploadForm({ resume, onStarted }: { resume?: JobDto; onStarted?:
 
   // 입력
   const [description, setDescription] = useState(resume?.description ?? '')
-  const [choice, setChoice] = useState<Choice>(resume?.purposeChoice ?? 'auto')
+  const [choice, setChoice] = useState<PurposeChoice>(resume?.purposeChoice ?? 'auto')
   const [link, setLink] = useState('')
   const [linkError, setLinkError] = useState<string | null>(null)
-  const [refFile, setRefFile] = useState<{ name: string } | null>(null)
-  const [refFraction, setRefFraction] = useState<number | null>(null)
-  const [refError, setRefError] = useState<string | null>(null)
-  const refInput = useRef<HTMLInputElement>(null)
+  const [refFileName, setRefFileName] = useState<string | null>(null)
+  const [refBusy, setRefBusy] = useState(false)
   const linkInput = useRef<HTMLInputElement>(null)
 
   // 시작
@@ -104,9 +101,8 @@ export function UploadForm({ resume, onStarted }: { resume?: JobDto; onStarted?:
     setUploading(false)
     setUploaded(false)
     setFraction(0)
-    setRefFile(null)
-    setRefFraction(null)
-    setRefError(null)
+    setRefFileName(null)
+    setRefBusy(false)
     setSubmitError(null)
   }
 
@@ -153,31 +149,11 @@ export function UploadForm({ resume, onStarted }: { resume?: JobDto; onStarted?:
     if (resume) router.push('/new') // 작업 화면 안에서는 올릴 곳이 없으니 새 영상 화면으로
   }
 
-  async function attachReference(picked: File) {
-    if (!jobId) return
-    if (!videoExtOf(picked.name)) {
-      setRefError(`${UNSUPPORTED_FORMAT_MESSAGE}.`)
-      return
-    }
-    setRefError(null)
-    setRefFraction(0)
-    try {
-      await uploadReferenceFile(jobId, picked, setRefFraction)
-      setRefFile({ name: picked.name })
-      setLink('')
-      setLinkError(null)
-    } catch (e) {
-      setRefError(messageOf(e))
-    } finally {
-      setRefFraction(null)
-    }
-  }
-
   async function onStart() {
     if (!jobId || !ready) return
-    const trimmed = link.trim()
-    if (!refFile && trimmed && !/^https?:\/\/\S+$/i.test(trimmed)) {
-      setLinkError('http:// 또는 https:// 로 시작하는 링크를 넣어 주세요.')
+    const checked = checkLink(link)
+    if (!refFileName && checked.kind === 'bad') {
+      setLinkError(BAD_LINK_MESSAGE)
       linkInput.current?.focus() // 고정된 시작 막대에 가려지지 않게 입력칸으로 데려간다
       linkInput.current?.scrollIntoView({ block: 'center' })
       return
@@ -186,7 +162,7 @@ export function UploadForm({ resume, onStarted }: { resume?: JobDto; onStarted?:
     setSubmitting(true)
     setSubmitError(null)
     try {
-      const next = await start(jobId, { description: description.trim(), purposeChoice: choice, reference: refFile ? 'uploaded' : trimmed || null })
+      const next = await start(jobId, { description: description.trim(), purposeChoice: choice, reference: refFileName ? 'uploaded' : checked.kind === 'ok' ? checked.url : null })
       if (onStarted) onStarted(next)
       else router.push(`/jobs/${jobId}`)
     } catch (e) {
@@ -197,7 +173,7 @@ export function UploadForm({ resume, onStarted }: { resume?: JobDto; onStarted?:
 
   const guess = job?.purposeGuess ?? null
   const rulerState = probeFailed ? 'failed' : uploading || checking ? 'busy' : 'waiting'
-  const blocker = !file ? '영상을 먼저 올려 주세요' : uploading ? '영상을 올리는 중이에요' : checking ? '영상을 확인하는 중이에요' : probeFailed ? '영상을 확인하지 못했어요' : refFraction !== null ? '레퍼런스 파일을 올리는 중이에요' : null
+  const blocker = !file ? '영상을 먼저 올려 주세요' : uploading ? '영상을 올리는 중이에요' : checking ? '영상을 확인하는 중이에요' : probeFailed ? '영상을 확인하지 못했어요' : refBusy ? '레퍼런스 파일을 올리는 중이에요' : null
 
   return (
     <div className={cx('flex w-full flex-col gap-6', !resume && 'mx-auto max-w-[760px]')}>
@@ -280,98 +256,36 @@ export function UploadForm({ resume, onStarted }: { resume?: JobDto; onStarted?:
       </Card>
 
       <Card title="용도" description="어디에 올릴 영상인지에 따라 화면 비율과 편집이 달라져요. 직접 고른 값이 항상 우선이에요.">
-        <div className="flex flex-col gap-3">
-          <Segmented
-            legend="용도 선택"
-            value={choice}
-            onChange={setChoice}
-            options={[
-              { value: 'auto', label: '자동 인식', hint: guess ? `→ ${shortPurpose(guess.purpose)}` : undefined },
-              { value: 'post', label: '게시물 영상용', hint: '가로 16:9' },
-              { value: 'short', label: '릴스·숏츠용', hint: '세로 9:16' },
-            ]}
-          />
-          <p className={cx('text-[13px]', guess && guess.confidence < LOW_CONFIDENCE && choice === 'auto' ? 'text-warn' : 'text-ink-3')} aria-live="polite">
-            {purposeNote(choice, guess)}
-          </p>
-        </div>
+        <PurposeChooser value={choice} onChange={setChoice} guess={guess} />
       </Card>
 
       <Card title="레퍼런스가 있다면" description="따라 하고 싶은 영상의 링크나 파일이에요. 없으면 비워 두세요. 분석이 끝난 뒤 추천 목록에서 골라도 돼요.">
-        <div className="flex flex-col gap-4">
-          <Field label="링크" optional error={linkError} hint="유튜브·인스타그램 등 공개된 영상의 주소">
-            {(p) => <Input {...p} ref={linkInput} type="url" inputMode="url" value={link} onChange={(e) => setLink(e.target.value)} disabled={!!refFile} placeholder="https://" />}
-          </Field>
-          <div className="flex flex-col gap-1.5">
-            <span className="text-[13px] font-medium text-ink">
-              또는 영상 파일 <span className="font-normal text-ink-3">선택</span>
-            </span>
-            {refFile ? (
-              <div className="flex items-center gap-2 rounded-control border border-line px-3 py-2 text-[15px]">
-                <Paperclip size={16} strokeWidth={1.75} className="shrink-0 text-ink-3" aria-hidden="true" />
-                <span className="min-w-0 flex-1 truncate">{refFile.name}</span>
-                <Button size="icon" variant="ghost" aria-label="첨부한 레퍼런스 파일 빼기" onClick={() => setRefFile(null)}>
-                  <X size={16} strokeWidth={1.75} aria-hidden="true" />
-                </Button>
-              </div>
-            ) : (
-              <div className="flex flex-wrap items-center gap-3">
-                <Button size="sm" disabled={!jobId || refFraction !== null} onClick={() => refInput.current?.click()} icon={<Paperclip size={16} strokeWidth={1.75} aria-hidden="true" />}>
-                  파일 첨부
-                </Button>
-                {refFraction !== null ? <span className="text-[13px] text-ink-2 tabular-nums">올리는 중 · {Math.round(refFraction * 100)}%</span> : null}
-                {!jobId ? <span className="text-[13px] text-ink-3">영상을 올린 뒤에 첨부할 수 있어요</span> : null}
-              </div>
-            )}
-            <input
-              ref={refInput}
-              type="file"
-              accept={[...VIDEO_EXTS, 'video/*'].join(',')}
-              className="sr-only"
-              tabIndex={-1}
-              aria-hidden="true"
-              onChange={(e) => {
-                const f = e.target.files?.[0]
-                if (f) void attachReference(f)
-                e.target.value = ''
-              }}
-            />
-            {refError ? (
-              <p role="alert" className="text-[13px] font-medium text-bad">
-                {refError}
-              </p>
-            ) : null}
-          </div>
-        </div>
+        <ReferenceInput
+          jobId={jobId}
+          link={link}
+          onLinkChange={(v) => {
+            setLink(v)
+            setLinkError(null)
+          }}
+          linkError={linkError}
+          linkRef={linkInput}
+          fileName={refFileName}
+          onFileChange={(name) => {
+            setRefFileName(name)
+            if (name) {
+              setLink('')
+              setLinkError(null)
+            }
+          }}
+          onBusyChange={setRefBusy}
+        />
       </Card>
 
-      <div className="sticky bottom-3 flex flex-col gap-2 rounded-panel border border-line bg-panel px-4 py-3 shadow-float">
-        {submitError ? (
-          <p role="alert" className="text-[13px] font-medium text-bad">
-            {submitError}
-          </p>
-        ) : null}
-        <div className="flex items-center justify-end gap-4">
-          {blocker ? <p className="text-[13px] text-ink-3">{blocker}</p> : null}
-          <Button variant="primary" disabled={!ready || refFraction !== null} loading={submitting} onClick={onStart}>
-            분석 시작
-          </Button>
-        </div>
-      </div>
+      <ActionBar error={submitError} hint={blocker}>
+        <Button variant="primary" disabled={!ready || refBusy} loading={submitting} onClick={onStart}>
+          분석 시작
+        </Button>
+      </ActionBar>
     </div>
   )
 }
-
-const shortPurpose = (p: 'post' | 'short') => (p === 'post' ? '게시물 영상용' : '릴스·숏츠용')
-
-/** 용도 선택 아래 한 줄: 자동 인식 결과와 이유, 확신이 낮을 때의 권유 */
-function purposeNote(choice: Choice, guess: JobDto['purposeGuess']): string {
-  if (!guess) return choice === 'auto' ? '영상을 올리면 가로·세로 비율과 길이를 보고 자동으로 정해요.' : '직접 고른 값으로 만들어요.'
-  const reason = guess.reasons[0] ? ` — ${guess.reasons[0]}` : ''
-  if (choice === 'auto') {
-    const low = guess.confidence < LOW_CONFIDENCE ? ' 확신이 낮아요. 직접 골라 보세요.' : ''
-    return `자동 인식: ${purposeLabel(guess.purpose)}${reason}.${low}`
-  }
-  return guess.purpose === choice ? `직접 고른 값이에요. 자동 인식도 같았어요${reason}.` : `직접 고른 값으로 만들어요. (자동 인식은 ${purposeLabel(guess.purpose)} 였어요.)`
-}
-

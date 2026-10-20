@@ -67,11 +67,13 @@ const SUMMARY = {
 }
 
 const PLAN_CARD = [
-  '이 영상은 롱아이언 체중 이동을 알려 주는 56초짜리 골프 레슨으로 이해했어요.',
-  '레퍼런스처럼 처음 3초 안에 제목 카드를 띄우고, 말이 끊기는 구간은 잘라서 45~50초로 줄여요.',
-  '자막은 한 줄에 한 문장씩, 큰 글자로 아래쪽에 넣어요.',
-  '릴스·숏츠용이라 세로 9:16 으로 만들고, 사람이 가운데 오도록 화면을 맞춰요.',
-  '배경 음악과 효과음은 이번 버전에서는 넣지 않아요.',
+  '이렇게 이해했어요: 레퍼런스의 편집 스타일을 최대한 따라 해요.',
+  '• 자막: 한 줄에 한 문장씩, 화면 아래쪽에 큰 글씨(흰색, 핵심 단어는 노란색)로 넣어요',
+  '• 제목 카드: 처음 3초 안에 "롱아이언, 왜 안 맞을까?" 를 크게 띄워요',
+  '• 컷 속도: 말이 끊기는 구간을 잘라 45~50초 안팎으로 줄여요 (비슷하게만 가능해요)',
+  '• 화면 구도: 릴스·숏츠용이라 세로 9:16 으로 만들고, 사람이 가운데 오도록 맞춰요',
+  '• 전환 효과: "줌 인으로 넘어가기" 는 이번 버전에서 반영하지 못했어요',
+  '• 배경 음악: 이번 버전에서는 지원하지 않아요',
 ]
 
 const REPORT = {
@@ -114,6 +116,7 @@ const SEEDS: Seed[] = [
   { hoursAgo: 0.1, shape: 'portrait', hue: 0, patch: { ...base('롱아이언_레슨.mp4', 'portrait'), status: 'ready' } },
   { statusAgoSec: 75, hoursAgo: 0.3, shape: 'portrait', hue: 60, patch: { ...base('벙커샷_연습.mov', 'portrait'), status: 'analyzing', stage: '말을 글로 옮기는 중', description: '벙커에서 공을 한 번에 빼내는 연습 영상' }, log: [['probe', '영상 정보를 확인했어요'], ['analysis', '음성을 글로 옮기는 중']] },
   { oneLine: '퍼팅 라인 읽는 법, 초보용', hoursAgo: 0.6, shape: 'portrait', hue: 120, patch: { ...base('퍼팅_라인.mp4', 'portrait'), status: 'awaiting_reference', summary: SUMMARY, recommendations: RECOMMENDATIONS, description: '퍼팅 라인 읽는 법' } },
+  { oneLine: '추천이 없는 영상 테스트', hoursAgo: 0.8, shape: 'portrait', hue: 150, patch: { ...base('추천없음_테스트.mp4', 'portrait'), status: 'awaiting_reference', summary: SUMMARY, recommendations: [], description: '추천 목록이 비어 있는 경우' } },
   { oneLine: '롱아이언 체중 이동 핵심 3초', hoursAgo: 1, shape: 'portrait', hue: 180, patch: { ...base('롱아이언_릴스.mp4', 'portrait'), status: 'awaiting_plan', summary: SUMMARY, description: '롱아이언 체중 이동', referenceSource: RECOMMENDATIONS[0]!.url, requestText: '제목 카드와 자막 스타일을 따라 해 주세요', planCard: PLAN_CARD, purpose: 'short', purposeChoice: 'auto' } },
   { oneLine: '드라이버 슬라이스 잡는 그립', statusAgoSec: 193, hoursAgo: 1.5, shape: 'portrait', hue: 240, patch: { ...base('드라이버_슬라이스.mp4', 'portrait'), status: 'producing', stage: '자막을 입히는 중', summary: SUMMARY, referenceSource: RECOMMENDATIONS[1]!.url, planCard: PLAN_CARD, purpose: 'short' }, log: [['plan', '계획을 만들었어요'], ['produce', '말이 끊기는 구간을 잘랐어요'], ['produce', '자막을 입히는 중']] },
   { hoursAgo: 2, shape: 'portrait', hue: 300, withResult: true, patch: { ...base('롱아이언_릴스_편집본.mp4', 'portrait'), status: 'awaiting_confirm', summary: SUMMARY, referenceSource: RECOMMENDATIONS[0]!.url, planCard: PLAN_CARD, purpose: 'short', report: REPORT, attempts: 2 } },

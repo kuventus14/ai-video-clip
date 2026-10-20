@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { JobStatus } from '../src/shared/types.ts'
-import { estimateProduce, formatBytes, formatDuration, formatKoreanDate, formatViews, isBusy, pollIntervalMs, progressState, purposeLabel, NEXT_ACTION, shownPurpose, STATUS_LABEL, STEPS, stepFor, stepForJob } from '../src/ui/format.ts'
+import { LOW_CONFIDENCE, estimateProduce, formatBytes, formatDuration, formatKoreanDate, formatViews, isBusy, pollIntervalMs, progressState, purposeLabel, purposeNote, NEXT_ACTION, shownPurpose, STATUS_LABEL, STEPS, stepFor, stepForJob } from '../src/ui/format.ts'
 
 const ALL_STATUSES: JobStatus[] = ['created', 'queued_probe', 'probing', 'ready', 'queued_analysis', 'analyzing', 'awaiting_reference', 'queued_plan', 'planning', 'awaiting_plan', 'queued_produce', 'producing', 'awaiting_confirm', 'confirmed', 'failed']
 
@@ -161,6 +161,23 @@ describe('shownPurpose — 확정된 값 > 직접 고른 값 > 자동 인식', (
     expect(shownPurpose({ purpose: null, purposeChoice: 'post', purposeGuess: guess })).toBe('post')
     expect(shownPurpose({ purpose: null, purposeChoice: 'auto', purposeGuess: guess })).toBe('short')
     expect(shownPurpose({ purpose: null, purposeChoice: 'auto', purposeGuess: null })).toBeNull()
+  })
+})
+
+describe('purposeNote — 용도 선택 아래 한 줄', () => {
+  const guess = (purpose: 'post' | 'short', confidence: number) => ({ purpose, confidence, reasons: ['영상이 세로 비율이에요'] })
+  it('아직 인식 전이면 안내만', () => {
+    expect(purposeNote('auto', null)).toMatch(/올리면|확인하면/)
+    expect(purposeNote('post', null)).toBe('직접 고른 값으로 만들어요.')
+  })
+  it('자동일 때는 결과와 이유를, 확신이 낮으면 직접 골라 보라고 한다', () => {
+    expect(purposeNote('auto', guess('short', 0.9))).toBe('자동 인식: 릴스·숏츠용(세로) — 영상이 세로 비율이에요.')
+    expect(purposeNote('auto', guess('short', LOW_CONFIDENCE - 0.01))).toContain('확신이 낮아요. 직접 골라 보세요.')
+    expect(purposeNote('auto', guess('short', LOW_CONFIDENCE))).not.toContain('확신이 낮아요')
+  })
+  it('직접 고른 값은 자동 인식과 같든 다르든 우선이라고 말한다', () => {
+    expect(purposeNote('short', guess('short', 0.9))).toContain('직접 고른 값이에요')
+    expect(purposeNote('post', guess('short', 0.9))).toBe('직접 고른 값으로 만들어요. (자동 인식은 릴스·숏츠용(세로) 였어요.)')
   })
 })
 

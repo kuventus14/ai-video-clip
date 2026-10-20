@@ -2,7 +2,7 @@
 
 import { SearchX, TriangleAlert } from 'lucide-react'
 import Link from 'next/link'
-import type { ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import type { JobDto } from '../../src/shared/types.ts'
 import { formatKoreanDate, progressState, purposeLabel, shownPurpose, stepForJob } from '../../src/ui/format.ts'
 import { useJob } from '../../src/ui/useJob.ts'
@@ -14,12 +14,18 @@ import { Skeleton } from '../ui/Skeleton.tsx'
 import { Steps } from '../ui/Steps.tsx'
 import { FailedPanel } from './FailedPanel.tsx'
 import { JobInfo } from './JobInfo.tsx'
+import { PlanApproval } from './PlanApproval.tsx'
 import { ProgressPanel } from './ProgressPanel.tsx'
+import { ReferencePicker } from './ReferencePicker.tsx'
 import { UploadForm } from './UploadForm.tsx'
 
 /** 작업 화면. 작업을 읽어 오고 상태가 바뀌면 본문을 알맞은 패널로 바꾼다. */
 export function JobView({ id }: { id: string }) {
   const { job, error, notFound, refresh } = useJob(id)
+  // 계획이 이미 있거나 계획 단계에서 실패한 작업에서 "레퍼런스 바꾸기" 로 레퍼런스 선택 화면을 여는 스위치. 상태가 바뀌면(계획을 다시 요청하면) 닫는다.
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const status = job?.status
+  useEffect(() => setPickerOpen(false), [status])
 
   if (notFound) {
     return (
@@ -59,7 +65,7 @@ export function JobView({ id }: { id: string }) {
   }
 
   const purpose = shownPurpose(job)
-  const body = bodyFor(job, refresh)
+  const body = bodyFor(job, { refresh, pickerOpen, setPickerOpen })
 
   return (
     <div className="flex flex-col gap-6">
@@ -93,7 +99,14 @@ export function JobView({ id }: { id: string }) {
 }
 
 /** 상태 → 본문. wide 면 보조 정보 칸 없이 전체 폭을 쓴다. 이 화면이 아직 모르는 상태는 빈 화면이 아니라 안내를 보인다. */
-function bodyFor(job: JobDto, refresh: (next?: JobDto) => void): { node: ReactNode; wide?: boolean } {
+interface BodyContext {
+  refresh: (next?: JobDto) => void
+  pickerOpen: boolean
+  setPickerOpen: (open: boolean) => void
+}
+
+function bodyFor(job: JobDto, { refresh, pickerOpen, setPickerOpen }: BodyContext): { node: ReactNode; wide?: boolean } {
+  const picker = <ReferencePicker job={job} onChanged={refresh} onCancel={() => setPickerOpen(false)} />
   switch (job.status) {
     case 'created':
       return {
@@ -122,8 +135,13 @@ function bodyFor(job: JobDto, refresh: (next?: JobDto) => void): { node: ReactNo
     case 'queued_produce':
     case 'producing':
       return { node: <ProgressPanel job={job} /> }
+    case 'awaiting_reference':
+      return { node: <ReferencePicker job={job} onChanged={refresh} /> }
+    case 'awaiting_plan':
+      return { node: pickerOpen ? picker : <PlanApproval job={job} onChanged={refresh} onEditReference={() => setPickerOpen(true)} /> }
     case 'failed':
-      return { node: <FailedPanel job={job} onChanged={refresh} /> }
+      if (job.failedPhase === 'plan' && pickerOpen) return { node: picker }
+      return { node: <FailedPanel job={job} onChanged={refresh} onEditReference={() => setPickerOpen(true)} /> }
     default:
       return {
         node: (
