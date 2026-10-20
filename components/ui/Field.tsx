@@ -1,5 +1,5 @@
 import { CircleAlert } from 'lucide-react'
-import { useId, type InputHTMLAttributes, type ReactNode, type TextareaHTMLAttributes } from 'react'
+import { useId, type ComponentProps, type ReactNode } from 'react'
 import { cx } from './cx.ts'
 
 interface ControlProps {
@@ -21,7 +21,12 @@ export function Field({ label, hint, error, optional, children, className }: { l
     <div className={cx('flex flex-col gap-1.5', className)}>
       <label htmlFor={id} className="text-[13px] font-medium text-ink">
         {label}
-        {optional ? <span className="ml-1.5 font-normal text-ink-3">선택</span> : null}
+        {optional ? (
+          <>
+            <span className="sr-only">, </span>
+            <span className="ml-1.5 font-normal text-ink-3">선택</span>
+          </>
+        ) : null}
       </label>
       {children({ id, 'aria-describedby': describedBy, 'aria-invalid': error ? true : undefined })}
       {hint ? (
@@ -43,10 +48,10 @@ const CONTROL =
   'w-full rounded-control border border-field-line bg-panel px-3 text-[15px] text-ink placeholder:text-ink-3 transition-colors duration-150 ' +
   'hover:border-ink-3 disabled:cursor-not-allowed disabled:opacity-50 aria-[invalid=true]:border-bad'
 
-export function Input({ className, ...rest }: InputHTMLAttributes<HTMLInputElement>) {
+export function Input({ className, ...rest }: ComponentProps<'input'>) {
   return <input className={cx(CONTROL, 'h-10', className)} {...rest} />
 }
 
-export function Textarea({ className, rows = 3, ...rest }: TextareaHTMLAttributes<HTMLTextAreaElement>) {
+export function Textarea({ className, rows = 3, ...rest }: ComponentProps<'textarea'>) {
   return <textarea rows={rows} className={cx(CONTROL, 'resize-y py-2 leading-relaxed', className)} {...rest} />
 }

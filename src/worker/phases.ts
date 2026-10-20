@@ -44,8 +44,13 @@ export function stageText(s: Stage, detail?: string): string {
 
 /** 사용자에게 그대로 보여 줄 수 있는 오류는 메시지를, 그 밖의 오류는 일반 안내를 돌려준다. */
 export function describeError(e: unknown): { message: string; detail?: string } {
-  if (e instanceof InputError || e instanceof ReferenceFetchError || e instanceof LlmError || e instanceof ToolError || e instanceof SearchError) {
+  if (e instanceof InputError || e instanceof ReferenceFetchError || e instanceof LlmError || e instanceof SearchError) {
     return { message: e.message }
+  }
+  // 도구(ffprobe·ffmpeg 등)의 원문에는 이 컴퓨터의 파일 경로와 영어 오류가 섞여 있다 — 화면에는 안내만, 원문은 진행 기록에 남긴다
+  if (e instanceof ToolError) {
+    const message = e.tool === 'ffprobe' ? '영상을 읽을 수 없어요. 손상됐거나 영상이 아닌 파일일 수 있어요.' : `${e.tool} 가 실패했어요. 같은 일이 반복되면 진행 기록의 자세한 내용을 알려 주세요.`
+    return { message, detail: e.message }
   }
   const detail = e instanceof Error ? `${e.name}: ${e.message}` : String(e)
   return { message: '예상하지 못한 오류가 났어요. 다시 시도해 보고, 계속되면 알려 주세요.', detail }

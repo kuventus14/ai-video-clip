@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { beforeEach, describe, expect, test } from 'vitest'
+import { ToolError } from '../src/core/exec.ts'
 import { ReferenceFetchError } from '../src/core/reference.ts'
 import type { Analysis, Prepared } from '../src/core/pipeline.ts'
 import { openDb } from '../src/db/db.ts'
@@ -101,6 +102,30 @@ describe('probe 단계', () => {
     expect(after.sourceInfo).toEqual({ durationSec: 56.8, width: 1080, height: 1920 })
     expect(after.purposeGuess).toMatchObject({ purpose: 'short' })
     expect(fs.existsSync(after.thumbPath!)).toBe(true)
+  })
+
+  test('영상이 아닌 파일이면 서버 경로가 없는 안내를 보이고, 도구의 원문은 진행 기록에만 남긴다', async () => {
+    const j = job('queued_probe')
+    const stderr = '[mov,mp4] moov atom not found /Users/someone/data/jobs/abc/source.mp4: Invalid data found'
+    await runOnce(jobs, fakes({ probeVideo: async () => { throw new ToolError('ffprobe', 1, stderr) } }).deps)
+    const after = jobs.get(j.id)!
+    expect(after).toMatchObject({ status: 'failed', failedPhase: 'probe' })
+    expect(after.errorMessage).toContain('읽을 수 없어요')
+    expect(after.errorMessage).not.toContain('/Users/')
+    expect(after.errorMessage).not.toContain('moov')
+    expect(after.log.some((l) => l.message.includes('moov atom not found'))).toBe(true)
+  })
+
+  test('다른 도구(ffmpeg 등)의 실패도 원문(경로 포함)을 화면용 메시지에 싣지 않는다', async () => {
+    const j = job('queued_produce')
+    writeAnalysis(j.id)
+    fs.writeFileSync(path.join(jobs.jobDir(j.id), 'prepared.json'), JSON.stringify(PREPARED))
+    await runOnce(jobs, fakes({ produceEdit: async () => { throw new ToolError('ffmpeg', 1, 'Error opening /Users/someone/data/x.mp4: No such file') } }).deps)
+    const after = jobs.get(j.id)!
+    expect(after).toMatchObject({ status: 'failed', failedPhase: 'produce' })
+    expect(after.errorMessage).toContain('ffmpeg')
+    expect(after.errorMessage).not.toContain('/Users/')
+    expect(after.log.some((l) => l.message.includes('No such file'))).toBe(true)
   })
 
   test('썸네일을 못 만들어도 작업은 실패하지 않는다', async () => {

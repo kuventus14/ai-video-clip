@@ -4,6 +4,7 @@ import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import type { ZodType } from 'zod'
 import type { Job, Jobs } from '../db/jobs.ts'
+import { UNSUPPORTED_FORMAT_MESSAGE, VIDEO_EXTS, videoExtOf } from '../shared/media.ts'
 import { getContext } from './context.ts'
 
 export function jsonError(status: number, message: string): Response {
@@ -32,16 +33,12 @@ export function assertSameOrigin(req: Request): Response | null {
   return originHost === host ? null : jsonError(403, '다른 사이트에서 보낸 요청은 받을 수 없어요')
 }
 
-/** 올릴 수 있는 영상 확장자. 사용자가 보낸 파일 이름은 디스크 경로에 쓰지 않고 이 확장자만 쓴다. */
-export const VIDEO_EXTS = ['.mp4', '.mov', '.m4v', '.webm', '.mkv', '.avi'] as const
-
+/** 올릴 수 있는 영상 확장자(없으면 null). 사용자가 보낸 파일 이름은 디스크 경로에 쓰지 않고 이 확장자만 쓴다. */
 export function allowedExt(name: string | null): string | null {
-  if (!name) return null
-  const ext = path.extname(name).toLowerCase()
-  return (VIDEO_EXTS as readonly string[]).includes(ext) ? ext : null
+  return videoExtOf(name)
 }
 
-export const UNSUPPORTED_FORMAT_MESSAGE = `지원하지 않는 형식이에요 (${VIDEO_EXTS.map((e) => e.slice(1)).join(', ')})`
+export { UNSUPPORTED_FORMAT_MESSAGE, VIDEO_EXTS }
 
 /** 경로의 작업 id 를 검사해 작업을 읽는다. 잘못된 id 는 400, 없으면 404 응답을 돌려준다. */
 export async function loadJob(params: Promise<{ id: string }>): Promise<{ job: Job; jobs: Jobs } | { res: Response }> {

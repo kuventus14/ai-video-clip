@@ -12,6 +12,20 @@ export function formatDuration(sec: number): string {
   return h > 0 ? `${h}:${pad2(m)}:${pad2(s)}` : `${m}:${pad2(s)}`
 }
 
+/** 17624365 → "16.8MB", 1536 → "1.5KB". 1024 단위, 소수 한 자리(.0 은 뺀다). */
+export function formatBytes(bytes: number): string {
+  const n = Number.isFinite(bytes) && bytes > 0 ? bytes : 0
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  let i = 0
+  let v = n
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024
+    i++
+  }
+  if (i === 0) return `${Math.floor(v)}B`
+  return `${v.toFixed(1).replace(/\.0$/, '')}${units[i]}`
+}
+
 /** 361521 → "36만", 8835 → "8.8천", 999 → "999". 값을 부풀리지 않도록 내림한다. */
 export function formatViews(n: number | null): string {
   if (n === null || !Number.isFinite(n)) return '조회수 없음'

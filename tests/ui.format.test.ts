@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { JobStatus } from '../src/shared/types.ts'
-import { formatDuration, formatKoreanDate, formatViews, isBusy, pollIntervalMs, progressState, purposeLabel, NEXT_ACTION, STATUS_LABEL, STEPS, stepFor, stepForJob } from '../src/ui/format.ts'
+import { formatBytes, formatDuration, formatKoreanDate, formatViews, isBusy, pollIntervalMs, progressState, purposeLabel, NEXT_ACTION, STATUS_LABEL, STEPS, stepFor, stepForJob } from '../src/ui/format.ts'
 
 const ALL_STATUSES: JobStatus[] = ['created', 'queued_probe', 'probing', 'ready', 'queued_analysis', 'analyzing', 'awaiting_reference', 'queued_plan', 'planning', 'awaiting_plan', 'queued_produce', 'producing', 'awaiting_confirm', 'confirmed', 'failed']
 
@@ -19,6 +19,21 @@ describe('formatDuration', () => {
   it('음수·NaN 은 0:00', () => {
     expect(formatDuration(-3)).toBe('0:00')
     expect(formatDuration(Number.NaN)).toBe('0:00')
+  })
+})
+
+describe('formatBytes', () => {
+  it('KB·MB·GB 로 줄이고 소수 한 자리까지 쓴다(1000 단위가 아니라 1024 단위)', () => {
+    expect(formatBytes(0)).toBe('0B')
+    expect(formatBytes(999)).toBe('999B')
+    expect(formatBytes(1536)).toBe('1.5KB')
+    expect(formatBytes(17_624_365)).toBe('16.8MB')
+    expect(formatBytes(400 * 1024 * 1024)).toBe('400MB')
+    expect(formatBytes(3.2 * 1024 ** 3)).toBe('3.2GB')
+  })
+  it('음수·NaN 은 0B', () => {
+    expect(formatBytes(-5)).toBe('0B')
+    expect(formatBytes(Number.NaN)).toBe('0B')
   })
 })
 
