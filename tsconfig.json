@@ -32,6 +32,7 @@
     "next-env.d.ts",
     "app",
     "components",
+    "scripts",
     "src",
     "tests",
     ".next/types/**/*.ts",

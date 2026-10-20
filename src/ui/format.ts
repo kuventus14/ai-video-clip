@@ -1,0 +1,110 @@
+import { isQueued, isRunning } from '../db/status.ts'
+import type { JobStatus, Phase, PurposeValue } from '../shared/types.ts'
+
+const pad2 = (n: number) => String(n).padStart(2, '0')
+
+/** 56.8 → "0:57", 3725 → "1:02:05". 초는 반올림한다. */
+export function formatDuration(sec: number): string {
+  const total = Number.isFinite(sec) && sec > 0 ? Math.round(sec) : 0
+  const h = Math.floor(total / 3600)
+  const m = Math.floor((total % 3600) / 60)
+  const s = total % 60
+  return h > 0 ? `${h}:${pad2(m)}:${pad2(s)}` : `${m}:${pad2(s)}`
+}
+
+/** 361521 → "36만", 8835 → "8.8천", 999 → "999". 값을 부풀리지 않도록 내림한다. */
+export function formatViews(n: number | null): string {
+  if (n === null || !Number.isFinite(n)) return '조회수 없음'
+  const count = Math.max(0, Math.floor(n))
+  const units: [number, string][] = [
+    [100_000_000, '억'],
+    [10_000, '만'],
+    [1_000, '천'],
+  ]
+  const unit = units.find(([size]) => count >= size)
+  if (!unit) return String(count)
+  const [size, suffix] = unit
+  const tenths = Math.floor(count / (size / 10))
+  if (tenths >= 100) return `${Math.floor(tenths / 10)}${suffix}`
+  const decimal = tenths % 10
+  return `${Math.floor(tenths / 10)}${decimal ? `.${decimal}` : ''}${suffix}`
+}
+
+const sameDay = (a: Date, b: Date) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
+
+/** 같은 날 "오늘 14:05", 어제 "어제", 그 외 "10월 18일"(해가 다르면 "2025년 12월 31일"). 로컬 시간 기준. */
+export function formatKoreanDate(iso: string, now: Date = new Date()): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  if (sameDay(d, now)) return `오늘 ${pad2(d.getHours())}:${pad2(d.getMinutes())}`
+  const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1)
+  if (sameDay(d, yesterday)) return '어제'
+  const md = `${d.getMonth() + 1}월 ${d.getDate()}일`
+  return d.getFullYear() === now.getFullYear() ? md : `${d.getFullYear()}년 ${md}`
+}
+
+export const STATUS_LABEL: Record<JobStatus, string> = {
+  created: '올리는 중',
+  queued_probe: '확인 대기',
+  probing: '영상 확인 중',
+  ready: '시작 전',
+  queued_analysis: '분석 대기',
+  analyzing: '분석 중',
+  awaiting_reference: '레퍼런스 선택',
+  queued_plan: '계획 대기',
+  planning: '계획 만드는 중',
+  awaiting_plan: '계획 확인',
+  queued_produce: '제작 대기',
+  producing: '제작 중',
+  awaiting_confirm: '결과 확인',
+  confirmed: '확정',
+  failed: '실패',
+}
+
+export const STEPS = ['업로드', '분석', '레퍼런스', '계획 확인', '제작', '결과'] as const
+export type StepIndex = 0 | 1 | 2 | 3 | 4 | 5
+
+const STEP_OF: Record<Exclude<JobStatus, 'failed'>, StepIndex> = {
+  created: 0,
+  queued_probe: 0,
+  probing: 0,
+  ready: 0,
+  queued_analysis: 1,
+  analyzing: 1,
+  awaiting_reference: 2,
+  queued_plan: 3,
+  planning: 3,
+  awaiting_plan: 3,
+  queued_produce: 4,
+  producing: 4,
+  awaiting_confirm: 5,
+  confirmed: 5,
+}
+
+// 계획 단계에서 실패하면 레퍼런스·요청을 고쳐 다시 요청하므로 레퍼런스 단계로 본다.
+const STEP_OF_FAILED_PHASE: Record<Phase, StepIndex> = { probe: 0, analysis: 1, plan: 2, produce: 4 }
+
+/** 상태 → 0~5 단계. 실패(failed)는 어느 단계인지 모르므로 0 을 돌려준다 — 작업이 있으면 stepForJob 을 쓴다. */
+export function stepFor(status: JobStatus): StepIndex {
+  return status === 'failed' ? 0 : STEP_OF[status]
+}
+
+export function stepForJob(job: { status: JobStatus; failedPhase: Phase | null }): StepIndex {
+  if (job.status === 'failed') return job.failedPhase ? STEP_OF_FAILED_PHASE[job.failedPhase] : 0
+  return STEP_OF[job.status]
+}
+
+/** 워커가 하는 중이거나 순서를 기다리는 중 — 진행 화면을 보여 준다. */
+export function isBusy(status: JobStatus): boolean {
+  return isQueued(status) || isRunning(status)
+}
+
+/** 화면이 작업을 다시 읽어 올 간격(ms). 확정·실패는 더 바뀔 일이 없어 null. */
+export function pollIntervalMs(status: JobStatus): number | null {
+  if (status === 'confirmed' || status === 'failed') return null
+  return isBusy(status) ? 1500 : 5000
+}
+
+export function purposeLabel(p: PurposeValue): string {
+  return p === 'post' ? '게시물 영상용(가로)' : '릴스·숏츠용(세로)'
+}

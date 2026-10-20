@@ -79,3 +79,23 @@ export interface Recommendation {
   durationSec: number | null
   thumbnail: string
 }
+
+/** 분석을 시작할 때 보내는 값(POST /api/jobs/<id>/start). reference 는 http(s) 링크, 'uploaded'(올려 둔 파일), 비면 레퍼런스 없음. */
+export interface StartInput {
+  description?: string
+  purposeChoice: 'auto' | PurposeValue
+  reference?: string | null
+}
+
+/** 계획을 (다시) 요청할 때 보내는 값(POST /api/jobs/<id>/plan). 보내지 않은 항목은 그대로 둔다. */
+export interface PlanInput {
+  reference?: string | null
+  request?: string
+  purposeChoice?: 'auto' | PurposeValue
+}
+
+/** 계획을 승인하고 제작을 시작할 때 보내는 값(POST /api/jobs/<id>/approve) */
+export interface ApproveInput {
+  captions?: 'auto' | 'off'
+  quality?: 'draft' | 'looks' | 'delivery'
+}
