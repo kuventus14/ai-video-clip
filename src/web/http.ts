@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
+import type { ZodType } from 'zod'
 import type { Job, Jobs } from '../db/jobs.ts'
 import { getContext } from './context.ts'
 
@@ -49,6 +50,21 @@ export async function loadJob(params: Promise<{ id: string }>): Promise<{ job: J
   const { jobs } = getContext()
   const job = jobs.get(id)
   return job ? { job, jobs } : { res: jsonError(404, '작업을 찾을 수 없어요') }
+}
+
+/** JSON 본문을 읽어 zod 로 검증한다. 본문이 비어 있으면 {} 로 본다(모든 항목이 선택인 요청용). 잘못되면 400 응답. */
+export async function readBody<T>(req: Request, schema: ZodType<T>): Promise<{ data: T } | { res: Response }> {
+  const text = await req.text()
+  let json: unknown = {}
+  if (text.trim()) {
+    try {
+      json = JSON.parse(text)
+    } catch {
+      return { res: jsonError(400, '요청 내용을 읽을 수 없어요') }
+    }
+  }
+  const parsed = schema.safeParse(json)
+  return parsed.success ? { data: parsed.data } : { res: jsonError(400, '요청 내용이 올바르지 않아요') }
 }
 
 export class EmptyUploadError extends Error {}
