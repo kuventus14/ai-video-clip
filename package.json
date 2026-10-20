@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit",
     "web:dev": "next dev -H 127.0.0.1 -p ${VAE_PORT:-4848}",
     "web:build": "next build",
-    "web:start": "next start -H 127.0.0.1 -p ${VAE_PORT:-4848}"
+    "web:start": "next start -H 127.0.0.1 -p ${VAE_PORT:-4848}",
+    "worker": "tsx src/worker/main.ts"
   },
   "type": "module",
   "private": "true",

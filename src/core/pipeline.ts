@@ -131,6 +131,12 @@ const hintFromSummary = (s: VideoSummary) => [s.topic, s.genre, ...s.searchQueri
 
 type StageCallback = (s: Stage, detail?: string) => void
 
+/** 입력 영상 길이 한도(1초~10분). 워커의 probe 단계도 올리자마자 같은 기준으로 알려 준다. */
+export function assertDurationOk(durationSec: number): void {
+  if (durationSec < MIN_SEC) throw new InputError('too-short', `영상이 너무 짧아요 (${durationSec.toFixed(1)}초). 1초 이상이어야 해요.`)
+  if (durationSec > MAX_SEC) throw new InputError('too-long', `영상이 너무 길어요 (${Math.round(durationSec)}초). 10분 이하로 올려 주세요.`)
+}
+
 /** 1단계 결과 — 영상을 이해한 내용. JSON 으로 저장했다 읽어도 그대로 쓸 수 있다(앱은 analysis.json 으로 보관). */
 export interface Analysis {
   version: 1
@@ -194,8 +200,7 @@ export async function analyzeInput(i: AnalyzeInput, overrides: Partial<PipelineD
   } catch (e) {
     throw new InputError('unreadable', `영상을 읽을 수 없어요: ${(e as Error).message}`)
   }
-  if (info.durationSec < MIN_SEC) throw new InputError('too-short', `영상이 너무 짧아요 (${info.durationSec.toFixed(1)}초). 1초 이상이어야 해요.`)
-  if (info.durationSec > MAX_SEC) throw new InputError('too-long', `영상이 너무 길어요 (${Math.round(info.durationSec)}초). 10분 이하로 올려 주세요.`)
+  assertDurationOk(info.durationSec)
 
   const norm = await d.ensureH264(i.videoPath, info, i.workDir)
   if (norm.converted) stage('normalize', 'H.264 mp4 로 변환했어요')
