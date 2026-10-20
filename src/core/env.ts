@@ -1,7 +1,9 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { run } from './exec.ts'
+import { defaultSearchPath, run } from './exec.ts'
+
+export { defaultSearchPath }
 
 export type ToolName = 'node' | 'ffmpeg' | 'ffprobe' | 'hyperframes' | 'whisper-cli' | 'yt-dlp' | 'claude' | 'swiftc'
 
@@ -18,13 +20,6 @@ export interface EnvReport {
 }
 
 export const WHISPER_MODEL_PATH = path.join(os.homedir(), '.cache/hyperframes/whisper/models/ggml-small.bin')
-
-/** GUI·서비스로 실행돼도 도구를 찾을 수 있게 흔한 설치 위치를 덧붙인 기본 PATH. */
-export function defaultSearchPath(): string {
-  const home = os.homedir()
-  const extra = ['/opt/homebrew/bin', '/usr/local/bin', path.join(home, '.local/bin'), path.join(home, '.npm-global/bin')]
-  return [process.env.PATH ?? '', ...extra].filter(Boolean).join(path.delimiter)
-}
 
 const SPEC: Record<ToolName, { versionArgs: string[] | null; hint: string }> = {
   node: { versionArgs: ['--version'], hint: 'Node.js 22 이상이 필요해요 (brew install node)' },

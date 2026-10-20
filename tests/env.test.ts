@@ -10,6 +10,17 @@ describe('run', () => {
     expect((err as ToolError).tool).toBe('false')
   })
 
+  test('PATH 가 비어 있어도 흔한 설치 위치(brew 등)의 도구를 찾는다', async () => {
+    const saved = process.env.PATH
+    process.env.PATH = '/usr/bin:/bin'
+    try {
+      const { stdout } = await run('ffmpeg', ['-version'])
+      expect(stdout).toContain('ffmpeg version')
+    } finally {
+      process.env.PATH = saved
+    }
+  })
+
   test('성공하면 stdout 을 돌려준다', async () => {
     const { stdout } = await run('echo', ['안녕'])
     expect(stdout.trim()).toBe('안녕')

@@ -1,5 +1,13 @@
 import { spawn } from 'node:child_process'
+import os from 'node:os'
 import path from 'node:path'
+
+/** GUI·서비스로 실행돼도 도구를 찾을 수 있게 흔한 설치 위치를 덧붙인 기본 PATH. */
+export function defaultSearchPath(): string {
+  const home = os.homedir()
+  const extra = ['/opt/homebrew/bin', '/usr/local/bin', path.join(home, '.local/bin'), path.join(home, '.npm-global/bin')]
+  return [process.env.PATH ?? '', ...extra].filter(Boolean).join(path.delimiter)
+}
 
 export class ToolError extends Error {
   tool: string
@@ -27,7 +35,7 @@ export function run(file: string, args: string[], opts: RunOpts = {}): Promise<{
   return new Promise((resolve, reject) => {
     const child = spawn(file, args, {
       cwd: opts.cwd,
-      env: opts.env ?? process.env,
+      env: opts.env ?? { ...process.env, PATH: defaultSearchPath() },
       stdio: ['pipe', 'pipe', 'pipe'],
     })
     const out: Buffer[] = []
