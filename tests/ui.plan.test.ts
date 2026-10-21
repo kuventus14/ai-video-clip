@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parsePlanCard } from '../src/ui/plan.ts'
+import { parsePlanCard, planItemKind } from '../src/ui/plan.ts'
 
 describe('parsePlanCard', () => {
   it('첫 줄의 "이렇게 이해했어요:" 는 머리말로, • 줄은 항목으로 나눈다', () => {
@@ -33,5 +33,23 @@ describe('parsePlanCard', () => {
     const r = parsePlanCard(['  이렇게 이해했어요:   긴 문장이에요  ', '', '•   공백이 많아요  '])
     expect(r.headline).toBe('긴 문장이에요')
     expect(r.items).toEqual([{ text: '공백이 많아요', tone: 'normal' }])
+  })
+})
+
+describe('planItemKind — 계획 항목 앞의 아이콘 종류', () => {
+  it('항목 맨 앞 말(자막·제목 카드·컷·화면…)로 고른다', () => {
+    expect(planItemKind('자막: 아래쪽에 큰 글씨로 넣어요')).toBe('captions')
+    expect(planItemKind('자막 스타일: 하단 큰 글씨')).toBe('captions')
+    expect(planItemKind('제목 카드: 처음 3초에 띄워요')).toBe('title')
+    expect(planItemKind('컷 속도: 더 빠르게')).toBe('cuts')
+    expect(planItemKind('컷: 군더더기를 정리해요')).toBe('cuts')
+    expect(planItemKind('화면 구도: 세로 9:16')).toBe('frame')
+    expect(planItemKind('화면 구성: 블러 배경')).toBe('frame')
+    expect(planItemKind('음악: 이번 버전에서는 지원하지 않아요')).toBe('music')
+    expect(planItemKind('전환 효과: 줌 인')).toBe('transition')
+  })
+  it('모르는 항목은 other', () => {
+    expect(planItemKind('요청하신 "카메라 흔들림": 지원하지 않아요')).toBe('other')
+    expect(planItemKind('')).toBe('other')
   })
 })

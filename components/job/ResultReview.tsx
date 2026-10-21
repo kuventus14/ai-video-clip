@@ -1,9 +1,9 @@
 'use client'
 
-import { CircleCheck, Download, Film, Pencil } from 'lucide-react'
+import { Download, Film, Pencil } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import type { JobDto } from '../../src/shared/types.ts'
 import { confirm, otherVersion, plan } from '../../src/ui/api.ts'
 import { atDate, formatDuration, formatKoreanDate, purposeLabel, shownPurpose } from '../../src/ui/format.ts'
@@ -11,30 +11,98 @@ import { downloadName, mergeRequest, oppositePurpose, verdictOf } from '../../sr
 import { Badge } from '../ui/Badge.tsx'
 import { Button, buttonClass } from '../ui/Button.tsx'
 import { Card } from '../ui/Card.tsx'
+import { cx } from '../ui/cx.ts'
 import { Field, Textarea } from '../ui/Field.tsx'
 import { ReportPanel } from './ReportPanel.tsx'
 
+const SEVERITY_DOT = { high: 'bg-bad', medium: 'bg-warn', info: 'bg-info' } as const
+const SEVERITY_WORD = { high: '중요', medium: '확인', info: '참고' } as const
+
+/**
+ * 결과 플레이어 무대. 영상의 장면이 뒤에서 은은하게 번지는 조명(앰비언트)이 되고, 영상은 원래 비율 그대로 가운데에 선다.
+ * 영상 아래 타임라인에는 지금 재생 위치(재생헤드)와, 검수가 시간을 짚은 항목의 마커가 있다 — 마커를 누르면 그 시각으로 이동한다.
+ */
 function Player({ job }: { job: JobDto }) {
-  const landscape = job.resultInfo ? job.resultInfo.width >= job.resultInfo.height : shownPurpose(job) === 'post'
+  const video = useRef<HTMLVideoElement>(null)
+  const [now, setNow] = useState(0)
+  const info = job.resultInfo
+  const landscape = info ? info.width >= info.height : shownPurpose(job) === 'post'
+  const duration = info?.durationSec ?? 0
+  const markers = duration > 0 ? (job.report?.findings ?? []).filter((f) => f.atSec !== undefined && f.id !== 'caption-suggestion') : []
+
+  if (!job.media.result) {
+    return (
+      <div className="flex aspect-video w-full flex-col items-center justify-center gap-2 rounded-panel bg-stage text-ink-3">
+        <Film size={32} strokeWidth={1.5} aria-hidden="true" />
+        <p className="text-[15px]">결과 영상 파일을 찾을 수 없어요</p>
+      </div>
+    )
+  }
+
   return (
-    <div className="flex items-center justify-center overflow-hidden rounded-panel bg-shell">
-      {job.media.result ? (
+    <div className="overflow-hidden rounded-panel bg-stage">
+      <div className="relative flex items-center justify-center overflow-hidden py-6 sm:py-8">
+        {job.media.thumb ? <img src={job.media.thumb} alt="" aria-hidden="true" className="pointer-events-none absolute inset-0 size-full scale-125 object-cover opacity-45 blur-[60px] saturate-150" /> : null}
         <video
+          ref={video}
           src={job.media.result}
           poster={job.media.thumb}
           controls
           preload="metadata"
           aria-label="완성된 영상"
-          style={job.resultInfo ? { aspectRatio: `${job.resultInfo.width} / ${job.resultInfo.height}` } : undefined}
-          className={landscape ? 'max-h-[70vh] w-full' : 'h-[min(70vh,640px)] max-w-full'}
+          onTimeUpdate={(e) => setNow(e.currentTarget.currentTime)}
+          style={info ? { aspectRatio: `${info.width} / ${info.height}` } : undefined}
+          className={cx('relative z-[1] rounded-[12px] bg-stage shadow-[0_20px_60px_rgb(0_0_0/0.6)]', landscape ? 'max-h-[70vh] w-[min(100%,calc(100%-3rem))]' : 'h-[min(70vh,640px)] max-w-[calc(100%-3rem)]')}
         />
-      ) : (
-        <div className="flex aspect-video w-full flex-col items-center justify-center gap-2 text-shell-ink-2">
-          <Film size={32} strokeWidth={1.5} aria-hidden="true" />
-          <p className="text-[15px]">결과 영상 파일을 찾을 수 없어요</p>
+      </div>
+
+      {duration > 0 ? (
+        <div className="px-6 pb-5 pt-1">
+          <div className="relative h-10">
+            <div className="absolute inset-x-0 top-1/2 h-1.5 -translate-y-1/2 rounded-full bg-lift" />
+            <div className="absolute left-0 top-1/2 h-1.5 -translate-y-1/2 rounded-full bg-accent" style={{ width: `${Math.min(100, (now / duration) * 100)}%` }} />
+            <span aria-hidden="true" className="absolute top-1/2 size-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-accent shadow-[0_0_12px_2px_rgb(255_178_36/0.55)]" style={{ left: `${Math.min(100, (now / duration) * 100)}%` }} />
+            {markers.map((f, i) => (
+              <button
+                key={`${f.id}-${i}`}
+                type="button"
+                onClick={() => {
+                  if (video.current) {
+                    video.current.currentTime = f.atSec ?? 0
+                    void video.current.play().catch(() => {})
+                  }
+                }}
+                className="group absolute top-1/2 z-[1] grid size-7 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full outline-offset-2"
+                style={{ left: `${Math.min(100, ((f.atSec ?? 0) / duration) * 100)}%` }}
+                aria-label={`${formatDuration(f.atSec ?? 0)} ${SEVERITY_WORD[f.severity]}: ${f.message} (눌러서 그 시각으로 이동)`}
+              >
+                <span className={cx('size-3 rounded-full ring-2 ring-stage transition-transform duration-200 group-hover:scale-150', SEVERITY_DOT[f.severity])} />
+              </button>
+            ))}
+          </div>
+          <div className="flex items-center justify-between text-[12px] text-ink-3 tnum">
+            <span>{formatDuration(now)}</span>
+            {markers.length > 0 ? <span>검수가 짚은 {markers.length}곳 — 점을 눌러 확인</span> : null}
+            <span>{formatDuration(duration)}</span>
+          </div>
         </div>
-      )}
+      ) : null}
     </div>
+  )
+}
+
+/** 확정: 클래퍼보드가 "딱" 하고 닫힌다 */
+function Clapper() {
+  return (
+    <svg width="44" height="44" viewBox="0 0 44 44" fill="none" aria-hidden="true" className="shrink-0 overflow-visible">
+      <rect x="6" y="18" width="32" height="20" rx="3.5" fill="var(--lift)" stroke="var(--ok)" strokeWidth="2" />
+      <path d="M12 26h20M12 32h12" stroke="var(--ok)" strokeWidth="2" strokeLinecap="round" opacity="0.7" />
+      <g style={{ transformOrigin: '6px 18px', animation: 'clap-stick 1.2s var(--ease-expo) both' }}>
+        <rect x="6" y="8" width="32" height="8" rx="2.5" fill="var(--ok-soft)" stroke="var(--ok)" strokeWidth="2" />
+        <path d="M13 8l-4 8M22 8l-4 8M31 8l-4 8" stroke="var(--ok)" strokeWidth="2" />
+      </g>
+      <circle cx="22" cy="24" r="24" fill="var(--ok)" opacity="0" style={{ animation: 'clap-flash 1.2s ease-out both' }} />
+    </svg>
   )
 }
 
@@ -85,13 +153,11 @@ export function ResultReview({ job, onChanged }: { job: JobDto; onChanged: (next
   return (
     <div className="flex flex-col gap-6">
       {confirmed ? (
-        <p role="status" className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-panel border border-line bg-ok-soft px-4 py-3 text-[15px] text-ok">
-          <span className="inline-flex items-center gap-2 font-semibold">
-            <CircleCheck size={20} strokeWidth={1.75} aria-hidden="true" />
-            저장됐어요
-          </span>
-          <span>{job.confirmedAt ? `${atDate(formatKoreanDate(job.confirmedAt))} 확정했어요. ` : ''}기록에서 언제든 다시 볼 수 있어요.</span>
-          <Link href="/" className="font-semibold underline underline-offset-2">
+        <p role="status" className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-panel bg-ok-soft px-6 py-4 text-[15px] text-ok">
+          <Clapper />
+          <span className="text-[19px] font-bold tracking-[-0.02em]">저장됐어요</span>
+          <span className="text-ok/80">{job.confirmedAt ? `${atDate(formatKoreanDate(job.confirmedAt))} 확정했어요. ` : ''}기록에서 언제든 다시 볼 수 있어요.</span>
+          <Link href="/" className="font-semibold underline underline-offset-4">
             기록으로 가기
           </Link>
         </p>
@@ -101,58 +167,57 @@ export function ResultReview({ job, onChanged }: { job: JobDto; onChanged: (next
         <Player job={job} />
 
         <aside className="flex flex-col gap-4">
-          <Card>
-            <div className="flex flex-col gap-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge tone={verdict.tone}>{verdict.text}</Badge>
-                {purpose ? <Badge>{purposeLabel(purpose)}</Badge> : null}
-              </div>
-              {job.resultInfo ? (
-                <p className="text-[15px] tabular-nums text-ink-2">
-                  {formatDuration(job.resultInfo.durationSec)} · {job.resultInfo.width}×{job.resultInfo.height}
-                </p>
-              ) : null}
-              <p className="text-[13px] text-ink-3">{confirmed ? '확정한 영상이에요.' : '영상을 보고 아래 검수 리포트도 확인한 뒤 확정해 주세요.'}</p>
+          <div className="rounded-panel bg-panel p-6">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge tone={verdict.tone}>{verdict.text}</Badge>
+              {purpose ? <Badge>{purposeLabel(purpose)}</Badge> : null}
             </div>
-          </Card>
+            {job.resultInfo ? (
+              <p className="mt-4 text-[32px] font-bold leading-none tracking-[-0.03em] text-ink tnum">
+                {formatDuration(job.resultInfo.durationSec)}
+                <span className="ml-2 text-[14px] font-medium tracking-normal text-ink-3">
+                  {job.resultInfo.width}×{job.resultInfo.height}
+                </span>
+              </p>
+            ) : null}
+            <p className="mt-3 text-[13px] leading-relaxed text-ink-3">{confirmed ? '확정한 영상이에요.' : '영상을 보고 아래 검수 리포트도 확인한 뒤 확정해 주세요.'}</p>
+          </div>
 
-          <Card>
-            <div className="flex flex-col gap-3">
-              {confirmed ? null : (
-                <Button variant="primary" loading={busy === 'confirm'} disabled={busy !== null && busy !== 'confirm'} onClick={() => run('confirm', () => confirm(job.id), onChanged)}>
-                  확정하기
-                </Button>
-              )}
-              {confirmed || revising ? null : (
-                <Button disabled={busy !== null} onClick={() => setRevising(true)} icon={<Pencil size={16} strokeWidth={1.75} aria-hidden="true" />}>
-                  수정 요청
-                </Button>
-              )}
-              {other ? (
-                <Button disabled={busy !== null && busy !== 'other'} loading={busy === 'other'} onClick={() => run('other', () => otherVersion(job.id), (child) => router.push(`/jobs/${child.id}`))}>
-                  다른 버전도 만들기 — {purposeLabel(other)}
-                </Button>
-              ) : null}
-              {job.media.result ? (
-                <a href={job.media.result} download={downloadName(job)} className={buttonClass('ghost')}>
-                  <Download size={16} strokeWidth={1.75} aria-hidden="true" />
-                  영상 내려받기
-                </a>
-              ) : null}
-              {error ? (
-                <p role="alert" className="text-[13px] font-medium text-bad">
-                  {error}
-                </p>
-              ) : null}
-            </div>
-          </Card>
+          <div className="flex flex-col gap-3 rounded-panel bg-panel p-5">
+            {confirmed ? null : (
+              <Button variant="primary" loading={busy === 'confirm'} disabled={busy !== null && busy !== 'confirm'} onClick={() => run('confirm', () => confirm(job.id), onChanged)}>
+                확정하기
+              </Button>
+            )}
+            {confirmed || revising ? null : (
+              <Button disabled={busy !== null} onClick={() => setRevising(true)} icon={<Pencil size={16} strokeWidth={1.75} aria-hidden="true" />}>
+                수정 요청
+              </Button>
+            )}
+            {other ? (
+              <Button disabled={busy !== null && busy !== 'other'} loading={busy === 'other'} onClick={() => run('other', () => otherVersion(job.id), (child) => router.push(`/jobs/${child.id}`))}>
+                다른 버전도 만들기 — {purposeLabel(other)}
+              </Button>
+            ) : null}
+            {job.media.result ? (
+              <a href={job.media.result} download={downloadName(job)} className={buttonClass('ghost')}>
+                <Download size={16} strokeWidth={1.75} aria-hidden="true" />
+                영상 내려받기
+              </a>
+            ) : null}
+            {error ? (
+              <p role="alert" className="text-[13px] font-medium text-bad">
+                {error}
+              </p>
+            ) : null}
+          </div>
         </aside>
       </div>
 
       {revising && !confirmed ? (
         <Card title="수정 요청" description="고치고 싶은 점을 적어 주세요. 이전 요청에 덧붙여 계획을 다시 만들고, 승인하면 다시 만들어요.">
-          <div className="flex flex-col gap-3">
-            {job.requestText ? <p className="rounded-control bg-sunken px-3 py-2 text-[13px] text-ink-2">이전 요청: {job.requestText}</p> : null}
+          <div className="flex flex-col gap-4">
+            {job.requestText ? <p className="rounded-control bg-raised px-4 py-3 text-[13px] text-ink-2">이전 요청: {job.requestText}</p> : null}
             <Field label="고치고 싶은 점">
               {(p) => <Textarea {...p} value={revision} onChange={(e) => setRevision(e.target.value)} maxLength={3000} placeholder="예: 자막을 더 크게, 첫 컷은 조금 더 짧게" />}
             </Field>

@@ -61,11 +61,11 @@ export function ReferenceInput({
         {(p) => <Input {...p} ref={linkRef} type="url" inputMode="url" value={link} onChange={(e) => onLinkChange(e.target.value)} disabled={!!fileName} placeholder="https://" />}
       </Field>
       <div className="flex flex-col gap-1.5">
-        <span className="text-[13px] font-medium text-ink">
-          또는 영상 파일 <span className="font-normal text-ink-3">선택</span>
+        <span className="text-[14px] font-semibold text-ink">
+          또는 영상 파일 <span className="ml-1 text-[13px] font-normal text-ink-3">선택</span>
         </span>
         {fileName ? (
-          <div className="flex items-center gap-2 rounded-control border border-line px-3 py-2 text-[15px]">
+          <div className="flex items-center gap-2 rounded-control bg-raised px-4 py-2.5 text-[15px]">
             <Paperclip size={16} strokeWidth={1.75} className="shrink-0 text-ink-3" aria-hidden="true" />
             <span className="min-w-0 flex-1 truncate">{fileName}</span>
             <Button size="icon" variant="ghost" aria-label="첨부한 레퍼런스 파일 빼기" onClick={() => onFileChange(null)}>

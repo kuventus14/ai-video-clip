@@ -17,7 +17,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="ko">
       <body>
         <AppHeader />
-        <main className="mx-auto w-full max-w-[1240px] px-4 pb-24 pt-6 sm:px-8 sm:pt-10">{children}</main>
+        <main className="mx-auto w-full max-w-[1240px] px-5 pb-24 pt-6 sm:px-8 sm:pt-10">{children}</main>
       </body>
     </html>
   )

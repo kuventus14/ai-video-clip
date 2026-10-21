@@ -17,13 +17,13 @@ import { Steps } from '../ui/Steps.tsx'
 const STRETCHED_LINK = "outline-none after:absolute after:inset-0 after:content-['']"
 const FOCUS_RING = 'has-[a:focus-visible]:outline-2 has-[a:focus-visible]:outline-offset-2 has-[a:focus-visible]:outline-ring'
 
-function DeleteButton({ job, onDelete, className }: { job: JobDto; onDelete: (job: JobDto) => void; className?: string }) {
+function DeleteButton({ job, onDelete, className, floating = false }: { job: JobDto; onDelete: (job: JobDto) => void; className?: string; floating?: boolean }) {
   const running = isRunning(job.status)
   return (
     <Button
       variant="ghost"
       size="icon"
-      className={cx('relative z-10 shrink-0', className)}
+      className={cx('z-10 shrink-0', floating ? 'absolute right-2 top-2' : 'relative', className)}
       disabled={running}
       onClick={() => onDelete(job)}
       aria-label={running ? `${job.title} — 진행 중이라 삭제할 수 없어요` : `${job.title} 삭제`}
@@ -122,17 +122,16 @@ export function JobCard({ job, onDelete, index = 0 }: { job: JobDto; onDelete: (
   const start = () => {
     if (canPreview && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) setPreview(true)
   }
+  // 크기는 CSS 변수로만 넘긴다 — 인라인 flex 값이 있으면 좁은 화면용 클래스가 이기지 못한다
   const style = {
     '--ar': ar,
+    '--fg': ar * 100,
     '--mb': ar > 1 ? '100%' : 'calc(50% - 8px)',
-    flexGrow: ar * 100,
-    flexBasis: 'calc(var(--h) * var(--ar))',
-    height: 'var(--h)',
     animationDelay: `${Math.min(index, 8) * 70 + 200}ms`,
   } as CSSProperties
   return (
     <li
-      className={cx('enter group relative min-w-0 overflow-hidden rounded-[18px] bg-stage max-sm:!h-auto max-sm:!grow-0 max-sm:basis-[var(--mb)] max-sm:[aspect-ratio:var(--ar)]', FOCUS_RING)}
+      className={cx('enter group relative h-[var(--h)] min-w-0 grow-[var(--fg)] basis-[calc(var(--h)*var(--ar))] overflow-hidden rounded-[18px] bg-stage max-sm:h-auto max-sm:grow-0 max-sm:basis-[var(--mb)] max-sm:[aspect-ratio:var(--ar)]', FOCUS_RING)}
       style={style}
       onPointerEnter={start}
       onPointerLeave={() => setPreview(false)}
@@ -156,7 +155,8 @@ export function JobCard({ job, onDelete, index = 0 }: { job: JobDto; onDelete: (
       <DeleteButton
         job={job}
         onDelete={onDelete}
-        className="absolute right-2 top-2 bg-black/55 text-white opacity-0 transition-opacity duration-200 hover:!bg-black/80 hover:!text-white focus-visible:opacity-100 group-focus-within:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
+        floating
+        className="bg-black/55 text-white opacity-0 transition-opacity duration-200 hover:!bg-black/80 hover:!text-white focus-visible:opacity-100 group-focus-within:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
       />
 
       <div className="absolute inset-x-0 bottom-0 flex flex-col gap-2 p-4">

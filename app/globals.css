@@ -402,6 +402,15 @@
   }
 }
 
+@keyframes dz-float {
+  from {
+    transform: translateY(4px);
+  }
+  to {
+    transform: translateY(-6px);
+  }
+}
+
 @keyframes vf-breathe {
   50% {
     transform: scale(1.012);

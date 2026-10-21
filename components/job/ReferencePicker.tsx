@@ -4,7 +4,7 @@ import { Check, ExternalLink, Film } from 'lucide-react'
 import { useRef, useState } from 'react'
 import type { JobDto, Recommendation } from '../../src/shared/types.ts'
 import { plan } from '../../src/ui/api.ts'
-import { formatDuration, formatViews } from '../../src/ui/format.ts'
+import { formatDuration, formatViews, sourceFrame } from '../../src/ui/format.ts'
 import { BAD_LINK_MESSAGE, checkLink, initialReference } from '../../src/ui/reference.ts'
 import { ActionBar } from '../ui/ActionBar.tsx'
 import { Button } from '../ui/Button.tsx'
@@ -20,15 +20,15 @@ function RecommendationCard({ rec, selected, onToggle }: { rec: Recommendation; 
   return (
     <li
       className={cx(
-        'relative flex flex-col overflow-hidden rounded-panel border bg-panel transition-colors duration-150',
-        selected ? 'border-accent ring-2 ring-accent' : 'border-line hover:bg-sunken/60',
+        'group relative flex flex-col overflow-hidden rounded-[18px] transition-[background-color,box-shadow] duration-300 ease-[var(--ease-out)]',
+        selected ? 'bg-lift shadow-[0_0_0_2px_var(--accent)]' : 'bg-raised hover:bg-lift',
         'has-[button:focus-visible]:outline-2 has-[button:focus-visible]:outline-offset-2 has-[button:focus-visible]:outline-ring',
       )}
     >
-      <div className="relative aspect-video overflow-hidden bg-shell">
+      <div className="relative aspect-video overflow-hidden bg-stage">
         {rec.thumbnail && !broken ? (
           // 유튜브 썸네일은 다른 사이트에서 오므로 이 컴퓨터의 주소를 넘기지 않는다. 못 불러오면(오프라인 등) 자리 표시로 바꾼다.
-          <img src={rec.thumbnail} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" onError={() => setBroken(true)} className="size-full object-cover" />
+          <img src={rec.thumbnail} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" onError={() => setBroken(true)} className="size-full object-cover transition-transform duration-[900ms] ease-[var(--ease-expo)] group-hover:scale-[1.05]" />
         ) : (
           <div className="flex size-full items-center justify-center text-shell-ink-2">
             <Film size={24} strokeWidth={1.5} aria-hidden="true" />
@@ -36,14 +36,14 @@ function RecommendationCard({ rec, selected, onToggle }: { rec: Recommendation; 
         )}
         {rec.durationSec ? <span className="absolute bottom-1.5 right-1.5 rounded-chip bg-black/75 px-1.5 py-0.5 text-[12px] font-medium leading-none tabular-nums text-white">{formatDuration(rec.durationSec)}</span> : null}
         {selected ? (
-          <span className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-chip bg-accent px-2 py-1 text-[12px] font-medium leading-none text-white">
+          <span className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-full bg-accent px-2.5 py-1.5 text-[12px] font-semibold leading-none text-accent-deep">
             <Check size={14} strokeWidth={2} aria-hidden="true" />
             선택함
           </span>
         ) : null}
       </div>
-      <div className="flex flex-1 flex-col gap-1.5 p-3">
-        <button type="button" aria-pressed={selected} onClick={onToggle} className="line-clamp-2 text-left text-[15px] font-medium leading-snug text-ink outline-none after:absolute after:inset-0 after:content-['']">
+      <div className="flex flex-1 flex-col gap-1.5 p-4">
+        <button type="button" aria-pressed={selected} onClick={onToggle} className="line-clamp-2 text-left text-[15px] font-semibold leading-snug tracking-[-0.01em] text-ink outline-none after:absolute after:inset-0 after:content-['']">
           {rec.title}
         </button>
         <p className="text-[13px] text-ink-2">
@@ -102,20 +102,20 @@ export function ReferencePicker({ job, onChanged, onCancel }: { job: JobDto; onC
   return (
     <div className="flex flex-col gap-6">
       {job.summary ? (
-        <Card>
-          <p className="text-[13px] text-ink-3">이런 영상으로 이해했어요</p>
-          <p className="mt-1 text-[17px] font-semibold leading-snug text-ink">
+        <section aria-label="영상 이해" className="rounded-panel bg-panel px-7 py-7">
+          <p className="text-[13px] font-medium text-ink-3">이런 영상으로 이해했어요</p>
+          <p className="mt-2 max-w-[44ch] text-[24px] font-bold leading-[1.3] tracking-[-0.025em] text-ink sm:text-[28px]">
             {job.summary.genre} — {job.summary.oneLine}
           </p>
-          <p className="mt-2 text-[13px] text-ink-3">다르게 이해했다면 ‘새 영상’에서 설명을 더 자세히 적어 다시 올려 주세요. 편집에서 바라는 점은 아래 ‘참고 요청’에 적어도 돼요.</p>
-        </Card>
+          <p className="mt-4 max-w-[62ch] text-[14px] leading-relaxed text-ink-3">다르게 이해했다면 ‘새 영상’에서 설명을 더 자세히 적어 다시 올려 주세요. 편집에서 바라는 점은 아래 ‘참고 요청’에 적어도 돼요.</p>
+        </section>
       ) : null}
 
       <Card title="레퍼런스" description="따라 하고 싶은 영상을 골라 주세요. 하나만 고르면 돼요. 없이도 만들 수 있어요.">
         <div className="flex flex-col gap-6">
           {job.recommendations.length > 0 ? (
             <section aria-labelledby="rec-title">
-              <h3 id="rec-title" className="mb-3 text-[15px] font-semibold text-ink">
+              <h3 id="rec-title" className="mb-4 text-[16px] font-semibold text-ink">
                 추천 영상 <span className="text-[13px] font-normal tabular-nums text-ink-3">{job.recommendations.length}</span>
               </h3>
               <ul className="grid grid-cols-2 gap-3 xl:grid-cols-3">
@@ -138,11 +138,11 @@ export function ReferencePicker({ job, onChanged, onCancel }: { job: JobDto; onC
               </ul>
             </section>
           ) : (
-            <p className="rounded-control bg-sunken px-4 py-3 text-[15px] text-ink-2">추천을 불러오지 못했어요. 링크나 파일로 직접 골라 주세요.</p>
+            <p className="rounded-control bg-raised px-5 py-4 text-[15px] text-ink-2">추천을 불러오지 못했어요. 링크나 파일로 직접 골라 주세요.</p>
           )}
 
           <section aria-labelledby="direct-title">
-            <h3 id="direct-title" className="mb-3 text-[15px] font-semibold text-ink">
+            <h3 id="direct-title" className="mb-4 text-[16px] font-semibold text-ink">
               직접 넣기
             </h3>
             <ReferenceInput
@@ -177,7 +177,7 @@ export function ReferencePicker({ job, onChanged, onCancel }: { job: JobDto; onC
       </Card>
 
       <Card title="용도" description="직접 고른 값이 항상 우선이에요.">
-        <PurposeChooser value={choice} onChange={setChoice} guess={job.purposeGuess} />
+        <PurposeChooser value={choice} onChange={setChoice} guess={job.purposeGuess} source={sourceFrame(job)} />
       </Card>
 
       <ActionBar error={error} hint={fileBusy ? '레퍼런스 파일을 올리는 중이에요' : hasReference ? undefined : '레퍼런스를 고르지 않았어요'}>

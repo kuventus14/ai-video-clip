@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { JobStatus } from '../src/shared/types.ts'
-import { LOW_CONFIDENCE, ROW_CTA, atDate, currentStageIndex, phaseStages, timecode, stageVisual, thumbAspect, estimateProduce, formatBytes, formatDuration, formatKoreanDate, formatViews, isBusy, pollIntervalMs, progressState, purposeLabel, purposeNote, NEXT_ACTION, shownPurpose, STATUS_LABEL, STEPS, stepFor, stepForJob } from '../src/ui/format.ts'
+import { LOW_CONFIDENCE, ROW_CTA, sourceFrame, atDate, currentStageIndex, phaseStages, timecode, stageVisual, thumbAspect, estimateProduce, formatBytes, formatDuration, formatKoreanDate, formatViews, isBusy, pollIntervalMs, progressState, purposeLabel, purposeNote, NEXT_ACTION, shownPurpose, STATUS_LABEL, STEPS, stepFor, stepForJob } from '../src/ui/format.ts'
 
 const ALL_STATUSES: JobStatus[] = ['created', 'queued_probe', 'probing', 'ready', 'queued_analysis', 'analyzing', 'awaiting_reference', 'queued_plan', 'planning', 'awaiting_plan', 'queued_produce', 'producing', 'awaiting_confirm', 'confirmed', 'failed']
 
@@ -297,5 +297,13 @@ describe('ROW_CTA — 목록 행의 "내 차례" 버튼 글자', () => {
     expect(Object.keys(ROW_CTA).sort()).toEqual(Object.keys(NEXT_ACTION).sort())
     expect(ROW_CTA.awaiting_confirm).toBe('결과 확인')
     expect(ROW_CTA.awaiting_reference).toBe('레퍼런스 고르기')
+  })
+})
+
+describe('sourceFrame — 용도 프레임 예시에 쓸 원본 장면', () => {
+  it('썸네일과 크기가 모두 있을 때만', () => {
+    expect(sourceFrame({ media: { thumb: '/t.jpg' }, sourceInfo: { durationSec: 1, width: 1080, height: 1920 } })).toEqual({ thumb: '/t.jpg', width: 1080, height: 1920 })
+    expect(sourceFrame({ media: {}, sourceInfo: { durationSec: 1, width: 1, height: 1 } })).toBeNull()
+    expect(sourceFrame({ media: { thumb: '/t.jpg' }, sourceInfo: null })).toBeNull()
   })
 })

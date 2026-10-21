@@ -16,7 +16,7 @@ const SEVERITY = {
 
 function SectionTitle({ children, count }: { children: ReactNode; count?: number }) {
   return (
-    <h3 className="mb-2 flex items-baseline gap-2 text-[15px] font-semibold text-ink">
+    <h3 className="mb-2.5 flex items-baseline gap-2 text-[16px] font-semibold text-ink">
       {children}
       {count !== undefined ? <span className="text-[13px] font-normal tabular-nums text-ink-3">{count}</span> : null}
     </h3>
@@ -27,7 +27,7 @@ function CorrectionList({ items, note }: { items: Correction[]; note?: string })
   return (
     <ul className="flex flex-col gap-2">
       {items.map((c, i) => (
-        <li key={`${c.index}-${i}`} className="rounded-control border border-line px-3 py-2.5">
+        <li key={`${c.index}-${i}`} className="rounded-control bg-raised px-4 py-3.5">
           <div className="mb-1.5 flex flex-wrap items-center gap-2 text-[13px] text-ink-3">
             <span className="tabular-nums">자막 {c.index + 1}번</span>
             <Badge>{correctionReasonLabel(c.reason)}</Badge>
@@ -124,7 +124,7 @@ export function ReportPanel({ report }: { report: ReportDto | null }) {
         ) : null}
 
         {report.unchecked.length > 0 ? (
-          <details open className="rounded-control bg-sunken px-4 py-3">
+          <details open className="rounded-control bg-raised px-5 py-4">
             <summary className="cursor-pointer rounded-chip text-[15px] font-semibold text-ink">
               이 검수가 확인하지 않는 것 <span className="text-[13px] font-normal tabular-nums text-ink-3">{report.unchecked.length}</span>
             </summary>

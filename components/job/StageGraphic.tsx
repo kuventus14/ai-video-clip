@@ -93,12 +93,12 @@ function Cuts() {
 
 /** 렌더링: 프레임 칸이 차례로 켜진다(몇 퍼센트인지는 모르므로 끝없이 도는 모양으로만 보인다) */
 function Frames() {
-  const cells = 36
+  const cells = 48
   return (
-    <div className="absolute inset-x-[7%] top-1/2 -translate-y-1/2">
-      <div className="grid grid-cols-12 gap-2">
+    <div className="absolute inset-x-[10%] top-1/2 -translate-y-1/2">
+      <div className="grid grid-cols-16 gap-1.5">
         {Array.from({ length: cells }, (_, i) => (
-          <span key={i} className="aspect-video rounded-[4px] bg-accent" style={{ animation: `sg-cell 3.6s ease-in-out ${i * 0.1}s infinite` }} />
+          <span key={i} className="aspect-video rounded-[3px] bg-accent" style={{ animation: `sg-cell 3.6s ease-in-out ${i * 0.07}s infinite` }} />
         ))}
       </div>
     </div>
@@ -143,7 +143,7 @@ function Leader() {
  * (음성 인식=파형, 영상 이해=스캔, 레퍼런스 분석=필름 띠, 편집 계획=타임라인 블록, 렌더링=프레임 칸, 검수=점검표, 순서 대기=리더).
  * 진행률은 알 수 없으므로 끝없이 도는 모양으로만 보이고, 장식이라 화면 낭독기에는 숨긴다.
  */
-export function StageGraphic({ visual, thumb, elapsed, className }: { visual: StageVisual; thumb?: string; elapsed: string; className?: string }) {
+export function StageGraphic({ visual, thumb, elapsed, className }: { visual: StageVisual; thumb?: string; elapsed?: string; className?: string }) {
   return (
     <div className={cx('vf relative aspect-video w-full overflow-hidden rounded-panel bg-stage', className)} data-active="true" aria-hidden="true">
       {thumb ? (
@@ -166,10 +166,12 @@ export function StageGraphic({ visual, thumb, elapsed, className }: { visual: St
       <span className="vf-c" data-p="tr" />
       <span className="vf-c" data-p="bl" />
       <span className="vf-c" data-p="br" />
-      <span className="absolute right-6 top-5 flex items-center gap-2 text-[15px] font-semibold tracking-wider text-accent tnum">
-        <span style={{ animation: 'sg-blink 1.6s steps(1) infinite' }}>●</span>
-        {elapsed}
-      </span>
+      {elapsed ? (
+        <span className="absolute right-6 top-5 flex items-center gap-2 text-[15px] font-semibold tracking-wider text-accent tnum">
+          <span style={{ animation: 'sg-blink 1.6s steps(1) infinite' }}>●</span>
+          {elapsed}
+        </span>
+      ) : null}
     </div>
   )
 }

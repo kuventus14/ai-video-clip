@@ -1,6 +1,6 @@
 'use client'
 
-import { CircleCheck, FileVideo, X } from 'lucide-react'
+import { CircleAlert, CircleCheck, FileVideo, X } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { useEffect, useRef, useState } from 'react'
 import { UNSUPPORTED_FORMAT_MESSAGE, videoExtOf } from '../../src/shared/media.ts'
@@ -17,6 +17,7 @@ import { Field, Textarea } from '../ui/Field.tsx'
 import { Spinner } from '../ui/Spinner.tsx'
 import { Steps } from '../ui/Steps.tsx'
 import { Dropzone } from './Dropzone.tsx'
+import { StageGraphic } from './StageGraphic.tsx'
 import { PurposeChooser, type PurposeChoice } from './PurposeChooser.tsx'
 import { ReferenceInput } from './ReferenceInput.tsx'
 
@@ -175,111 +176,156 @@ export function UploadForm({ resume, onStarted }: { resume?: JobDto; onStarted?:
   const rulerState = probeFailed ? 'failed' : uploading || checking ? 'busy' : 'waiting'
   const blocker = !file ? '영상을 먼저 올려 주세요' : uploading ? '영상을 올리는 중이에요' : checking ? '영상을 확인하는 중이에요' : probeFailed ? '영상을 확인하지 못했어요' : refBusy ? '레퍼런스 파일을 올리는 중이에요' : null
 
+  const source = job?.media.thumb && job.sourceInfo ? { thumb: job.media.thumb, width: job.sourceInfo.width, height: job.sourceInfo.height } : null
+  const percent = Math.round(fraction * 100)
+
   return (
-    <div className={cx('flex w-full flex-col gap-6', !resume && 'mx-auto max-w-[760px]')}>
+    <div className="flex w-full flex-col gap-8">
       {resume ? null : (
         <>
           <div>
-            <h1 className="text-[22px] font-semibold leading-tight">새 영상</h1>
-            <p className="mt-1 text-[15px] text-ink-2">영상을 올리고 설명과 용도를 정하면 분석을 시작해요. 레퍼런스는 지금 넣거나, 분석이 끝난 뒤 추천 목록에서 골라도 돼요.</p>
+            <h1 className="wipe text-[34px] font-bold leading-[1.15] tracking-[-0.035em] sm:text-[44px]">새 영상</h1>
+            <p className="enter mt-3 max-w-[54ch] text-[16px] leading-relaxed text-ink-2" style={{ ['--i' as string]: 2 }}>
+              영상을 올리고 설명과 용도를 정하면 분석을 시작해요. 레퍼런스는 지금 넣거나, 분석이 끝난 뒤 추천 목록에서 골라도 돼요.
+            </p>
           </div>
-          <Steps current={0} state={rulerState} />
+          <div className="enter" style={{ ['--i' as string]: 3 }}>
+            <Steps current={0} state={rulerState} />
+          </div>
         </>
       )}
 
-      <Card title="영상">
-        {!file ? (
-          <Dropzone onFile={pickFile} error={uploadError} />
-        ) : (
-          <div className="flex flex-col gap-4">
-            <div className="flex items-center gap-3">
-              <FileVideo size={20} strokeWidth={1.75} className="shrink-0 text-ink-3" aria-hidden="true" />
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-[15px] font-medium text-ink">{file.name}</p>
-                {file.size > 0 ? <p className="text-[13px] text-ink-3 tabular-nums">{formatBytes(file.size)}</p> : null}
+      <div className="enter grid items-start gap-8 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]" style={{ ['--i' as string]: 4 }}>
+        <section aria-label="영상" className="min-w-0 lg:sticky lg:top-6">
+          {!file ? (
+            <Dropzone onFile={pickFile} error={uploadError} />
+          ) : (
+            <div className="overflow-hidden rounded-panel bg-panel">
+              {/* 무대: 올리는 중=진행 숫자, 확인 중=스캔, 확인 끝=영상 플레이어, 못 읽음=멈춤 */}
+              <div className="vf relative flex aspect-video items-center justify-center overflow-hidden bg-stage" data-active={uploading || checking ? 'true' : undefined}>
+                {ready && job ? (
+                  <video src={job.media.source} poster={job.media.thumb} controls preload="metadata" className="relative z-[1] size-full object-contain" />
+                ) : checking ? (
+                  <StageGraphic visual="probe" thumb={job?.media.thumb} className="!rounded-none" />
+                ) : probeFailed ? (
+                  <p className="flex items-center gap-3 px-8 text-center text-[19px] font-semibold text-bad">
+                    <CircleAlert size={26} strokeWidth={1.75} aria-hidden="true" className="shrink-0" />
+                    영상을 읽지 못했어요
+                  </p>
+                ) : (
+                  <div className="text-center" aria-hidden="true">
+                    <p className="text-[64px] font-bold leading-none tracking-[-0.04em] text-accent tnum sm:text-[88px]">
+                      {percent}
+                      <span className="ml-1 text-[28px] font-semibold text-ink-2">%</span>
+                    </p>
+                    <p className="mt-3 text-[14px] text-ink-2 tnum">
+                      {formatBytes(file.size * fraction)} / {formatBytes(file.size)}
+                    </p>
+                  </div>
+                )}
+                {ready ? null : (
+                  <>
+                    <span className="vf-c" data-p="tl" />
+                    <span className="vf-c" data-p="tr" />
+                    <span className="vf-c" data-p="bl" />
+                    <span className="vf-c" data-p="br" />
+                  </>
+                )}
               </div>
-              {uploading ? (
-                <Button size="sm" onClick={discardVideo} icon={<X size={16} strokeWidth={1.75} aria-hidden="true" />}>
-                  취소
-                </Button>
-              ) : (
-                <Button size="sm" variant="ghost" onClick={discardVideo}>
-                  다른 영상 고르기
-                </Button>
-              )}
-            </div>
 
-            {uploading ? (
-              <div className="flex flex-col gap-1.5">
-                <div role="progressbar" aria-label="영상 올리는 중" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(fraction * 100)} className="h-2 overflow-hidden rounded-full bg-sunken">
-                  <div className="h-full rounded-full bg-accent transition-[width] duration-150" style={{ width: `${Math.max(2, Math.round(fraction * 100))}%` }} />
+              <div className="flex flex-col gap-4 p-5">
+                <div className="flex items-center gap-3">
+                  <FileVideo size={22} strokeWidth={1.5} className="shrink-0 text-ink-3" aria-hidden="true" />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-[16px] font-semibold text-ink">{file.name}</p>
+                    <p className="text-[13px] text-ink-3 tnum">
+                      {file.size > 0 ? formatBytes(file.size) : null}
+                      {ready && job?.sourceInfo ? `${file.size > 0 ? ' · ' : ''}${formatDuration(job.sourceInfo.durationSec)} · ${job.sourceInfo.width}×${job.sourceInfo.height}` : null}
+                    </p>
+                  </div>
+                  {uploading ? (
+                    <Button size="sm" onClick={discardVideo} icon={<X size={16} strokeWidth={2} aria-hidden="true" />}>
+                      취소
+                    </Button>
+                  ) : (
+                    <Button size="sm" variant="ghost" onClick={discardVideo}>
+                      다른 영상 고르기
+                    </Button>
+                  )}
                 </div>
-                <p className="text-[13px] text-ink-2 tabular-nums">
-                  올리는 중 · {Math.round(fraction * 100)}% ({formatBytes(file.size * fraction)} / {formatBytes(file.size)})
-                </p>
+
+                {uploading ? (
+                  <div className="flex flex-col gap-2">
+                    <div role="progressbar" aria-label="영상 올리는 중" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent} className="h-1.5 overflow-hidden rounded-full bg-lift">
+                      <div className="h-full rounded-full bg-accent transition-[width] duration-150" style={{ width: `${Math.max(2, percent)}%` }} />
+                    </div>
+                    <p className="text-[13px] text-ink-2 tnum">
+                      올리는 중 · {percent}% ({formatBytes(file.size * fraction)} / {formatBytes(file.size)})
+                    </p>
+                  </div>
+                ) : null}
+
+                {checking ? (
+                  <div className="flex flex-col gap-1.5">
+                    <p className="flex items-center gap-2 text-[15px] text-ink-2">
+                      <Spinner size={16} className="text-accent" />
+                      올렸어요. 영상을 확인하는 중이에요…
+                    </p>
+                    {workerHint ? <p className="text-[13px] text-warn">확인이 시작되지 않아요. 처리 프로그램이 꺼져 있을 수 있어요. 앱을 다시 실행해 주세요.</p> : null}
+                  </div>
+                ) : null}
+
+                {probeFailed ? (
+                  <p role="alert" className="rounded-control bg-bad-soft px-4 py-3 text-[15px] text-bad">
+                    {job?.error ?? '영상을 확인하지 못했어요.'} 다른 영상을 골라 주세요.
+                  </p>
+                ) : null}
+
+                {ready ? (
+                  <p className="flex items-center gap-1.5 text-[13px] text-ink-2">
+                    <CircleCheck size={16} strokeWidth={2} className="text-ok" aria-hidden="true" />
+                    영상을 확인했어요
+                  </p>
+                ) : null}
               </div>
-            ) : null}
+            </div>
+          )}
+        </section>
 
-            {checking ? (
-              <div className="flex flex-col gap-1">
-                <p className="flex items-center gap-2 text-[15px] text-ink-2">
-                  <Spinner size={16} />
-                  올렸어요. 영상을 확인하는 중이에요…
-                </p>
-                {workerHint ? <p className="text-[13px] text-warn">확인이 시작되지 않아요. 처리 프로그램이 꺼져 있을 수 있어요. 앱을 다시 실행해 주세요.</p> : null}
-              </div>
-            ) : null}
+        <div className="flex min-w-0 flex-col gap-6">
+          <Card title="영상 설명" description="내용을 알려 주면 전문 용어를 더 정확히 받아 적어요.">
+            <Field label="설명" optional>
+              {(p) => <Textarea {...p} value={description} onChange={(e) => setDescription(e.target.value)} maxLength={2000} placeholder="예: 골프 레슨 영상입니다. 롱아이언 체중 이동이 핵심이에요." />}
+            </Field>
+          </Card>
 
-            {probeFailed ? (
-              <p role="alert" className="rounded-control bg-bad-soft px-3 py-2 text-[15px] text-bad">
-                {job?.error ?? '영상을 확인하지 못했어요.'} 다른 영상을 골라 주세요.
-              </p>
-            ) : null}
+          <Card title="용도" description="어디에 올릴 영상인지에 따라 화면 비율과 편집이 달라져요. 직접 고른 값이 항상 우선이에요.">
+            <PurposeChooser value={choice} onChange={setChoice} guess={guess} source={source} />
+          </Card>
 
-            {ready && job ? (
-              <div className="flex flex-col gap-2">
-                <video src={job.media.source} poster={job.media.thumb} controls preload="metadata" className="max-h-[340px] w-full rounded-control bg-shell object-contain" />
-                <p className="flex items-center gap-1.5 text-[13px] text-ink-2 tabular-nums">
-                  <CircleCheck size={16} strokeWidth={1.75} className="text-ok" aria-hidden="true" />
-                  {job.sourceInfo ? `${formatDuration(job.sourceInfo.durationSec)} · ${job.sourceInfo.width}×${job.sourceInfo.height}` : '확인했어요'}
-                </p>
-              </div>
-            ) : null}
-          </div>
-        )}
-      </Card>
-
-      <Card title="영상 설명" description="내용을 알려 주면 전문 용어를 더 정확히 받아 적어요.">
-        <Field label="설명" optional>
-          {(p) => <Textarea {...p} value={description} onChange={(e) => setDescription(e.target.value)} maxLength={2000} placeholder="예: 골프 레슨 영상입니다. 롱아이언 체중 이동이 핵심이에요." />}
-        </Field>
-      </Card>
-
-      <Card title="용도" description="어디에 올릴 영상인지에 따라 화면 비율과 편집이 달라져요. 직접 고른 값이 항상 우선이에요.">
-        <PurposeChooser value={choice} onChange={setChoice} guess={guess} />
-      </Card>
-
-      <Card title="레퍼런스가 있다면" description="따라 하고 싶은 영상의 링크나 파일이에요. 없으면 비워 두세요. 분석이 끝난 뒤 추천 목록에서 골라도 돼요.">
-        <ReferenceInput
-          jobId={jobId}
-          link={link}
-          onLinkChange={(v) => {
-            setLink(v)
-            setLinkError(null)
-          }}
-          linkError={linkError}
-          linkRef={linkInput}
-          fileName={refFileName}
-          onFileChange={(name) => {
-            setRefFileName(name)
-            if (name) {
-              setLink('')
-              setLinkError(null)
-            }
-          }}
-          onBusyChange={setRefBusy}
-        />
-      </Card>
+          <Card title="레퍼런스가 있다면" description="따라 하고 싶은 영상의 링크나 파일이에요. 없으면 비워 두세요. 분석이 끝난 뒤 추천 목록에서 골라도 돼요.">
+            <ReferenceInput
+              jobId={jobId}
+              link={link}
+              onLinkChange={(v) => {
+                setLink(v)
+                setLinkError(null)
+              }}
+              linkError={linkError}
+              linkRef={linkInput}
+              fileName={refFileName}
+              onFileChange={(name) => {
+                setRefFileName(name)
+                if (name) {
+                  setLink('')
+                  setLinkError(null)
+                }
+              }}
+              onBusyChange={setRefBusy}
+            />
+          </Card>
+        </div>
+      </div>
 
       <ActionBar error={submitError} hint={blocker}>
         <Button variant="primary" disabled={!ready || refBusy} loading={submitting} onClick={onStart}>

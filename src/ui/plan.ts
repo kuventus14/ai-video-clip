@@ -28,3 +28,17 @@ export function parsePlanCard(lines: string[]): ParsedPlanCard {
   }
   return { headline, items }
 }
+
+export type PlanItemKind = 'captions' | 'title' | 'cuts' | 'frame' | 'music' | 'transition' | 'other'
+
+/** 계획 항목 맨 앞 말("자막: …", "컷 속도: …")로 앞에 붙일 아이콘 종류를 고른다. */
+export function planItemKind(text: string): PlanItemKind {
+  const head = text.trim()
+  if (head.startsWith('자막')) return 'captions'
+  if (head.startsWith('제목')) return 'title'
+  if (head.startsWith('컷')) return 'cuts'
+  if (head.startsWith('화면')) return 'frame'
+  if (head.startsWith('음악') || head.startsWith('효과음')) return 'music'
+  if (head.startsWith('전환')) return 'transition'
+  return 'other'
+}

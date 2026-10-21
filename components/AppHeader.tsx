@@ -26,7 +26,7 @@ export function AppHeader() {
   const pathname = usePathname()
   return (
     <header className="bg-canvas">
-      <div className="mx-auto flex h-[68px] max-w-[1240px] items-center gap-8 px-4 sm:px-8">
+      <div className="mx-auto flex h-[68px] max-w-[1240px] items-center gap-8 px-5 sm:px-8">
         <Link href="/" className="group flex items-center gap-2.5 rounded-control text-[19px] font-bold tracking-[-0.03em] text-ink">
           <Mark />
           영상 편집

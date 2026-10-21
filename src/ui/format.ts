@@ -261,3 +261,8 @@ export function timecode(sec: number): string {
   const p = (n: number) => String(n).padStart(2, '0')
   return `${p(Math.floor(total / 3600))}:${p(Math.floor((total % 3600) / 60))}:${p(total % 60)}`
 }
+
+/** 올린 영상의 장면(썸네일)과 크기 — 용도 프레임 예시에 쓴다. 둘 중 하나라도 없으면 null. */
+export function sourceFrame(job: Pick<JobDto, 'media' | 'sourceInfo'>): { thumb: string; width: number; height: number } | null {
+  return job.media.thumb && job.sourceInfo ? { thumb: job.media.thumb, width: job.sourceInfo.width, height: job.sourceInfo.height } : null
+}
