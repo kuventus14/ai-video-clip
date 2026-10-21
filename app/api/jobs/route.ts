@@ -1,7 +1,7 @@
 import type { JobStatus } from '../../../src/shared/types.ts'
 import { getContext } from '../../../src/web/context.ts'
 import { toJobDto } from '../../../src/web/dto.ts'
-import { assertSameOrigin } from '../../../src/web/http.ts'
+import { assertLocalHost, assertSameOrigin } from '../../../src/web/http.ts'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -10,6 +10,8 @@ const ALL: JobStatus[] = ['created', 'queued_probe', 'probing', 'ready', 'queued
 
 /** 목록. ?filter=history 는 확정한 영상만, ?filter=active 는 나머지(진행 중·실패 포함), 없으면 전부. 최신 순. */
 export async function GET(req: Request) {
+  const wrongHost = assertLocalHost(req)
+  if (wrongHost) return wrongHost
   const filter = new URL(req.url).searchParams.get('filter')
   const statuses: JobStatus[] | undefined = filter === 'history' ? ['confirmed'] : filter === 'active' ? ALL : undefined
   return Response.json(getContext().jobs.list({ statuses }).map(toJobDto))

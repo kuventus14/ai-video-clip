@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { isRunning } from '../../src/db/status.ts'
 import type { JobDto } from '../../src/shared/types.ts'
 import { formatDuration, formatKoreanDate, isBusy, NEXT_ACTION, progressState, purposeLabel, shownPurpose, STATUS_LABEL, STEPS, stepForJob } from '../../src/ui/format.ts'
+import { reviewBadgeFor } from '../../src/ui/report.ts'
 import { Badge } from '../ui/Badge.tsx'
 import { Button } from '../ui/Button.tsx'
 import { cx } from '../ui/cx.ts'
@@ -45,11 +46,8 @@ function PurposeBadge({ job }: { job: JobDto }) {
 }
 
 function ReviewBadge({ job }: { job: JobDto }) {
-  const report = job.report
-  if (!report) return null
-  if (report.passed) return <Badge tone="ok">검수 통과</Badge>
-  const issues = report.findings.filter((f) => f.severity !== 'info').length
-  return <Badge tone="warn">{issues > 0 ? `확인 필요 ${issues}건` : '확인 필요'}</Badge>
+  const badge = reviewBadgeFor(job.report)
+  return badge ? <Badge tone={badge.tone}>{badge.text}</Badge> : null
 }
 
 /** 한 줄 상태 문구: 실패 / 내 차례 / 워커가 하는 중 / 그 밖 */

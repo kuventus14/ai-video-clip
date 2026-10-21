@@ -6,7 +6,7 @@
 import { spawn } from 'node:child_process'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { isPortFree, linePrefixer, needsBuild, parseAppArgs } from './app-lib.mjs'
+import { createSignalHandler, isPortFree, linePrefixer, needsBuild, parseAppArgs } from './app-lib.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const HOST = '127.0.0.1'
@@ -29,7 +29,9 @@ if (!(await isPortFree(port, HOST))) {
 
 /** 자식 프로세스를 띄우고 출력에 접두어를 붙여 이어 준다. */
 function run(prefix, command, commandArgs) {
-  const child = spawn(command, commandArgs, { cwd: root, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] })
+  // detached: 자식을 자기 프로세스 그룹에 둔다 — 터미널의 Ctrl+C 가 자식(렌더링 중인 워커·hyperframes·ffmpeg)에게 직접 가서
+  // 진행 중인 작업이 바로 죽는 일이 없게 하고, 종료는 런처가 정해진 순서로 알린다.
+  const child = spawn(command, commandArgs, { cwd: root, env: process.env, stdio: ['ignore', 'pipe', 'pipe'], detached: true })
   const out = linePrefixer(prefix, say)
   const err = linePrefixer(prefix, say)
   child.stdout.on('data', (c) => out.write(c))
@@ -53,7 +55,6 @@ if (!args.dev && (args.rebuild || needsBuild(root))) {
 }
 
 let shuttingDown = false
-let signalCount = 0
 const children = new Set()
 
 const web = run('[web]', bin('next'), [args.dev ? 'dev' : 'start', '-H', HOST, '-p', String(port)])
@@ -62,7 +63,8 @@ children.add(web)
 // 워커가 예상치 못하게 멈추면 작업이 조용히 멈춰 버리므로 다시 켠다(짧은 시간에 반복해서 죽으면 포기한다).
 const restarts = []
 function startWorker() {
-  const worker = run('[worker]', bin('tsx'), ['src/worker/main.ts'])
+  // tsx 실행 파일을 거치지 않고 node 가 직접 tsx 로 워커를 연다 — 종료 신호가 중간 단계에서 한 번 더 전달되는 일이 없다.
+  const worker = run('[worker]', process.execPath, ['--import', 'tsx', 'src/worker/main.ts'])
   children.add(worker)
   worker.once('exit', (code, signal) => {
     children.delete(worker)
@@ -89,10 +91,8 @@ web.once('exit', (code, signal) => {
   }
 })
 
-function shutdown(exitCode = 0) {
-  if (shuttingDown) return
-  shuttingDown = true
-  for (const c of children) c.kill('SIGTERM')
+/** 자식이 모두 끝나면 종료한다 */
+function exitWhenChildrenGone(exitCode) {
   const timer = setInterval(() => {
     if (children.size === 0) {
       clearInterval(timer)
@@ -101,27 +101,36 @@ function shutdown(exitCode = 0) {
   }, 200)
 }
 
-// 터미널의 Ctrl+C 는 자식에게도 이미 전달된다 — 여기서는 한 번 더 보내지 않고 끝나기를 기다린다.
-// (워커는 첫 신호에 진행 중인 작업을 끝내고, 두 번째 신호에 바로 종료한다.)
-process.on('SIGINT', () => {
-  signalCount++
-  if (signalCount === 1) {
-    say('[app] 종료하는 중이에요. 처리 중인 작업이 있으면 끝날 때까지 기다려요 (바로 끝내려면 Ctrl+C 를 한 번 더)')
-    shutdown(0)
-  } else {
-    for (const c of children) c.kill('SIGKILL')
-    process.exit(1)
-  }
+/** 앱 안에서 정한 종료(화면 서버가 죽음, 워커가 계속 죽음): 자식에게 한 번씩 알리고 끝나길 기다린다 */
+function shutdown(exitCode = 0) {
+  if (shuttingDown) return
+  shuttingDown = true
+  for (const c of children) c.kill('SIGTERM')
+  exitWhenChildrenGone(exitCode)
+}
+
+// 터미널의 Ctrl+C 는 자식이 아니라 런처만 받는다(자식은 자기 그룹). 첫 신호: 진행 중인 작업을 끝내고 종료, 시간을 두고 한 번 더: 강제 종료.
+// 터미널과 npm 이 같은 Ctrl+C 를 두 번 전달하는 경우는 1초 안의 중복으로 보고 무시한다(app-lib 의 createSignalHandler).
+const onSignal = createSignalHandler({
+  listChildren: () => [...children],
+  terminate: (c) => c.kill('SIGTERM'),
+  killGroup: (c) => {
+    try {
+      process.kill(-c.pid, 'SIGKILL') // 프로세스 그룹째: 워커가 띄운 렌더링 도구까지
+    } catch {
+      // 이미 끝났다
+    }
+  },
+  exit: (code) => process.exit(code),
+  say,
 })
-// kill 로 종료하는 경우(터미널 신호가 아님)에는 자식에게 직접 알린다. 두 번째는 강제 종료.
-process.on('SIGTERM', () => {
-  signalCount++
-  if (signalCount === 1) shutdown(0)
-  else {
-    for (const c of children) c.kill('SIGKILL')
-    process.exit(1)
-  }
-})
+const handleSignal = () => {
+  const first = !shuttingDown
+  shuttingDown = true
+  if (onSignal() === 'graceful' && first) exitWhenChildrenGone(0)
+}
+process.on('SIGINT', handleSignal)
+process.on('SIGTERM', handleSignal)
 
 // 화면이 열리면 주소를 알려 준다
 const url = `http://${HOST}:${port}`

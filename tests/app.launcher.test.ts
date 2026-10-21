@@ -3,7 +3,7 @@ import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { isPortFree, latestMtimeMs, linePrefixer, needsBuild, parseAppArgs } from '../scripts/app-lib.mjs'
+import { createSignalHandler, isPortFree, latestMtimeMs, linePrefixer, needsBuild, parseAppArgs } from '../scripts/app-lib.mjs'
 
 describe('linePrefixer', () => {
   it('줄마다 접두어를 붙이고, 줄 중간에 끊겨 온 조각은 이어 붙인다', () => {
@@ -97,5 +97,49 @@ describe('isPortFree', () => {
     expect(await isPortFree(port, '127.0.0.1')).toBe(false)
     await new Promise<void>((r) => server.close(() => r()))
     expect(await isPortFree(port, '127.0.0.1')).toBe(true)
+  })
+})
+
+describe('createSignalHandler — Ctrl+C 한 번에 진행 중인 작업이 죽지 않게', () => {
+  function setup() {
+    const calls: string[] = []
+    let t = 1_000_000
+    const children = ['web', 'worker']
+    const handler = createSignalHandler({
+      listChildren: () => children,
+      terminate: (c) => calls.push(`TERM ${c}`),
+      killGroup: (c) => calls.push(`KILL ${c}`),
+      exit: (code) => calls.push(`exit ${code}`),
+      say: (m) => calls.push(`say ${m.slice(0, 6)}`),
+      now: () => t,
+    })
+    return { handler, calls, advance: (ms: number) => (t += ms) }
+  }
+
+  it('첫 신호는 자식마다 SIGTERM 을 정확히 한 번 보내고 안내한다(워커는 진행 중인 작업을 끝낸다)', () => {
+    const { handler, calls } = setup()
+    expect(handler('SIGINT')).toBe('graceful')
+    expect(calls.filter((c) => c.startsWith('TERM'))).toEqual(['TERM web', 'TERM worker'])
+    expect(calls.some((c) => c.startsWith('KILL') || c.startsWith('exit'))).toBe(false)
+  })
+
+  it('터미널과 npm 이 같은 Ctrl+C 를 두 번 전달해도(1초 안의 중복) 한 번으로 친다', () => {
+    const { handler, calls, advance } = setup()
+    handler('SIGINT')
+    advance(30)
+    expect(handler('SIGINT')).toBe('ignored')
+    advance(400)
+    expect(handler('SIGTERM')).toBe('ignored')
+    expect(calls.filter((c) => c.startsWith('TERM'))).toHaveLength(2) // web, worker 한 번씩뿐
+    expect(calls.some((c) => c.startsWith('KILL') || c.startsWith('exit'))).toBe(false)
+  })
+
+  it('시간을 두고 사용자가 한 번 더 누르면 프로세스 그룹째(렌더 도구 포함) 강제 종료한다', () => {
+    const { handler, calls, advance } = setup()
+    handler('SIGINT')
+    advance(5000)
+    expect(handler('SIGINT')).toBe('force')
+    expect(calls.filter((c) => c.startsWith('KILL'))).toEqual(['KILL web', 'KILL worker'])
+    expect(calls[calls.length - 1]).toBe('exit 1')
   })
 })

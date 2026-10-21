@@ -15,12 +15,31 @@ export function parseJobId(id: string): string | null {
   return /^[a-f0-9]{10}$/.test(id) ? id : null
 }
 
+const LOCAL_HOSTNAMES = new Set(['127.0.0.1', 'localhost', '[::1]'])
+
+function hostnameOf(host: string): string {
+  const h = host.toLowerCase()
+  return h.startsWith('[') ? h.slice(0, h.indexOf(']') + 1) : h.split(':')[0]!
+}
+
 /**
- * 변경 요청(POST/PUT/DELETE)은 Origin 이 있으면 Host 와 같아야 통과한다.
+ * 요청의 Host 가 이 컴퓨터(127.0.0.1·localhost·[::1], 포트는 무관)가 아니면 403. 읽기(GET)를 포함해 모든 API 가 쓴다.
+ * 공격 페이지가 자기 도메인을 DNS 로 127.0.0.1 에 돌려(DNS 리바인딩) 같은 출처처럼 요청을 보내면 Origin 과 Host 가 같은 이름이라
+ * Origin 검사만으로는 막지 못한다 — 이 앱은 127.0.0.1 로만 열리므로 그 밖의 이름은 받지 않는다.
+ */
+export function assertLocalHost(req: Request): Response | null {
+  const host = req.headers.get('host') ?? new URL(req.url).host
+  return LOCAL_HOSTNAMES.has(hostnameOf(host)) ? null : jsonError(403, '이 앱은 이 컴퓨터에서만 열 수 있어요')
+}
+
+/**
+ * 변경 요청(POST/PUT/DELETE)은 Host 가 이 컴퓨터여야 하고, Origin 이 있으면 Host 와 같아야 통과한다.
  * 다른 사이트가 내 로컬 앱에 요청을 보내 영상을 지우거나 내려받게 하는 것을 막는다. Origin 이 없는 호출(curl)은 허용.
  */
 export function assertSameOrigin(req: Request): Response | null {
   if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') return null
+  const wrongHost = assertLocalHost(req)
+  if (wrongHost) return wrongHost
   const origin = req.headers.get('origin')
   if (!origin) return null
   let originHost: string

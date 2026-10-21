@@ -28,6 +28,14 @@ export function verdictOf(report: ReportDto | null): { tone: 'ok' | 'warn'; text
   return { tone: 'warn', text: n > 0 ? `확인할 것 ${n}건` : '확인 필요' }
 }
 
+/**
+ * 기록 카드의 검수 배지. 결과 화면과 같은 판정(verdictOf)이라 같은 작업이 화면마다 다르게 말하지 않는다.
+ * 리포트가 없으면 배지를 보이지 않는다.
+ */
+export function reviewBadgeFor(report: ReportDto | null): { tone: 'ok' | 'warn'; text: string } | null {
+  return report ? verdictOf(report) : null
+}
+
 /** 결과 영상을 내려받을 때의 파일 이름 */
 export function downloadName(job: Pick<JobDto, 'sourceName' | 'title'>): string {
   const stem = (job.sourceName ?? job.title).replace(/\.[^./\\]+$/, '').replace(/[\\/:*?"<>|]+/g, ' - ').replace(/\s+-\s+/g, ' - ').trim()

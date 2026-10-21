@@ -179,10 +179,43 @@ describe('레퍼런스 파일 업로드', () => {
     const res = await refFilePut(put(`/api/jobs/${made.id}/reference-file?name=ref.mp4`, bodyOf([Buffer.alloc(500)])), params(made.id))
     expect(res.status).toBe(200)
     const job = getContext().jobs.get(made.id)!
-    expect(path.basename(job.referenceUploadPath!)).toBe('reference-upload.mp4')
+    expect(path.basename(job.referenceUploadPath!)).toMatch(/^reference-upload-[a-f0-9]{8}\.mp4$/)
     expect(job.referenceSource).toBeNull()
     expect(((await res.json()) as JobDto).hasUploadedReference).toBe(true)
   })
+  test('같은 확장자로 다시 올리면 새 이름의 새 파일이 된다 — 이전 파일과 같은 경로로 덮어써서 "이미 분석했다"고 착각하지 않게', async () => {
+    const made = await create()
+    const upload = async (bytes: number) => {
+      const res = await refFilePut(put(`/api/jobs/${made.id}/reference-file?name=ref.mp4`, bodyOf([Buffer.alloc(bytes, bytes)])), params(made.id))
+      expect(res.status).toBe(200)
+      return getContext().jobs.get(made.id)!.referenceUploadPath!
+    }
+    const first = await upload(500)
+    const second = await upload(700)
+    expect(second).not.toBe(first)
+    expect(fs.statSync(second).size).toBe(700)
+    expect(fs.existsSync(first)).toBe(false) // 쓰이지 않는 이전 파일은 지운다
+  })
+
+  test('이전 파일이 아직 레퍼런스로 쓰이고 있으면(referenceSource) 지우지 않는다', async () => {
+    const made = await create()
+    const upload = async (bytes: number) => {
+      await refFilePut(put(`/api/jobs/${made.id}/reference-file?name=ref.mp4`, bodyOf([Buffer.alloc(bytes, 1)])), params(made.id))
+      return getContext().jobs.get(made.id)!.referenceUploadPath!
+    }
+    const first = await upload(500)
+    getContext().jobs.update(made.id, { referenceSource: first })
+    const second = await upload(700)
+    expect(second).not.toBe(first)
+    expect(fs.existsSync(first)).toBe(true)
+  })
+
+  test('순서를 기다리는 중(queued_*)에도 409 — 워커가 집기 직전에 파일이 바뀌지 않게', async () => {
+    const made = await create()
+    getContext().jobs.update(made.id, { status: 'queued_plan' })
+    expect((await refFilePut(put(`/api/jobs/${made.id}/reference-file?name=x.mp4`, bodyOf([Buffer.alloc(5)])), params(made.id))).status).toBe(409)
+  })
+
   test('실행 중인 작업에는 409, 허용되지 않는 확장자는 400', async () => {
     const made = await create()
     expect((await refFilePut(put(`/api/jobs/${made.id}/reference-file?name=x.txt`, bodyOf([Buffer.alloc(5)])), params(made.id))).status).toBe(400)
@@ -253,6 +286,24 @@ describe('Origin 검사 (다른 사이트가 내 로컬 앱을 건드리지 못�
     expect(getContext().jobs.get(made.id)).toBeDefined()
     const up = await videoPut(put(`/api/jobs/${made.id}/video?name=a.mp4`, bodyOf([Buffer.alloc(10)]), { headers: { origin: 'http://evil.example' } }), params(made.id))
     expect(up.status).toBe(403)
+  })
+
+  test('Host 가 이 컴퓨터(127.0.0.1·localhost·[::1])가 아니면 읽기·변경 모두 403 — DNS 리바인딩으로 Origin=Host 검사를 우회해도 막는다', async () => {
+    const made = await create()
+    const evilUrl = (p: string) => `http://evil.example:4848${p}`
+    expect((await listGet(new Request(evilUrl('/api/jobs')))).status).toBe(403)
+    expect((await jobGet(new Request(evilUrl(`/api/jobs/${made.id}`)), params(made.id))).status).toBe(403)
+    expect((await mediaGet(new Request(evilUrl(`/api/jobs/${made.id}/media/source`)), mediaParams(made.id, 'source'))).status).toBe(403)
+    // 공격 페이지는 Origin 과 Host 가 같은 이름(evil.example)이라 옛 검사는 통과했다
+    expect((await createPost(new Request(evilUrl('/api/jobs'), { method: 'POST', headers: { origin: 'http://evil.example:4848' } }))).status).toBe(403)
+    expect((await jobDelete(new Request(evilUrl(`/api/jobs/${made.id}`), { method: 'DELETE' }), params(made.id))).status).toBe(403)
+    expect(getContext().jobs.get(made.id)).toBeDefined()
+  })
+
+  test('127.0.0.1·localhost·[::1] 은 어느 포트든 통과', async () => {
+    for (const host of ['127.0.0.1:4848', 'localhost:4949', '[::1]:4848', 'LOCALHOST:4848']) {
+      expect((await listGet(new Request(`http://${host}/api/jobs`))).status, host).toBe(200)
+    }
   })
 
   test('GET 은 Origin 과 무관하게 통과', async () => {

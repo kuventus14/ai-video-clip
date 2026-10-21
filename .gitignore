@@ -7,3 +7,6 @@ dist
 data-demo
 next-env.d.ts
 tsconfig.tsbuildinfo
+
+# design-taste 스킬이 만드는 작업 폴더
+.taste-skill
