@@ -89,6 +89,14 @@ export const NEXT_ACTION: Partial<Record<JobStatus, string>> = {
   awaiting_confirm: '결과를 확인해 주세요',
 }
 
+/** 목록 행에서 "내 차례" 를 알리는 짧은 버튼 글자(NEXT_ACTION 과 같은 상태들) */
+export const ROW_CTA: Partial<Record<JobStatus, string>> = {
+  ready: '시작하기',
+  awaiting_reference: '레퍼런스 고르기',
+  awaiting_plan: '계획 확인',
+  awaiting_confirm: '결과 확인',
+}
+
 export const STEPS = ['업로드', '분석', '레퍼런스', '계획 확인', '제작', '결과'] as const
 export type StepIndex = 0 | 1 | 2 | 3 | 4 | 5
 

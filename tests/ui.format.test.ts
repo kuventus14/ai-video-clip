@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { JobStatus } from '../src/shared/types.ts'
-import { LOW_CONFIDENCE, atDate, currentStageIndex, phaseStages, timecode, stageVisual, thumbAspect, estimateProduce, formatBytes, formatDuration, formatKoreanDate, formatViews, isBusy, pollIntervalMs, progressState, purposeLabel, purposeNote, NEXT_ACTION, shownPurpose, STATUS_LABEL, STEPS, stepFor, stepForJob } from '../src/ui/format.ts'
+import { LOW_CONFIDENCE, ROW_CTA, atDate, currentStageIndex, phaseStages, timecode, stageVisual, thumbAspect, estimateProduce, formatBytes, formatDuration, formatKoreanDate, formatViews, isBusy, pollIntervalMs, progressState, purposeLabel, purposeNote, NEXT_ACTION, shownPurpose, STATUS_LABEL, STEPS, stepFor, stepForJob } from '../src/ui/format.ts'
 
 const ALL_STATUSES: JobStatus[] = ['created', 'queued_probe', 'probing', 'ready', 'queued_analysis', 'analyzing', 'awaiting_reference', 'queued_plan', 'planning', 'awaiting_plan', 'queued_produce', 'producing', 'awaiting_confirm', 'confirmed', 'failed']
 
@@ -289,5 +289,13 @@ describe('timecode — 경과 시간을 00:03:25 꼴로', () => {
   it('음수·NaN 은 0', () => {
     expect(timecode(-1)).toBe('00:00:00')
     expect(timecode(Number.NaN)).toBe('00:00:00')
+  })
+})
+
+describe('ROW_CTA — 목록 행의 "내 차례" 버튼 글자', () => {
+  it('내 할 일이 있는 상태마다 한 줄, NEXT_ACTION 과 같은 상태들', () => {
+    expect(Object.keys(ROW_CTA).sort()).toEqual(Object.keys(NEXT_ACTION).sort())
+    expect(ROW_CTA.awaiting_confirm).toBe('결과 확인')
+    expect(ROW_CTA.awaiting_reference).toBe('레퍼런스 고르기')
   })
 })

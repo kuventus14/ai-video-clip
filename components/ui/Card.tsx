@@ -15,7 +15,7 @@ export function Card({ title, description, action, children, className, bodyClas
           {action ? <div className="shrink-0">{action}</div> : null}
         </header>
       ) : null}
-      {children !== undefined && children !== null ? <div className={cx('px-6 py-5', hasHeader && 'pt-4', bodyClassName)}>{children}</div> : null}
+      {children !== undefined && children !== null ? <div className={cx('px-6 py-5', !!hasHeader && 'pt-4', bodyClassName)}>{children}</div> : null}
     </section>
   )
 }
