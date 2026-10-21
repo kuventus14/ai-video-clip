@@ -83,3 +83,29 @@ export function isPortFree(port, host) {
     server.listen(port, host)
   })
 }
+
+/**
+ * 종료 신호(Ctrl+C·kill) 처리. 처음 한 번은 자식마다 SIGTERM 을 정확히 한 번 보낸다 — 워커는 이걸 "진행 중인 작업을 끝내고 종료"로
+ * 받아들인다. 터미널(프로세스 그룹)과 npm 이 같은 Ctrl+C 를 각각 전달해 한 번 누른 것이 두 번 오기도 하므로, 직전 신호에서
+ * debounceMs(기본 1초) 안에 온 신호는 같은 Ctrl+C 로 보고 무시한다. 시간을 두고 다시 오면 사용자가 일부러 누른 것이니
+ * 자식을 프로세스 그룹째(렌더링 도구 포함) 강제 종료한다.
+ * @returns 'graceful' | 'ignored' | 'force'
+ */
+export function createSignalHandler({ listChildren, terminate, killGroup, exit, say, now = Date.now, debounceMs = 1000 }) {
+  let stopping = false
+  let last = 0
+  return function onSignal() {
+    const t = now()
+    if (stopping && t - last < debounceMs) return 'ignored'
+    last = t
+    if (!stopping) {
+      stopping = true
+      say('[app] 종료하는 중이에요. 처리 중인 작업이 있으면 끝날 때까지 기다려요 (바로 끝내려면 Ctrl+C 를 한 번 더)')
+      for (const child of listChildren()) terminate(child)
+      return 'graceful'
+    }
+    for (const child of listChildren()) killGroup(child)
+    exit(1)
+    return 'force'
+  }
+}

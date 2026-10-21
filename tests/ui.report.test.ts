@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ReportDto } from '../src/shared/types.ts'
-import { correctionReasonLabel, downloadName, groupFindings, mergeRequest, oppositePurpose, verdictOf } from '../src/ui/report.ts'
+import { correctionReasonLabel, downloadName, groupFindings, mergeRequest, oppositePurpose, reviewBadgeFor, verdictOf } from '../src/ui/report.ts'
 
 const report = (over: Partial<ReportDto> = {}): ReportDto => ({ passed: true, attempts: 1, reframe: 'none', purpose: 'short', findings: [], appliedCorrections: [], suggestions: [], unchecked: [], ...over })
 const finding = (id: string, severity: 'high' | 'medium' | 'info', atSec?: number) => ({ id, severity, message: `${id} 메시지`, ...(atSec === undefined ? {} : { atSec }) })
@@ -57,5 +57,19 @@ describe('downloadName / mergeRequest / oppositePurpose', () => {
   it('반대 용도', () => {
     expect(oppositePurpose('short')).toBe('post')
     expect(oppositePurpose('post')).toBe('short')
+  })
+})
+
+describe('reviewBadgeFor — 기록 카드의 검수 배지는 결과 화면과 같은 판정', () => {
+  it('통과 표시여도 확인할 항목이 있으면 기록에서도 "통과"가 아니다(결과 화면의 verdictOf 와 같은 말)', () => {
+    const r = report({ passed: true, findings: [finding('crop-jitter', 'medium')] })
+    expect(reviewBadgeFor(r)).toEqual({ tone: 'warn', text: '확인할 것 1건' })
+    expect(reviewBadgeFor(r)).toEqual(verdictOf(r))
+  })
+  it('문제가 없으면 통과', () => {
+    expect(reviewBadgeFor(report())).toEqual({ tone: 'ok', text: '검수 통과' })
+  })
+  it('리포트가 없으면 배지를 보이지 않는다(통과라고도, 문제라고도 하지 않음)', () => {
+    expect(reviewBadgeFor(null)).toBeNull()
   })
 })

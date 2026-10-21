@@ -1,10 +1,12 @@
 import { toJobDto } from '../../../../src/web/dto.ts'
-import { assertSameOrigin, jsonError, loadJob } from '../../../../src/web/http.ts'
+import { assertLocalHost, assertSameOrigin, jsonError, loadJob } from '../../../../src/web/http.ts'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
+export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const wrongHost = assertLocalHost(req)
+  if (wrongHost) return wrongHost
   const found = await loadJob(ctx.params)
   if ('res' in found) return found.res
   return Response.json(toJobDto(found.job))
