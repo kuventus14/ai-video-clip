@@ -8,11 +8,8 @@ export const metadata: Metadata = {
 }
 
 export const viewport: Viewport = {
-  colorScheme: 'light dark',
-  themeColor: [
-    { media: '(prefers-color-scheme: light)', color: '#0f1b3d' },
-    { media: '(prefers-color-scheme: dark)', color: '#0a0f1f' },
-  ],
+  colorScheme: 'dark',
+  themeColor: '#09090a',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -20,7 +17,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="ko">
       <body>
         <AppHeader />
-        <main className="mx-auto w-full max-w-[1120px] px-4 py-8 sm:px-6">{children}</main>
+        <main className="mx-auto w-full max-w-[1240px] px-4 pb-24 pt-6 sm:px-8 sm:pt-10">{children}</main>
       </body>
     </html>
   )

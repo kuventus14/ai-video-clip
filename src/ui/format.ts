@@ -171,3 +171,85 @@ export function purposeNote(choice: 'auto' | PurposeValue, guess: JobDto['purpos
   }
   return guess.purpose === choice ? `직접 고른 값이에요. 자동 인식도 같았어요${reason}.` : `직접 고른 값으로 만들어요. (자동 인식은 ${purposeLabel(guess.purpose)} 였어요.)`
 }
+
+/**
+ * 목록·갤러리 썸네일의 가로세로 비율(가로/세로). 결과가 나온 작업의 썸네일은 결과 영상, 그 전에는 원본이다.
+ * 크기를 모르면 용도로 짐작하고(릴스·숏츠 9:16, 게시물 16:9), 극단적인 비율은 0.4~2.4 로 제한한다.
+ */
+export function thumbAspect(job: Pick<JobDto, 'status' | 'purpose' | 'purposeChoice' | 'purposeGuess' | 'sourceInfo' | 'resultInfo'>): number {
+  const hasResult = job.status === 'awaiting_confirm' || job.status === 'confirmed'
+  const info = hasResult ? job.resultInfo : job.sourceInfo
+  let ratio: number
+  if (info && info.width > 0 && info.height > 0) ratio = info.width / info.height
+  else ratio = shownPurpose(job) === 'short' ? 9 / 16 : 16 / 9
+  return Math.min(2.4, Math.max(0.4, ratio))
+}
+
+/** 진행 무대에 그릴 모션 그래픽의 종류 */
+export type StageVisual = 'wait' | 'probe' | 'listen' | 'watch' | 'reference' | 'plan' | 'render' | 'qa'
+
+/** 워커가 알려 주는 단계 이름(job.stage)으로 모션 그래픽을 고른다. 이름을 모르면 상태로 짐작한다. */
+export function stageVisual(status: JobStatus, stage: string | null): StageVisual {
+  if (isQueued(status)) return 'wait'
+  if (status === 'probing') return 'probe'
+  const s = stage ?? ''
+  if (s.startsWith('음성 인식')) return 'listen'
+  if (s.startsWith('영상 이해') || s.startsWith('사람 위치') || s.startsWith('용도 판단')) return 'watch'
+  if (s.startsWith('레퍼런스')) return 'reference'
+  if (s.startsWith('편집 계획') || s.startsWith('컷 계산')) return 'plan'
+  if (s.startsWith('편집 프로젝트') || s.startsWith('렌더링')) return 'render'
+  if (s.startsWith('검수')) return 'qa'
+  if (s.startsWith('영상 확인') || s.startsWith('형식 변환')) return 'probe'
+  return status === 'analyzing' ? 'watch' : status === 'planning' ? 'plan' : 'render'
+}
+
+export interface PhaseStage {
+  visual: StageVisual
+  label: string
+  /** 워커가 알려 주는 단계 이름(job.stage)이 이 접두어로 시작하면 이 칸이다 */
+  match: string[]
+}
+
+/** 워커가 한 묶음(분석·계획·제작) 안에서 지나가는 단계들. 진행 화면의 단계 표시줄에 쓴다. */
+export function phaseStages(status: JobStatus): PhaseStage[] {
+  switch (status) {
+    case 'queued_probe':
+    case 'probing':
+      return [{ visual: 'probe', label: '영상 확인', match: ['영상 확인', '형식 변환'] }]
+    case 'queued_analysis':
+    case 'analyzing':
+      return [
+        { visual: 'listen', label: '음성 인식', match: ['음성 인식'] },
+        { visual: 'watch', label: '영상 이해', match: ['영상 이해', '용도 판단', '형식 변환'] },
+      ]
+    case 'queued_plan':
+    case 'planning':
+      return [
+        { visual: 'reference', label: '레퍼런스 분석', match: ['레퍼런스'] },
+        { visual: 'plan', label: '편집 계획', match: ['편집 계획'] },
+      ]
+    case 'queued_produce':
+    case 'producing':
+      return [
+        { visual: 'plan', label: '컷 계산', match: ['컷 계산'] },
+        { visual: 'watch', label: '편집 구성', match: ['사람 위치', '편집 프로젝트'] },
+        { visual: 'render', label: '렌더링', match: ['렌더링'] },
+        { visual: 'qa', label: '검수', match: ['검수'] },
+      ]
+    default:
+      return []
+  }
+}
+
+/** 단계 표시줄에서 지금 위치(0부터). 순서를 기다리는 중이거나 단계 이름을 모르면 -1. */
+export function currentStageIndex(status: JobStatus, stage: string | null): number {
+  if (isQueued(status) || !stage) return -1
+  return phaseStages(status).findIndex((st) => st.match.some((m) => stage.startsWith(m)))
+}
+
+/** 경과 시간을 타임코드(시:분:초, 두 자리씩)로. 56.8 → "00:00:57" */
+export function timecode(sec: number): string {
+  const total = Number.isFinite(sec) && sec > 0 ? Math.round(sec) : 0
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${p(Math.floor(total / 3600))}:${p(Math.floor((total % 3600) / 60))}:${p(total % 60)}`
+}

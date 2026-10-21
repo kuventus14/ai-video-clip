@@ -2,23 +2,26 @@ import type { ButtonHTMLAttributes, ReactNode } from 'react'
 import { cx } from './cx.ts'
 import { Spinner } from './Spinner.tsx'
 
-export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger'
+export type ButtonVariant = 'primary' | 'accent' | 'secondary' | 'ghost' | 'danger'
 export type ButtonSize = 'md' | 'sm' | 'icon'
 
 const BASE =
-  'inline-flex select-none items-center justify-center gap-2 whitespace-nowrap rounded-control font-medium transition-colors duration-150 ' +
-  'disabled:cursor-not-allowed disabled:opacity-50 disabled:aria-busy:cursor-progress disabled:aria-busy:opacity-100'
+  'inline-flex select-none items-center justify-center gap-2 whitespace-nowrap rounded-full font-semibold transition-[background-color,color,transform,box-shadow] duration-150 ease-out ' +
+  'active:scale-[0.97] motion-reduce:transition-none motion-reduce:active:scale-100 ' +
+  'disabled:cursor-not-allowed disabled:opacity-40 disabled:active:scale-100 disabled:aria-busy:cursor-progress disabled:aria-busy:opacity-100'
 
+// 흰색은 "확정하는 행동"(주 행동 하나), 호박색은 "지금 내 차례"에만, 나머지는 면의 밝기 단계로 말한다.
 const VARIANT: Record<ButtonVariant, string> = {
-  primary: 'bg-accent text-white hover:bg-accent-hover active:bg-accent-hover',
-  secondary: 'border border-field-line bg-panel text-ink hover:bg-sunken active:bg-sunken',
-  ghost: 'text-ink-2 hover:bg-sunken hover:text-ink active:bg-sunken',
-  danger: 'border border-bad bg-panel text-bad hover:bg-bad-soft active:bg-bad-soft',
+  primary: 'bg-ink text-canvas hover:bg-white',
+  accent: 'bg-accent text-accent-deep hover:brightness-110',
+  secondary: 'bg-lift text-ink hover:bg-[#2c2c32]',
+  ghost: 'text-ink-2 hover:bg-raised hover:text-ink',
+  danger: 'bg-bad-soft text-bad hover:bg-[#3b1a1f]',
 }
 
 const SIZE: Record<ButtonSize, string> = {
-  md: 'h-10 px-4 text-[15px]',
-  sm: 'h-9 px-3 text-[13px]',
+  md: 'h-11 px-5 text-[15px]',
+  sm: 'h-9 px-4 text-[13px]',
   icon: 'size-9',
 }
 

@@ -9,7 +9,7 @@ export function Switch({ checked, onChange, label, description, disabled }: { ch
   return (
     <div className="flex items-start justify-between gap-4">
       <div className="min-w-0">
-        <p id={`${id}-label`} className="text-[15px] font-medium text-ink">
+        <p id={`${id}-label`} className="text-[15px] font-semibold text-ink">
           {label}
         </p>
         {description ? (
@@ -26,11 +26,11 @@ export function Switch({ checked, onChange, label, description, disabled }: { ch
         aria-describedby={description ? `${id}-desc` : undefined}
         disabled={disabled}
         onClick={() => onChange(!checked)}
-        className="flex h-10 shrink-0 items-center gap-2 rounded-control px-1 disabled:cursor-not-allowed disabled:opacity-50"
+        className="flex h-11 shrink-0 items-center gap-2.5 rounded-control px-1 disabled:cursor-not-allowed disabled:opacity-50"
       >
-        <span className={cx('w-6 text-right text-[13px] font-medium', checked ? 'text-accent-ink' : 'text-ink-3')}>{checked ? '켬' : '끔'}</span>
-        <span className={cx('relative h-6 w-10 rounded-full transition-colors duration-150', checked ? 'bg-accent' : 'bg-field-line')}>
-          <span className={cx('absolute left-0.5 top-0.5 size-5 rounded-full bg-white transition-transform duration-150', checked && 'translate-x-4')} />
+        <span className={cx('w-6 text-right text-[13px] font-semibold', checked ? 'text-accent-ink' : 'text-ink-3')}>{checked ? '켬' : '끔'}</span>
+        <span className={cx('relative h-7 w-12 rounded-full transition-colors duration-200', checked ? 'bg-accent' : 'bg-lift')}>
+          <span className={cx('absolute left-1 top-1 size-5 rounded-full transition-transform duration-300 [transition-timing-function:var(--ease-expo)]', checked ? 'translate-x-5 bg-accent-deep' : 'bg-ink-2')} />
         </span>
       </button>
     </div>

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { JobStatus } from '../src/shared/types.ts'
-import { LOW_CONFIDENCE, atDate, estimateProduce, formatBytes, formatDuration, formatKoreanDate, formatViews, isBusy, pollIntervalMs, progressState, purposeLabel, purposeNote, NEXT_ACTION, shownPurpose, STATUS_LABEL, STEPS, stepFor, stepForJob } from '../src/ui/format.ts'
+import { LOW_CONFIDENCE, atDate, currentStageIndex, phaseStages, timecode, stageVisual, thumbAspect, estimateProduce, formatBytes, formatDuration, formatKoreanDate, formatViews, isBusy, pollIntervalMs, progressState, purposeLabel, purposeNote, NEXT_ACTION, shownPurpose, STATUS_LABEL, STEPS, stepFor, stepForJob } from '../src/ui/format.ts'
 
 const ALL_STATUSES: JobStatus[] = ['created', 'queued_probe', 'probing', 'ready', 'queued_analysis', 'analyzing', 'awaiting_reference', 'queued_plan', 'planning', 'awaiting_plan', 'queued_produce', 'producing', 'awaiting_confirm', 'confirmed', 'failed']
 
@@ -207,5 +207,87 @@ describe('문구', () => {
   it('purposeLabel', () => {
     expect(purposeLabel('post')).toBe('게시물 영상용(가로)')
     expect(purposeLabel('short')).toBe('릴스·숏츠용(세로)')
+  })
+})
+
+describe('thumbAspect — 썸네일의 가로세로 비율', () => {
+  const base = { purpose: null, purposeChoice: 'auto' as const, purposeGuess: null, sourceInfo: null, resultInfo: null }
+  it('결과가 나온 작업은 결과 영상 크기로, 아니면 원본 크기로', () => {
+    expect(thumbAspect({ ...base, status: 'confirmed', resultInfo: { durationSec: 1, width: 1920, height: 1080 }, sourceInfo: { durationSec: 1, width: 1080, height: 1920 } })).toBeCloseTo(16 / 9)
+    expect(thumbAspect({ ...base, status: 'analyzing', resultInfo: null, sourceInfo: { durationSec: 1, width: 1080, height: 1920 } })).toBeCloseTo(9 / 16)
+  })
+  it('크기를 모르면 용도로 짐작하고, 그것도 모르면 16:9', () => {
+    expect(thumbAspect({ ...base, status: 'confirmed', purpose: 'short' })).toBeCloseTo(9 / 16)
+    expect(thumbAspect({ ...base, status: 'confirmed', purpose: 'post' })).toBeCloseTo(16 / 9)
+    expect(thumbAspect({ ...base, status: 'created' })).toBeCloseTo(16 / 9)
+  })
+  it('극단적인 비율은 갤러리가 깨지지 않게 제한한다', () => {
+    expect(thumbAspect({ ...base, status: 'confirmed', resultInfo: { durationSec: 1, width: 4000, height: 100 } })).toBeLessThanOrEqual(2.4)
+    expect(thumbAspect({ ...base, status: 'confirmed', resultInfo: { durationSec: 1, width: 100, height: 4000 } })).toBeGreaterThanOrEqual(0.4)
+  })
+})
+
+describe('stageVisual — 진행 단계에 맞는 모션 그래픽 고르기', () => {
+  it('순서를 기다리는 중이면 wait, 영상 확인 중이면 probe', () => {
+    expect(stageVisual('queued_produce', null)).toBe('wait')
+    expect(stageVisual('probing', null)).toBe('probe')
+  })
+  it('워커가 알려 주는 단계 이름으로 고른다', () => {
+    expect(stageVisual('analyzing', '음성 인식')).toBe('listen')
+    expect(stageVisual('analyzing', '영상 이해 — 비슷한 인기 영상을 찾는 중')).toBe('watch')
+    expect(stageVisual('planning', '레퍼런스 분석')).toBe('reference')
+    expect(stageVisual('planning', '편집 계획')).toBe('plan')
+    expect(stageVisual('producing', '컷 계산')).toBe('plan')
+    expect(stageVisual('producing', '사람 위치 추적')).toBe('watch')
+    expect(stageVisual('producing', '렌더링 — looks 화질')).toBe('render')
+    expect(stageVisual('producing', '검수')).toBe('qa')
+    expect(stageVisual('producing', '검수 결과로 다시 작업')).toBe('qa')
+  })
+  it('단계 이름을 모르면 상태로 짐작한다', () => {
+    expect(stageVisual('analyzing', null)).toBe('watch')
+    expect(stageVisual('planning', '처음 보는 단계')).toBe('plan')
+    expect(stageVisual('producing', null)).toBe('render')
+  })
+})
+
+describe('phaseStages — 지금 하는 일이 속한 묶음의 단계들', () => {
+  it('분석·계획·제작 단계마다 차례대로', () => {
+    expect(phaseStages('analyzing').map((s) => s.label)).toEqual(['음성 인식', '영상 이해'])
+    expect(phaseStages('queued_plan').map((s) => s.label)).toEqual(['레퍼런스 분석', '편집 계획'])
+    expect(phaseStages('producing').map((s) => s.label)).toEqual(['컷 계산', '편집 구성', '렌더링', '검수'])
+    expect(phaseStages('probing').map((s) => s.label)).toEqual(['영상 확인'])
+  })
+  it('묶음이 없는 상태(입력 대기·확정)는 빈 목록', () => {
+    expect(phaseStages('ready')).toEqual([])
+    expect(phaseStages('confirmed')).toEqual([])
+  })
+})
+
+describe('currentStageIndex — 단계 표시줄에서 지금 위치', () => {
+  it('워커가 알려 주는 단계 이름이 속한 칸의 번호', () => {
+    expect(currentStageIndex('analyzing', '음성 인식')).toBe(0)
+    expect(currentStageIndex('analyzing', '영상 이해 — 비슷한 인기 영상을 찾는 중')).toBe(1)
+    expect(currentStageIndex('producing', '컷 계산')).toBe(0)
+    expect(currentStageIndex('producing', '사람 위치 추적')).toBe(1)
+    expect(currentStageIndex('producing', '편집 프로젝트 만들기')).toBe(1)
+    expect(currentStageIndex('producing', '렌더링 — looks 화질')).toBe(2)
+    expect(currentStageIndex('producing', '검수 결과로 다시 작업')).toBe(3)
+  })
+  it('순서를 기다리는 중이거나 이름을 모르면 -1 (아직 어느 단계도 아님)', () => {
+    expect(currentStageIndex('queued_produce', null)).toBe(-1)
+    expect(currentStageIndex('producing', null)).toBe(-1)
+    expect(currentStageIndex('producing', '처음 보는 단계')).toBe(-1)
+  })
+})
+
+describe('timecode — 경과 시간을 00:03:25 꼴로', () => {
+  it('시:분:초, 두 자리씩', () => {
+    expect(timecode(0)).toBe('00:00:00')
+    expect(timecode(205.4)).toBe('00:03:25')
+    expect(timecode(3725)).toBe('01:02:05')
+  })
+  it('음수·NaN 은 0', () => {
+    expect(timecode(-1)).toBe('00:00:00')
+    expect(timecode(Number.NaN)).toBe('00:00:00')
   })
 })

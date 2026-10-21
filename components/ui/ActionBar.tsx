@@ -6,14 +6,14 @@ import type { ReactNode } from 'react'
  */
 export function ActionBar({ error, hint, children }: { error?: string | null; hint?: ReactNode; children: ReactNode }) {
   return (
-    <div className="sticky bottom-3 z-10 flex flex-col gap-2 rounded-panel border border-line bg-panel px-4 py-3 shadow-float">
+    <div className="sticky bottom-4 z-10 flex flex-col gap-2 rounded-[28px] bg-lift px-5 py-3 shadow-float">
       {error ? (
         <p role="alert" className="text-[13px] font-medium text-bad">
           {error}
         </p>
       ) : null}
       <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-2">
-        {hint ? <p className="text-[13px] text-ink-3">{hint}</p> : null}
+        {hint ? <p className="text-[13px] text-ink-2">{hint}</p> : null}
         <div className="flex items-center gap-2">{children}</div>
       </div>
     </div>

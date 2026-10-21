@@ -29,21 +29,21 @@ export function ConfirmDialog({ open, title, description, confirmLabel, busy = f
       onClick={(e) => {
         if (e.target === ref.current && !busy) onCancel()
       }}
-      className="m-auto w-[min(26rem,calc(100vw-2rem))] rounded-panel border border-line bg-panel p-0 text-ink shadow-float backdrop:bg-black/50"
+      className="m-auto w-[min(27rem,calc(100vw-2rem))] rounded-panel bg-raised p-0 text-ink shadow-float backdrop:bg-black/70"
     >
-      <div className="px-5 pb-2 pt-5">
-        <h2 id="confirm-title" className="text-[17px] font-semibold leading-snug">
+      <div className="px-6 pb-2 pt-6">
+        <h2 id="confirm-title" className="text-[19px] font-semibold leading-snug tracking-tight">
           {title}
         </h2>
-        {description ? <div className="mt-2 text-[15px] text-ink-2">{description}</div> : null}
+        {description ? <div className="mt-2 text-[15px] leading-relaxed text-ink-2">{description}</div> : null}
         {error ? (
           <p role="alert" className="mt-3 flex items-start gap-1.5 text-[13px] font-medium text-bad">
-            <CircleAlert size={16} strokeWidth={1.75} className="mt-px shrink-0" aria-hidden="true" />
+            <CircleAlert size={16} strokeWidth={2} className="mt-px shrink-0" aria-hidden="true" />
             {error}
           </p>
         ) : null}
       </div>
-      <div className="flex justify-end gap-2 px-5 pb-5 pt-4">
+      <div className="flex justify-end gap-2 px-6 pb-6 pt-4">
         <Button autoFocus onClick={onCancel} disabled={busy}>
           취소
         </Button>
