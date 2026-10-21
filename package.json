@@ -13,6 +13,8 @@
     "web:build": "next build",
     "web:start": "next start -H 127.0.0.1 -p ${VAE_PORT:-4848}",
     "worker": "tsx src/worker/main.ts",
+    "app": "node scripts/app.mjs",
+    "app:dev": "node scripts/app.mjs --dev",
     "seed:demo": "VAE_DATA_DIR=data-demo tsx scripts/seed-demo.ts"
   },
   "type": "module",

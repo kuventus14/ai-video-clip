@@ -1,0 +1,85 @@
+// scripts/app.mjs 의 순수한 부분 — 시험할 수 있게 따로 둔다.
+import fs from 'node:fs'
+import net from 'node:net'
+import path from 'node:path'
+import { StringDecoder } from 'node:string_decoder'
+
+/**
+ * 자식 프로세스의 출력을 줄 단위로 나눠 접두어를 붙여 내보낸다.
+ * 줄 중간에서 끊겨 온 조각과 바이트 경계에서 쪼개진 한글은 이어 붙이고, 빈 줄은 건너뛰고, 이미 같은 접두어가 붙어 온 줄은 그대로 두고,
+ * \r 로 덮어쓰는 진행 표시는 마지막 상태만 남긴다.
+ */
+export function linePrefixer(prefix, sink) {
+  const decoder = new StringDecoder('utf8')
+  let pending = ''
+  const emit = (text) => {
+    const last = text.split('\r').filter((s) => s.length > 0).pop()
+    if (last === undefined || last.trim() === '') return
+    sink(last.startsWith(`${prefix} `) ? last : `${prefix} ${last}`)
+  }
+  return {
+    write(chunk) {
+      pending += decoder.write(chunk)
+      const lines = pending.split('\n')
+      pending = lines.pop() ?? ''
+      for (const line of lines) emit(line)
+    },
+    flush() {
+      pending += decoder.end()
+      if (pending) emit(pending)
+      pending = ''
+    },
+  }
+}
+
+export function parseAppArgs(argv) {
+  const out = { dev: false, rebuild: false }
+  for (const a of argv) {
+    if (a === '--dev') out.dev = true
+    else if (a === '--rebuild') out.rebuild = true
+    else throw new Error(`알 수 없는 옵션이에요: ${a}`)
+  }
+  return out
+}
+
+/** 폴더(또는 파일) 목록 안에서 가장 늦게 바뀐 파일의 수정 시각(ms). 없는 경로는 무시한다. */
+export function latestMtimeMs(paths) {
+  let latest = 0
+  const visit = (p) => {
+    let stat
+    try {
+      stat = fs.statSync(p)
+    } catch {
+      return
+    }
+    if (stat.isDirectory()) {
+      for (const name of fs.readdirSync(p)) visit(path.join(p, name))
+    } else if (stat.mtimeMs > latest) {
+      latest = stat.mtimeMs
+    }
+  }
+  for (const p of paths) visit(p)
+  return latest
+}
+
+/** 빌드 결과(.next/BUILD_ID)가 없거나, 빌드 뒤에 소스가 바뀌었으면 true */
+export function needsBuild(root) {
+  let builtAt
+  try {
+    builtAt = fs.statSync(path.join(root, '.next', 'BUILD_ID')).mtimeMs
+  } catch {
+    return true
+  }
+  const sources = ['app', 'components', 'src', 'package.json', 'next.config.ts', 'postcss.config.mjs', 'tsconfig.json'].map((p) => path.join(root, p))
+  return latestMtimeMs(sources) > builtAt
+}
+
+/** 그 포트를 쓸 수 있는지(아무도 듣고 있지 않은지) */
+export function isPortFree(port, host) {
+  return new Promise((resolve) => {
+    const server = net.createServer()
+    server.once('error', () => resolve(false))
+    server.once('listening', () => server.close(() => resolve(true)))
+    server.listen(port, host)
+  })
+}

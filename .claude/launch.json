@@ -2,15 +2,32 @@
   "version": "0.0.1",
   "configurations": [
     {
+      "name": "app",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "app"
+      ],
+      "port": 4848
+    },
+    {
       "name": "web",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "web:dev"],
+      "runtimeArgs": [
+        "run",
+        "web:dev"
+      ],
       "port": 4848
     },
     {
       "name": "web-demo",
       "runtimeExecutable": "env",
-      "runtimeArgs": ["VAE_DATA_DIR=data-demo", "npm", "run", "web:dev"],
+      "runtimeArgs": [
+        "VAE_DATA_DIR=data-demo",
+        "npm",
+        "run",
+        "web:dev"
+      ],
       "port": 4848
     }
   ]
