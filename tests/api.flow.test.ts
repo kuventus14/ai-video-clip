@@ -191,6 +191,102 @@ describe('approve (Review Focus 2)', () => {
     })
   })
 
+  describe('배경음악·효과음(bgm / sfx)', () => {
+    const savedSound = process.env.VAE_SOUND_DIR
+    let sound: string
+    /** 임시 음원 폴더에 목록과 가짜 파일을 만든다 */
+    const catalog = (o: { bgm?: boolean; sfx?: boolean } = { bgm: true, sfx: true }) => {
+      const tracks: Record<string, unknown>[] = []
+      const common = { author: '작가', sourceUrl: 'https://pixabay.com/x', license: 'Pixabay License', durationSec: 60, peakDb: -2 }
+      if (o.bgm) tracks.push({ kind: 'bgm', id: 'calm-1', file: 'bgm/calm-1.mp3', title: '잔잔한 곡', lufs: -14, mood: 'calm', ...common })
+      if (o.sfx) tracks.push({ kind: 'sfx', id: 'whoosh-1', file: 'sfx/whoosh-1.mp3', title: '휙', lufs: null, role: 'whoosh', ...common })
+      for (const t of tracks) {
+        fs.mkdirSync(path.dirname(path.join(sound, String(t.file))), { recursive: true })
+        fs.writeFileSync(path.join(sound, String(t.file)), 'x')
+      }
+      fs.writeFileSync(path.join(sound, 'manifest.json'), JSON.stringify({ version: 1, tracks }))
+    }
+    beforeEach(() => {
+      sound = path.join(dir, 'sound')
+      fs.mkdirSync(sound)
+      process.env.VAE_SOUND_DIR = sound
+      catalog()
+    })
+    afterEach(() => {
+      if (savedSound === undefined) delete process.env.VAE_SOUND_DIR
+      else process.env.VAE_SOUND_DIR = savedSound
+    })
+
+    test('곡과 효과음을 기록하고 응답 DTO 에 bgmId·sfxMode 가 있다', async () => {
+      const j = job('awaiting_plan')
+      const res = await call(approve, j.id, { bgm: 'calm-1', sfx: 'on' })
+      expect(res.status).toBe(200)
+      expect(await res.json()).toMatchObject({ bgmId: 'calm-1', sfxMode: 'on' })
+      expect(read(j.id)).toMatchObject({ status: 'queued_produce', bgmId: 'calm-1', sfxMode: 'on' })
+    })
+
+    test('보내지 않으면 기본(없음·끄기)이고, 기존 값은 유지한다', async () => {
+      const j = job('awaiting_plan')
+      await call(approve, j.id, {})
+      expect(read(j.id)).toMatchObject({ bgmId: null, sfxMode: 'off' })
+      const k = job('awaiting_plan', { bgmId: 'calm-1', sfxMode: 'on' })
+      await call(approve, k.id, {})
+      expect(read(k.id)).toMatchObject({ bgmId: 'calm-1', sfxMode: 'on' })
+    })
+
+    test('bgm: null 로 고른 곡을 지울 수 있다', async () => {
+      const j = job('awaiting_plan', { bgmId: 'calm-1' })
+      expect((await call(approve, j.id, { bgm: null })).status).toBe(200)
+      expect(read(j.id).bgmId).toBeNull()
+    })
+
+    test('목록에 없는 곡이면 400(한국어)이고 승인되지 않는다', async () => {
+      const j = job('awaiting_plan')
+      const res = await call(approve, j.id, { bgm: 'nope' })
+      expect(res.status).toBe(400)
+      expect(((await res.json()) as { error: string }).error).toContain('배경음악')
+      expect(read(j.id).status).toBe('awaiting_plan')
+    })
+
+    test('효과음 파일을 곡 id 로 넣으면(whoosh-1) 배경음악으로 인정하지 않는다', async () => {
+      expect((await call(approve, job('awaiting_plan').id, { bgm: 'whoosh-1' })).status).toBe(400)
+    })
+
+    test('효과음을 켰는데 효과음 파일이 없으면 400이고, 끄면 된다', async () => {
+      catalog({ bgm: true, sfx: false })
+      const j = job('awaiting_plan')
+      const res = await call(approve, j.id, { sfx: 'on' })
+      expect(res.status).toBe(400)
+      expect(((await res.json()) as { error: string }).error).toContain('효과음')
+      expect((await call(approve, j.id, { sfx: 'off' })).status).toBe(200)
+    })
+
+    test('이전에 골라 둔 곡이 그 사이 목록에서 사라졌으면, 값을 안 보내도 400으로 알린다(제작 중에 실패하지 않게)', async () => {
+      const j = job('awaiting_plan', { bgmId: 'gone-track' })
+      expect((await call(approve, j.id, {})).status).toBe(400)
+      expect(read(j.id).status).toBe('awaiting_plan')
+    })
+
+    test('음원 목록이 깨졌으면 400(목록 오류를 그대로 안내)', async () => {
+      fs.writeFileSync(path.join(sound, 'manifest.json'), '{ broken')
+      const res = await call(approve, job('awaiting_plan').id, { bgm: 'calm-1' })
+      expect(res.status).toBe(400)
+      expect(((await res.json()) as { error: string }).error).toContain('manifest.json')
+    })
+
+    test('아무것도 고르지 않았다면 음원 폴더가 없어도 승인된다', async () => {
+      fs.rmSync(sound, { recursive: true, force: true })
+      expect((await call(approve, job('awaiting_plan').id, {})).status).toBe(200)
+    })
+
+    test('잘못된 값(sfx: loud, 빈 bgm)은 400이고 승인되지 않는다', async () => {
+      const j = job('awaiting_plan')
+      expect((await call(approve, j.id, { sfx: 'loud' })).status).toBe(400)
+      expect((await call(approve, j.id, { bgm: '' })).status).toBe(400)
+      expect(read(j.id).status).toBe('awaiting_plan')
+    })
+  })
+
   test('awaiting_plan 이 아니면 409', async () => {
     expect((await call(approve, job('awaiting_reference').id, {})).status).toBe(409)
   })
@@ -247,6 +343,13 @@ describe('other-version', () => {
     getContext().jobs.update(p.id, { audioMode: 'voice' })
     const child = (await (await call(otherVersion, p.id)).json()) as JobDto
     expect(child.audioMode).toBe('voice')
+  })
+
+  test('배경음악·효과음 선택(bgmId·sfxMode)도 새 작업이 부모에서 이어받는다', async () => {
+    const p = parent('confirmed', 'short')
+    getContext().jobs.update(p.id, { bgmId: 'calm-1', sfxMode: 'on' })
+    const child = (await (await call(otherVersion, p.id)).json()) as JobDto
+    expect(child).toMatchObject({ bgmId: 'calm-1', sfxMode: 'on' })
   })
 
   test('반대 용도의 새 작업이 계획 단계에서 시작하고, 원본·분석·계획을 가져온다', async () => {

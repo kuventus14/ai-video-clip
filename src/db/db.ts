@@ -42,6 +42,9 @@ const MIGRATIONS: string[] = [
   UPDATE jobs SET status_changed_at = updated_at;`,
   // 소리 설정: 원본 그대로(original) / 목소리 또렷하게(voice). 이미 있는 작업은 원본 그대로.
   `ALTER TABLE jobs ADD COLUMN audio_mode TEXT NOT NULL DEFAULT 'original';`,
+  // 배경음악(곡 id, 없으면 NULL)과 효과음(off / on). 이미 있는 작업은 둘 다 꺼짐.
+  `ALTER TABLE jobs ADD COLUMN bgm_id TEXT;
+  ALTER TABLE jobs ADD COLUMN sfx_mode TEXT NOT NULL DEFAULT 'off';`,
 ]
 
 /** <dataDir>/app.db 를 열고(없으면 만들고) 마이그레이션한다. 화면 서버와 워커가 같은 파일을 연다(WAL). */

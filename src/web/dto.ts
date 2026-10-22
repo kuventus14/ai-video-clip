@@ -77,6 +77,8 @@ export function toJobDto(job: Job): JobDto {
     hasUploadedReference: !!job.referenceUploadPath,
     captionsMode: job.captionsMode,
     audioMode: job.audioMode,
+    bgmId: job.bgmId,
+    sfxMode: job.sfxMode,
     quality: job.quality,
     summary: summary.success ? summary.data : null,
     recommendations: job.recommendations,

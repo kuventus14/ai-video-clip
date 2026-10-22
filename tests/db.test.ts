@@ -26,6 +26,8 @@ describe('Jobs — 만들기·읽기·수정', () => {
       quality: 'looks',
       captionsMode: 'auto',
       audioMode: 'original',
+      bgmId: null,
+      sfxMode: 'off',
       description: '',
       requestText: '',
       recommendations: [],
@@ -54,6 +56,30 @@ describe('Jobs — 만들기·읽기·수정', () => {
     expect(j.audioMode).toBe('original')
     jobs.update(j.id, { audioMode: 'voice' })
     expect(jobs.get(j.id)!.audioMode).toBe('voice')
+  })
+
+  test('bgmId 는 기본 null, sfxMode 는 기본 off 이고 저장했다 읽어도 같다', () => {
+    const j = jobs.create()
+    expect(j.bgmId).toBeNull()
+    expect(j.sfxMode).toBe('off')
+    jobs.update(j.id, { bgmId: 'calm-1', sfxMode: 'on' })
+    expect(jobs.get(j.id)).toMatchObject({ bgmId: 'calm-1', sfxMode: 'on' })
+    jobs.update(j.id, { bgmId: null })
+    expect(jobs.get(j.id)!.bgmId).toBeNull()
+  })
+
+  test('버전 3 DB 를 열면 4로 올라가고, 이미 있던 작업은 bgmId null · sfxMode off', () => {
+    const old = fs.mkdtempSync(path.join(os.tmpdir(), 'vae-db-old-'))
+    const db = openDb(old)
+    const id = new Jobs(db, old).create().id
+    db.exec('ALTER TABLE jobs DROP COLUMN bgm_id; ALTER TABLE jobs DROP COLUMN sfx_mode; UPDATE meta SET version = 3')
+    db.close()
+
+    const reopened = openDb(old)
+    expect((reopened.prepare('SELECT version FROM meta').get() as { version: number }).version).toBe(4)
+    expect(new Jobs(reopened, old).get(id)).toMatchObject({ bgmId: null, sfxMode: 'off', audioMode: 'original' })
+    reopened.close()
+    fs.rmSync(old, { recursive: true, force: true })
   })
 
   test('update 는 updatedAt 을 갱신하고, 없는 작업은 던진다', () => {

@@ -82,6 +82,8 @@ export function cloneForOtherVersion(jobs: Jobs, parent: Job): { child: Job } | 
       description: parent.description,
       requestText: parent.requestText,
       audioMode: parent.audioMode,
+      bgmId: parent.bgmId,
+      sfxMode: parent.sfxMode,
       referenceSource: parent.referenceSource && parent.referenceSource === parent.referenceUploadPath ? referenceUploadPath : parent.referenceSource,
       referenceUploadPath,
       sourceName: parent.sourceName,

@@ -1,3 +1,4 @@
+import type { SfxMode } from './sound.ts'
 import type { AudioMode } from './voice.ts'
 
 /** 작업(영상 하나를 편집하는 한 번의 흐름)의 상태. 화면·API·워커가 같은 값을 쓴다. */
@@ -64,6 +65,9 @@ export interface JobDto {
   captionsMode: 'auto' | 'off'
   /** 소리: 원본 그대로 / 목소리 또렷하게 */
   audioMode: AudioMode
+  /** 배경음악 곡 id (없으면 null) / 효과음 켜기·끄기 */
+  bgmId: string | null
+  sfxMode: SfxMode
   quality: 'draft' | 'looks' | 'delivery'
   summary: { topic: string; genre: string; oneLine: string; hookTitle: string; searchQueries: string[] } | null
   recommendations: Recommendation[]
@@ -108,5 +112,8 @@ export interface PlanInput {
 export interface ApproveInput {
   captions?: 'auto' | 'off'
   audio?: AudioMode
+  /** 배경음악 곡 id. null 이면 고른 곡을 지운다. 보내지 않으면 그대로 */
+  bgm?: string | null
+  sfx?: SfxMode
   quality?: 'draft' | 'looks' | 'delivery'
 }
