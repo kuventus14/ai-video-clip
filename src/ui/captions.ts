@@ -56,3 +56,24 @@ export function partProblems(d: CaptionDraft): Record<number, string> {
 export function visibleParts(r: CaptionReviewDto, onlySuspect: boolean): CaptionReviewDto['parts'] {
   return onlySuspect ? r.parts.filter((p) => p.lowWords.length > 0) : r.parts
 }
+
+/** 줄 시간에 비해 글자가 이보다 많으면 자막이 너무 빨리 지나간다(초당 글자 수) */
+export const MAX_CHARS_PER_SEC = 12
+
+/** 저장하지 않은 고침이 있나(저장돼 있던 것과 지금 초안을 비교한다) */
+export function isDirty(r: CaptionReviewDto, d: CaptionDraft): boolean {
+  return JSON.stringify(editsFrom(d)) !== JSON.stringify(editsFrom(draftFrom(r)))
+}
+
+/** 줄 번호 → 경고(한국어). 고친 글자가 그 줄의 시간에 비해 너무 많으면 알린다(막지는 않는다). 지운 줄·안 고친 줄은 아니다. */
+export function partWarnings(r: CaptionReviewDto, d: CaptionDraft): Record<number, string> {
+  const out: Record<number, string> = {}
+  for (const p of r.parts) {
+    const v = d[p.i]
+    if (typeof v !== 'string') continue
+    const n = Array.from(v.replace(/\s/g, '')).length
+    const sec = Math.max(p.end - p.start, 0.1)
+    if (n / sec > MAX_CHARS_PER_SEC) out[p.i] = `이 줄은 ${sec.toFixed(1)}초인데 글자가 ${n}자라 자막이 너무 빨리 지나가요`
+  }
+  return out
+}

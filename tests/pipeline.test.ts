@@ -309,6 +309,13 @@ describe('runEdit — 검은 띠 자동 제거', () => {
 })
 
 describe('runEdit — 사용자가 고친 자막', () => {
+  /** 한 자막 줄에 사용자가 고친 단어(신뢰도 1)와 인식 그대로의 단어(0.9)가 섞인 경우 */
+  const MIXED: Transcript = {
+    language: 'ko', durationSec: 56.8, hasSpeech: true,
+    words: [word('가나다', 1, 1), word('라마바', 1.5, 0.9)],
+    segments: [{ text: '가나다 라마바', start: 1, end: 1.9 }],
+  }
+
   test('(Review Focus 3) 신뢰도 1(사용자가 고친 글자)인 줄은 자막 교정이 다시 바꾸지 못하고, 안 고친 줄의 교정은 그대로 된다', async () => {
     const tr: Transcript = {
       language: 'ko', durationSec: 56.8, hasSpeech: true,
@@ -318,6 +325,21 @@ describe('runEdit — 사용자가 고친 자막', () => {
     const { rec, run } = setup({ proofreadCues: async (cues) => cues.map((c, index) => ({ index, text: `${c.text}요`, reason: 'typo' as const })) }, { transcript: tr })
     await run()
     expect(rec.builds[0]!.cues.map((c) => c.text)).toEqual(['가나다', '라마바요'])
+  })
+
+  test('사용자가 고친 단어가 하나라도 든 자막 줄은 교정이 통째로 다시 쓰지 못한다(고친 단어와 인식 단어가 한 줄에 섞여도)', async () => {
+    const { rec, run } = setup({ proofreadCues: async (cues) => cues.map((c, index) => ({ index, text: `${c.text}요`, reason: 'typo' as const })) }, { transcript: MIXED })
+    await run()
+    expect(rec.builds[0]!.cues.map((c) => c.text)).toEqual(['가나다 라마바'])
+  })
+
+  test('(Review Focus 3) 검수(runQa)가 내놓은 교정도 고친 줄에는 적용되지 않고 제안으로도 남지 않는다 — 다시 렌더하지도 않는다', async () => {
+    const qaWithFix: QaReport = { passed: true, findings: [], corrections: [{ index: 0, text: '가나다 라마바요', reason: 'typo' }], checkedAt: '2026-10-22T00:00:00Z' }
+    const { rec, run } = setup({}, { transcript: MIXED, qaQueue: [qaWithFix] })
+    const r = await run()
+    expect(rec.builds).toHaveLength(1) // 적용할 교정이 없으니 재작업도 없다
+    expect(rec.builds[0]!.cues.map((c) => c.text)).toEqual(['가나다 라마바'])
+    expect(r.suggestions).toEqual([])
   })
 })
 

@@ -72,17 +72,87 @@ export function reviewParts(t: Pick<ReviewTranscript, 'words'>): ReviewPart[] {
   return parts
 }
 
-/** 새 글자를 [start, end] 안에 글자 수에 비례해 이어 붙인 단어들(신뢰도 1 = 사람이 확인한 글자) */
-function spreadWords(text: string, start: number, end: number): Word[] {
-  const tokens = text.split(' ')
-  const total = tokens.reduce((s, tk) => s + Array.from(tk).length, 0)
+/** 고친 단어 하나가 이보다 짧으면 이웃과 합친다(컷이 줄이면 최종 자막에서 0.05초 미만 단어는 사라진다) */
+const MIN_WORD_SEC = 0.1
+
+interface Interval {
+  start: number
+  end: number
+}
+
+/** 줄의 원래 단어들이 말하던 시간 구간들(겹치거나 맞닿으면 합친다). 단어 사이 쉬는 구간은 들어가지 않는다. */
+function speechIntervals(words: Word[]): Interval[] {
+  const out: Interval[] = []
+  for (const w of [...words].sort((a, b) => a.start - b.start)) {
+    if (w.end - w.start <= 0) continue
+    const last = out.at(-1)
+    if (last && w.start <= last.end + 1e-6) last.end = Math.max(last.end, w.end)
+    else out.push({ start: w.start, end: w.end })
+  }
+  return out
+}
+
+/**
+ * 새 글자를 줄의 **말하던 구간에만** 글자 수에 비례해 이어 붙인다(신뢰도 1 = 사람이 확인한 글자).
+ * 쉬는 구간에는 단어가 시작하거나 끝나지 않는다 — 컷이 그 무음을 잘라도 고친 글자가 사라지지 않는다(컷은 말이 있던 곳은 지키므로).
+ * 말하던 시간이 0.1초도 안 되는 조각은 이웃과 합쳐, 글자는 하나도 빠지지 않는다.
+ */
+function spreadWords(text: string, original: Word[], fallback: Interval): Word[] {
+  let spans = speechIntervals(original)
+  if (spans.length === 0) spans = [fallback]
+  const total = spans.reduce((s, sp) => s + (sp.end - sp.start), 0)
+  const tokens = text.split(' ').map((t) => ({ t, w: Array.from(t).length }))
+  const chars = tokens.reduce((s, tk) => s + tk.w, 0)
+
+  /** 말한 시간 u(초) → 실제 시각. preferEarlier 면 구간 경계에서 앞 구간의 끝을, 아니면 뒤 구간의 시작을 고른다 */
+  const at = (u: number, preferEarlier: boolean): number => {
+    let acc = 0
+    for (const sp of spans) {
+      const len = sp.end - sp.start
+      if (preferEarlier ? u <= acc + len + 1e-9 : u < acc + len - 1e-9) return sp.start + Math.min(Math.max(u - acc, 0), len)
+      acc += len
+    }
+    return spans.at(-1)!.end
+  }
+
   let done = 0
-  return tokens.map((tk, k) => {
-    const a = k === 0 ? start : round3(start + ((end - start) * done) / total)
-    done += Array.from(tk).length
-    const b = k === tokens.length - 1 ? end : round3(start + ((end - start) * done) / total)
-    return { text: tk, start: a, end: b, confidence: 1 }
+  let items = tokens.map((tk, k) => {
+    const u0 = (total * done) / chars
+    done += tk.w
+    const u1 = (total * done) / chars
+    return { text: tk.t, start: k === 0 ? spans[0]!.start : round3(at(u0, false)), end: k === tokens.length - 1 ? spans.at(-1)!.end : round3(at(u1, true)), speech: u1 - u0 }
   })
+  // 말하던 시간이 너무 짧은 조각은 이웃과 합친다
+  for (let k = 0; items.length > 1 && k < items.length; ) {
+    if (items[k]!.speech >= MIN_WORD_SEC) {
+      k++
+      continue
+    }
+    const a = k === 0 ? 0 : k - 1
+    const b = a + 1
+    items.splice(a, 2, { text: `${items[a]!.text} ${items[b]!.text}`, start: items[a]!.start, end: items[b]!.end, speech: items[a]!.speech + items[b]!.speech })
+    k = Math.max(0, a)
+  }
+  return items.map((it) => ({ text: it.text, start: it.start, end: it.end, confidence: 1 }))
+}
+
+/** 줄 번호 → 고친 글자(null = 지움, 정리한 글자). 범위 밖 번호·글자가 아닌 text 는 무시하고 같은 번호는 마지막이 이긴다. */
+function collectEdits(partCount: number, edits: CaptionEdit[]): Map<number, string | null> {
+  const byPart = new Map<number, string | null>()
+  for (const e of edits) {
+    if (!Number.isInteger(e.i) || e.i < 0 || e.i >= partCount) continue
+    if (e.text !== null && typeof e.text !== 'string') continue
+    byPart.set(e.i, e.text === null ? null : norm(e.text))
+  }
+  return byPart
+}
+
+/** 사용자가 자막에서 뺀(지운 줄) 구간의 시작~끝. 글자만 고친 줄은 아니다. 인식 결과는 원본을 준다. */
+export function deletedParts(t: Pick<ReviewTranscript, 'words'>, edits: CaptionEdit[] | null | undefined): { start: number; end: number }[] {
+  if (!edits?.length) return []
+  const parts = reviewParts(t)
+  const byPart = collectEdits(parts.length, edits)
+  return parts.filter((p) => byPart.has(p.i) && (byPart.get(p.i) === null || byPart.get(p.i) === '')).map((p) => ({ start: p.start, end: p.end }))
 }
 
 /**
@@ -93,12 +163,7 @@ function spreadWords(text: string, start: number, end: number): Word[] {
 export function applyTranscriptEdits<T extends ReviewTranscript>(t: T, edits: CaptionEdit[] | null | undefined): T {
   if (!edits?.length) return t
   const parts = reviewParts(t)
-  const byPart = new Map<number, string | null>()
-  for (const e of edits) {
-    if (!Number.isInteger(e.i) || e.i < 0 || e.i >= parts.length) continue
-    if (e.text !== null && typeof e.text !== 'string') continue
-    byPart.set(e.i, e.text === null ? null : norm(e.text))
-  }
+  const byPart = collectEdits(parts.length, edits)
 
   const words: Word[] = []
   let changed = false
@@ -110,7 +175,7 @@ export function applyTranscriptEdits<T extends ReviewTranscript>(t: T, edits: Ca
     }
     changed = true
     if (edit === null || edit === '') continue
-    words.push(...spreadWords(Array.from(edit).slice(0, REVIEW_LIMITS.maxTextChars).join('').trim(), p.start, p.end))
+    words.push(...spreadWords(Array.from(edit).slice(0, REVIEW_LIMITS.maxTextChars).join('').trim(), t.words.slice(p.from, p.to), { start: p.start, end: p.end }))
   }
   if (!changed) return t
   return { ...t, words, segments: segmentWords(words), hasSpeech: words.length > 0 }

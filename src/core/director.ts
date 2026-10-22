@@ -25,6 +25,8 @@ export interface DirectInput {
   refFrames?: string[]
   /** 작업 폴더(내 영상 사진을 임시로 둔다) */
   workDir: string
+  /** 사용자가 자막에서 뺀 구간(말은 있다) — 훅·덜어내기로 고르지 않게 알려 준다 */
+  deletedSpans?: { start: number; end: number }[]
 }
 
 /** 내 영상에서 사진을 뽑을 시각: 영상 전체에서 고르게(0.1초 단위). */
@@ -35,6 +37,12 @@ export function planFrameTimes(durationSec: number, count: number): number[] {
 function sourceFrameCount(durationSec: number, refCount: number): number {
   const wanted = Math.max(4, Math.min(12, Math.ceil(durationSec / 4)))
   return Math.min(wanted, MAX_DIRECTOR_IMAGES - Math.min(refCount, MAX_REF_IMAGES))
+}
+
+/** 사용자가 자막에서 뺀 구간: 대본에는 빈 곳으로 보이지만 말이 있는 곳이라 감독이 쉬는 구간으로 착각하지 않게 알린다 */
+function deletedBlock(spans?: { start: number; end: number }[]): string {
+  if (!spans?.length) return ''
+  return `\n\n사용자가 자막에서 뺀 구간(위 대본에서 빠져 있지만 말은 있는 곳입니다): ${spans.map((s) => `[${f1(s.start)}~${f1(s.end)}초]`).join(' ')} — 이 구간을 hook 으로 고르거나 drop 으로 덜어내지 마세요.`
 }
 
 function transcriptBlock(t: Transcript): string {
@@ -70,7 +78,7 @@ function referenceBlock(refCount: number, firstRefImage: number, spec?: StyleSpe
 }
 
 /** 편집 감독에게 보내는 지시문. 순수 함수 — 시험이 내용을 확인한다. */
-export function buildDirectorPrompt(i: { info: VideoInfo; transcript: Transcript; summary: VideoSummary; spec?: StyleSpec; refCount: number; frameTimes: number[] }): string {
+export function buildDirectorPrompt(i: { info: VideoInfo; transcript: Transcript; summary: VideoSummary; spec?: StyleSpec; refCount: number; frameTimes: number[]; deletedSpans?: { start: number; end: number }[] }): string {
   const dur = i.info.durationSec
   const L = SCRIPT_LIMITS
   const n = i.frameTimes.length
@@ -80,7 +88,7 @@ export function buildDirectorPrompt(i: { info: VideoInfo; transcript: Transcript
     '',
     `## 내 영상\n- 길이 ${f1(dur)}초, ${i.info.width}x${i.info.height}\n- 주제: ${i.summary.topic} / 장르: ${i.summary.genre} / 한 줄 요약: ${i.summary.oneLine}\n- 내 영상 사진: ${photoList} (이미지 1~${n})`,
     '',
-    `## 음성 대본 (원본 영상 기준 시각)\n${transcriptBlock(i.transcript)}`,
+    `## 음성 대본 (원본 영상 기준 시각)\n${transcriptBlock(i.transcript)}${deletedBlock(i.deletedSpans)}`,
     '',
     `## 레퍼런스\n${referenceBlock(i.refCount, n + 1, i.spec)}`,
     '',
@@ -116,7 +124,7 @@ export async function directEdit(i: DirectInput, deps: { ask?: typeof askClaude;
   const dir = path.join(i.workDir, 'director-frames')
   try {
     const own = await frames(i.sourcePath, times, dir)
-    const prompt = buildDirectorPrompt({ info: i.info, transcript: i.transcript, summary: i.summary, spec: i.spec, refCount: refFrames.length, frameTimes: times })
+    const prompt = buildDirectorPrompt({ info: i.info, transcript: i.transcript, summary: i.summary, spec: i.spec, refCount: refFrames.length, frameTimes: times, deletedSpans: i.deletedSpans })
     const text = await ask({ prompt, images: [...own, ...refFrames], effort: 'medium', model: process.env.VAE_DIRECTOR_MODEL || undefined })
     let raw: unknown = null
     try {

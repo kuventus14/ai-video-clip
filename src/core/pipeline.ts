@@ -6,7 +6,7 @@ import { deriveAppliedStyle, interpretRequest, planCardLines, type EditPlan } fr
 import { ensureH264, probeVideo } from './media.ts'
 import { trackPeople, type PersonTrack } from './person.ts'
 import { runQa, type QaReport } from './qa.ts'
-import { applyCorrections, partitionCorrections, proofreadCues, upscaleFactor, type CueCorrection, type Finding } from './qaChecks.ts'
+import { applyCorrections, dropVerifiedCorrections, partitionCorrections, proofreadCues, upscaleFactor, type CueCorrection, type Finding } from './qaChecks.ts'
 import { canvasFor, detectPurpose, resolvePurpose, type PurposeGuess } from './purpose.ts'
 import { computeCropPath, cropReversalsPerSec, type CropPath } from './reframe.ts'
 import { analyzeReference, detectSceneCuts, FEASIBILITY, type StyleSpec } from './styleSpec.ts'
@@ -112,8 +112,6 @@ const MIN_SEC = 1
 const MAX_SEC = 600
 const MAX_ATTEMPTS = 3 // 최초 + 재작업 2회
 const LOW_CONFIDENCE = 0.5
-/** 사용자가 직접 확인한 글자의 신뢰도(applyTranscriptEdits 가 1 로 둔다) */
-const USER_VERIFIED = 0.999
 const HINT_RETRANSCRIBE_MIN_LOW_WORDS = 5
 const HINT_MAX_CHARS = 200
 const CROP_JITTER_PER_SEC = 1
@@ -309,6 +307,8 @@ export interface PrepareInput {
   request?: string
   purposeChoice: Purpose | 'auto'
   onStage?: StageCallback
+  /** 사용자가 자막 확인에서 지운 줄의 시간 구간 — 편집 감독에게 알린다(그 구간을 덜어내지 않게) */
+  deletedSpans?: Span[]
 }
 
 /** 2단계: (레퍼런스 받기·분석) → 용도 확정 → 요청 해석 → "이렇게 이해했어요" 카드 */
@@ -350,7 +350,7 @@ export async function prepareEdit(i: PrepareInput, overrides: Partial<PipelineDe
   if (d.directEdit) {
     stage('direct')
     try {
-      const out = await d.directEdit({ info: a.info, transcript: a.transcript, summary: a.summary, sourcePath: a.sourcePath, spec, refFrames: spec ? readRefFrames(i.workDir) : [], workDir: i.workDir })
+      const out = await d.directEdit({ info: a.info, transcript: a.transcript, summary: a.summary, sourcePath: a.sourcePath, spec, refFrames: spec ? readRefFrames(i.workDir) : [], workDir: i.workDir, deletedSpans: i.deletedSpans })
       // 감독 구현이 무엇을 돌려주든 대본을 한 번 더 정리한다(영상이 10초 이하면 제목만 등) — 정리는 여러 번 해도 같다
       const clean = normalizeScript(out.script, { durationSec: a.info.durationSec, fallbackTitle: a.summary.hookTitle || a.summary.genre || a.summary.topic })
       script = clean.script
@@ -465,15 +465,8 @@ export async function produceEdit(i: ProduceInput, overrides: Partial<PipelineDe
     if (cues.length) {
       try {
         const suspectWords = outWords.filter((w) => w.confidence < LOW_CONFIDENCE).map((w) => w.text)
-        // 사용자가 자막 확인에서 고친 글자(신뢰도 1)는 교정이 다시 바꾸지 않는다
-        const verified = (c: CaptionCue) => {
-          const ws = outWords.filter((w) => w.start >= c.start - 1e-6 && w.end <= c.end + 1e-6)
-          return ws.length > 0 && ws.every((w) => w.confidence >= USER_VERIFIED)
-        }
-        const fixes = (await d.proofreadCues(cues, { topic: summary.topic, genre: summary.genre, suspectWords })).filter((f) => {
-          const c = cues[f.index]
-          return !(c && verified(c))
-        })
+        // 사용자가 자막 확인에서 고친 글자(신뢰도 1)가 든 줄은 교정이 다시 바꾸지 않는다
+        const fixes = dropVerifiedCorrections(cues, outWords, await d.proofreadCues(cues, { topic: summary.topic, genre: summary.genre, suspectWords }))
         const part = partitionCorrections(cues, fixes)
         cues = applyCorrections(cues, part.safe)
         applied.push(...part.safe)
@@ -534,7 +527,7 @@ export async function produceEdit(i: ProduceInput, overrides: Partial<PipelineDe
           hookTitle: Boolean(script?.hook) || style.hookTitle !== undefined,
           durationSec: scaleSec(built.durationSec, effSpeed),
           hasAudio: info.hasAudio,
-          hasSpeech: transcript.hasSpeech,
+          hasSpeech: (i.cutTranscript ?? transcript).hasSpeech, // 자막을 다 지워도 말이 있는 영상이다(음악 크기를 목소리에 맞춰 잰다)
           speed: effSpeed,
         })
         renderedPath = mixed.path
@@ -566,7 +559,7 @@ export async function produceEdit(i: ProduceInput, overrides: Partial<PipelineDe
         return true
       }
       const actionable = qa.findings.filter(isActionable)
-      const qaFixes = partitionCorrections(cues, qa.corrections)
+      const qaFixes = partitionCorrections(cues, dropVerifiedCorrections(cues, outWords, qa.corrections)) // 검수가 낸 교정도 사용자가 고친 줄에는 쓰지 않는다
       const useCorrections = qaFixes.safe.length > 0 && !correctionsApplied
       if (attempt >= MAX_ATTEMPTS || (actionable.length === 0 && !useCorrections)) {
         suggestions.push(...qaFixes.safe, ...qaFixes.unsafe) // 적용하지 못한 교정은 제안으로 남긴다

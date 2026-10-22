@@ -64,6 +64,14 @@ describe('buildDirectorPrompt', () => {
     expect(p).toMatch(/베끼지/)
     expect(p).not.toMatch(/이미지 \d+~\d+\(레퍼런스/) // 없는 사진을 가리키지 않는다
   })
+  test('사용자가 자막에서 뺀 구간을 알려 주고, 그 구간은 훅·덜어내기로 고르지 말라고 한다(말이 있는 곳이다)', () => {
+    const p = buildDirectorPrompt({ ...base, deletedSpans: [{ start: 14.57, end: 20 }] })
+    expect(p).toContain('14.6~20.0초')
+    expect(p).toMatch(/말은 있/)
+    expect(p).toMatch(/hook·drop|훅|덜어/)
+    expect(buildDirectorPrompt(base)).not.toMatch(/자막에서 뺀/)
+    expect(buildDirectorPrompt({ ...base, deletedSpans: [] })).not.toMatch(/자막에서 뺀/)
+  })
   test('레퍼런스의 문구·내용을 베끼지 말라는 규칙이 있다(스펙의 안티골)', () => {
     expect(buildDirectorPrompt({ ...base, refCount: 6, spec: SPEC })).toMatch(/베끼지/)
   })

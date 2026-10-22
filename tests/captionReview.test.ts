@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { applyTranscriptEdits, reviewParts, REVIEW_LIMITS, segmentWords } from '../src/shared/captionReview.ts'
+import { applyTranscriptEdits, deletedParts, reviewParts, REVIEW_LIMITS, segmentWords } from '../src/shared/captionReview.ts'
 import type { Transcript, Word } from '../src/core/types.ts'
 
 const w = (text: string, start: number, end: number, confidence = 0.9): Word => ({ text, start, end, confidence })
@@ -120,10 +120,44 @@ describe('applyTranscriptEdits', () => {
     expect(Array.from(text).length).toBe(160)
   })
 
+  test('(C2) 줄 안의 쉬는 구간(말이 없던 곳)에는 새 단어가 시작하거나 끝나지 않는다 — 컷이 그 무음을 잘라도 글자가 사라지지 않게', () => {
+    const ws = [w('그러니까', 0, 0.5), w('손목을', 0.5, 1.0), w('해네도', 1.6, 2.1), w('하면', 2.1, 2.6)] // 1.0~1.6 이 쉬는 구간(0.6초라 한 줄)
+    const out = applyTranscriptEdits(tr(ws), [{ i: 0, text: '그러니까 손목을 이렇게 펴서 백스윙 하면' }])
+    expect(out.words.map((x) => x.text)).toEqual(['그러니까', '손목을', '이렇게', '펴서', '백스윙', '하면'])
+    const inGap = (t: number) => t > 1.0 + 1e-6 && t < 1.6 - 1e-6
+    for (const x of out.words) {
+      expect(inGap(x.start), `${x.text} 시작 ${x.start}`).toBe(false)
+      expect(inGap(x.end), `${x.text} 끝 ${x.end}`).toBe(false)
+    }
+    expect(out.words[0]!.start).toBe(0)
+    expect(out.words.at(-1)!.end).toBe(2.6)
+  })
+
+  test('(C2) 줄이 아주 짧은데 글자가 많으면 조각을 합쳐 각 단어가 0.1초 이상이 되게 하고, 글자는 하나도 빠지지 않는다', () => {
+    const out = applyTranscriptEdits(tr([w('아.', 0, 0.4)]), [{ i: 0, text: '아 네 그 다음 거 할게요' }])
+    expect(out.words.map((x) => x.text).join(' ')).toBe('아 네 그 다음 거 할게요')
+    for (const x of out.words) expect(x.end - x.start).toBeGreaterThanOrEqual(0.1 - 1e-9)
+    expect(out.words[0]!.start).toBe(0)
+    expect(out.words.at(-1)!.end).toBeCloseTo(0.4, 3)
+  })
+
   test('원본 transcript 는 바뀌지 않는다', () => {
     const before = JSON.stringify(t)
     applyTranscriptEdits(t, [{ i: 0, text: '새 글' }, { i: 1, text: null }])
     expect(JSON.stringify(t)).toBe(before)
+  })
+})
+
+describe('deletedParts — 사용자가 자막에서 뺀 줄의 시간 구간', () => {
+  const t = tr(WORDS)
+  test('지운(null·공백뿐) 줄의 시작~끝만 돌려준다 — 고치기만 한 줄·범위 밖 번호·글자가 아닌 text 는 아니다', () => {
+    expect(deletedParts(t, [{ i: 1, text: null }, { i: 0, text: '고친 글' }, { i: 9, text: null }])).toEqual([{ start: 3.4, end: 5 }])
+    expect(deletedParts(t, [{ i: 0, text: '   ' }])).toEqual([{ start: 0, end: 2.4 }])
+    expect(deletedParts(t, [{ i: 1, text: 5 as never }])).toEqual([])
+  })
+  test('같은 줄을 지웠다가 다시 쓰면(마지막이 이긴다) 지운 줄이 아니다. 편집이 없으면 빈 목록', () => {
+    expect(deletedParts(t, [{ i: 1, text: null }, { i: 1, text: '다시 씀' }])).toEqual([])
+    expect(deletedParts(t, null)).toEqual([])
   })
 })
 

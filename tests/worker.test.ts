@@ -254,6 +254,14 @@ describe('자막 편집 적용 (plan·produce)', () => {
     expect(f.calls.prepare[0]!.analysis.transcript.words.map((x) => x.text)).toEqual(['이렇게', '되면서', '이게', '섀도우'])
   })
 
+  test('(I1) plan: 지운 줄의 시간 구간을 prepareEdit 에 알린다(편집 감독이 그 구간을 덜어내지 않게)', async () => {
+    const j = job('queued_plan', { transcriptEdits: [{ i: 1, text: null }, { i: 0, text: '이렇게 돼서' }] })
+    writeSpeech(j.id)
+    const f = fakes()
+    await runOnce(jobs, f.deps)
+    expect(f.calls.prepare[0]!.deletedSpans).toEqual([{ start: 4, end: 5 }])
+  })
+
   test('(Review Focus 2) 모든 줄을 지워도 던지지 않고 계획까지 간다(말 없는 영상으로 이어진다)', async () => {
     const j = job('queued_plan', { transcriptEdits: [{ i: 0, text: null }, { i: 1, text: '   ' }] })
     writeSpeech(j.id)

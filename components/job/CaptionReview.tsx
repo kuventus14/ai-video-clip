@@ -3,7 +3,7 @@
 import { Play, RotateCcw, Trash2 } from 'lucide-react'
 import { useRef, useState } from 'react'
 import type { CaptionReviewDto } from '../../src/shared/types.ts'
-import { partProblems, setPartText, togglePartDelete, visibleParts, type CaptionDraft } from '../../src/ui/captions.ts'
+import { partProblems, partWarnings, setPartText, togglePartDelete, visibleParts, type CaptionDraft } from '../../src/ui/captions.ts'
 import { formatDuration } from '../../src/ui/format.ts'
 import { Button } from '../ui/Button.tsx'
 import { Card } from '../ui/Card.tsx'
@@ -26,6 +26,7 @@ export function CaptionReview({ review, draft, onChange, videoSrc, disabled }: {
   if (!review.hasSpeech || review.parts.length === 0) return null
 
   const problems = partProblems(draft)
+  const warnings = partWarnings(review, draft)
   const parts = visibleParts(review, onlySuspect)
   const edited = Object.keys(draft).length
 
@@ -109,8 +110,9 @@ export function CaptionReview({ review, draft, onChange, videoSrc, disabled }: {
                   ) : p.lowWords.length > 0 ? (
                     <p className="mt-1 break-words text-[13px] text-warn">의심 단어: {p.lowWords.join(', ')}</p>
                   ) : null}
+                  {!deleted && !problem && warnings[p.i] ? <p className="mt-1 text-[13px] text-warn">{warnings[p.i]}</p> : null}
                 </div>
-                <Button size="sm" variant="ghost" className="order-2 ml-auto shrink-0 sm:order-3 sm:ml-0 sm:mt-1.5" onClick={() => onChange(togglePartDelete(draft, p.i))} disabled={disabled}>
+                <Button size="sm" variant="ghost" className="order-2 ml-auto shrink-0 sm:order-3 sm:ml-0 sm:mt-1.5" onClick={() => onChange(togglePartDelete(draft, p.i))} aria-label={`${p.i + 1}번째 줄 ${deleted ? '되돌리기' : '지우기'}`} disabled={disabled}>
                   {deleted ? <RotateCcw size={14} strokeWidth={2} aria-hidden="true" /> : <Trash2 size={14} strokeWidth={2} aria-hidden="true" />}
                   {deleted ? '되돌리기' : '지우기'}
                 </Button>

@@ -117,6 +117,22 @@ export interface CueCorrection {
   original?: string
 }
 
+/** 사용자가 자막 확인에서 직접 고친 글자의 신뢰도(applyTranscriptEdits 가 1 로 둔다) */
+export const USER_VERIFIED_CONFIDENCE = 0.999
+
+/** 이 자막 줄(시각 범위)에 사용자가 고친 단어가 하나라도 들어 있나. 줄 나누기가 확인 화면의 줄과 달라 고친 단어와 인식 단어가 한 줄에 섞일 수 있다. */
+export function hasUserVerifiedWord(cue: { start: number; end: number }, words: { start: number; end: number; confidence: number }[]): boolean {
+  return words.some((w) => w.confidence >= USER_VERIFIED_CONFIDENCE && w.start >= cue.start - 1e-6 && w.end <= cue.end + 1e-6)
+}
+
+/** 사용자가 고친 단어가 든 줄에 대한 교정은 버린다(자막 교정·검수가 사용자의 글자를 다시 바꾸지 못하게). */
+export function dropVerifiedCorrections<T extends { index: number }>(cues: { start: number; end: number }[], words: { start: number; end: number; confidence: number }[], fixes: T[]): T[] {
+  return fixes.filter((f) => {
+    const c = cues[f.index]
+    return !(c && hasUserVerifiedWord(c, words))
+  })
+}
+
 const Corrections = z.object({
   corrections: z.array(z.object({ index: z.number().int().min(0), text: z.string().min(1), reason: z.enum(['typo', 'term', 'spacing']) })),
 })

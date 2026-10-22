@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { CaptionReviewDto } from '../src/shared/types.ts'
-import { draftFrom, editsFrom, partProblems, setPartText, togglePartDelete, visibleParts } from '../src/ui/captions.ts'
+import { draftFrom, editsFrom, isDirty, partProblems, partWarnings, setPartText, togglePartDelete, visibleParts } from '../src/ui/captions.ts'
 
 const REVIEW: CaptionReviewDto = {
   hasSpeech: true,
@@ -67,5 +67,37 @@ describe('visibleParts', () => {
   it('의심 단어가 있는 줄만 보기', () => {
     expect(visibleParts(REVIEW, true).map((p) => p.i)).toEqual([0, 2])
     expect(visibleParts(REVIEW, false).map((p) => p.i)).toEqual([0, 1, 2])
+  })
+})
+
+describe('isDirty — 저장하지 않은 고침이 있나', () => {
+  it('처음 상태는 아니다', () => {
+    expect(isDirty(REVIEW, draftFrom(REVIEW))).toBe(false)
+    const saved = { ...REVIEW, edits: [{ i: 1, text: '이게 스윙' }] }
+    expect(isDirty(saved, draftFrom(saved))).toBe(false)
+  })
+  it('고치면 맞고, 되돌리면(원문으로 다시 쓰면) 아니다', () => {
+    const d = setPartText({}, REVIEW, 1, '이게 스윙')
+    expect(isDirty(REVIEW, d)).toBe(true)
+    expect(isDirty(REVIEW, setPartText(d, REVIEW, 1, '이게 섀도우'))).toBe(false)
+  })
+  it('저장된 것과 같은 내용(공백만 다름)이면 아니고, 저장된 것을 되돌리면 맞다', () => {
+    const saved = { ...REVIEW, edits: [{ i: 1, text: '이게 스윙' }] }
+    expect(isDirty(saved, { 1: '  이게   스윙 ' })).toBe(false)
+    expect(isDirty(saved, {})).toBe(true)
+  })
+})
+
+describe('partWarnings — 고친 글자가 줄 시간에 비해 너무 많아 자막이 빨리 지나가는 줄', () => {
+  it('초당 12자를 넘는 줄만(1.8초 줄에 22자 넘게) 알려 준다', () => {
+    const w = partWarnings(REVIEW, { 0: '가'.repeat(23) })
+    expect(Object.keys(w)).toEqual(['0'])
+    expect(w[0]).toMatch(/1\.8초/)
+    expect(partWarnings(REVIEW, { 0: '가'.repeat(21) })).toEqual({})
+  })
+  it('지운 줄과 안 고친 줄은 알리지 않고, 공백은 글자로 세지 않는다', () => {
+    expect(partWarnings(REVIEW, { 0: null })).toEqual({})
+    expect(partWarnings(REVIEW, {})).toEqual({})
+    expect(partWarnings(REVIEW, { 0: '가 '.repeat(15) })).toEqual({}) // 공백 뺀 15자
   })
 })

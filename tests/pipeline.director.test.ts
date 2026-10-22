@@ -4,6 +4,7 @@ import path from 'node:path'
 import { beforeEach, describe, expect, test } from 'vitest'
 import type { BuildInput } from '../src/core/compose.ts'
 import { interpretRequest } from '../src/core/interpret.ts'
+import { applyTranscriptEdits } from '../src/shared/captionReview.ts'
 import { LlmError } from '../src/core/llm.ts'
 import { analyzeInput, prepareEdit, produceEdit, type PipelineDeps, type Stage } from '../src/core/pipeline.ts'
 import type { QaInput, QaReport } from '../src/core/qa.ts'
@@ -171,6 +172,15 @@ describe('prepareEdit — 편집 감독', () => {
   })
 })
 
+describe('prepareEdit — 지운 자막 구간을 감독에게 알린다', () => {
+  test('deletedSpans 를 directEdit 에 그대로 넘긴다', async () => {
+    const s = setup()
+    const analysis = await analyzeInput({ videoPath: '/in/영상.mp4', workDir: work }, s.deps)
+    await prepareEdit({ analysis, workDir: work, purposeChoice: 'short', deletedSpans: [{ start: 3, end: 5 }] }, s.deps)
+    expect(s.directs[0]!.deletedSpans).toEqual([{ start: 3, end: 5 }])
+  })
+})
+
 describe('produceEdit — 대본대로 만들기', () => {
   async function produce(s: ReturnType<typeof setup>, o: Partial<Parameters<typeof produceEdit>[0]> = {}, prepared?: Awaited<ReturnType<typeof prepare>>) {
     const p = prepared ?? (await prepare(s))
@@ -209,6 +219,26 @@ describe('produceEdit — 대본대로 만들기', () => {
     expect(covers(withOriginal.builds[0]!.kept)).toBe(true)
     // 자막은 고친(지운) 결과를 따른다: 지운 단어는 자막에 없다
     expect(withOriginal.builds[0]!.cues.map((c) => c.text).join(' ')).not.toContain('팁입니다')
+  })
+
+  test('(C2) 고친 줄 안의 쉬는 구간을 컷이 잘라도 고친 단어가 최종 자막에서 하나도 빠지지 않는다', async () => {
+    // 한 줄(1~3.45초): 손목을(~1.9) 뒤 0.65초 쉬고 해네도(2.55~)가 이어진다
+    const RAW: Transcript = { language: 'ko', durationSec: 45, hasSpeech: true, words: [word('그러니까', 1), word('손목을', 1.5), word('해네도', 2.55), word('하면', 3.05)], segments: [] }
+    const EDIT = '그러니까 손목을 이렇게 펴서 백스윙 하면'
+    const s = setup({ directEdit: undefined, detectSilences: async () => [{ start: 1.8, end: 2.65 }] }) // 말 사이 쉬는 구간(1.9~2.55)이 2.0~2.45 로 잘린다
+    const p = await prepare(s)
+    const edited = applyTranscriptEdits(RAW, [{ i: 0, text: EDIT }])
+    await produce(s, { cutTranscript: RAW }, { ...p, analysis: { ...p.analysis, transcript: edited } })
+    const cues = s.builds[0]!.cues.map((c) => c.text).join(' ')
+    for (const token of EDIT.split(' ')) expect(cues, token).toContain(token)
+  })
+
+  test('(I1) 자막을 다 지워도(편집된 인식 결과에 말이 없어도) 배경음악은 원래 인식 결과로 말이 있는 영상으로 계산한다', async () => {
+    const s = setup({ directEdit: undefined })
+    const p = await prepare(s)
+    const allDeleted = { ...p, analysis: { ...p.analysis, transcript: { ...TR, words: [], segments: [], hasSpeech: false } } }
+    await produce(s, { cutTranscript: TR, bgm: 'calm-1' }, allDeleted)
+    expect(s.sounds[0]!.hasSpeech).toBe(true)
   })
 
   test('훅이 영상 맨 앞(0.5~3.5초)에서 오면 같은 장면을 연달아 두 번 붙이지 않는다 — 질문은 본편 첫머리 위에 띄운다', async () => {

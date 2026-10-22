@@ -7,7 +7,7 @@ import { applyScriptEdits } from '../core/script.ts'
 import { ReferenceFetchError } from '../core/reference.ts'
 import { TempoError } from '../core/tempo.ts'
 import { VoiceError } from '../core/voice.ts'
-import { applyTranscriptEdits } from '../shared/captionReview.ts'
+import { applyTranscriptEdits, deletedParts } from '../shared/captionReview.ts'
 import { SoundError } from '../shared/sound.ts'
 import { resolvePurpose } from '../core/purpose.ts'
 import { broadQueries, SearchError } from '../core/search.ts'
@@ -134,7 +134,7 @@ export async function planPhase({ jobs, d, job, dir, onStage }: PhaseContext): P
   // 같은 레퍼런스로 다시 계획하면(용도 바꾸기·요청 고치기) 이미 분석한 스펙을 쓰고 다시 받지 않는다
   const knownSpec = reference && previous?.referenceSource === reference ? previous.spec : undefined
 
-  const prepared = await d.prepareEdit({ analysis, workDir: dir, reference, knownSpec, request: job.requestText, purposeChoice: job.purposeChoice, onStage })
+  const prepared = await d.prepareEdit({ analysis, workDir: dir, reference, knownSpec, request: job.requestText, purposeChoice: job.purposeChoice, onStage, deletedSpans: deletedParts(raw.transcript, job.transcriptEdits) })
   writeJson(path.join(dir, 'prepared.json'), prepared)
   jobs.transition(job.id, ['planning'], 'awaiting_plan', { plan: prepared.plan, planCard: prepared.planCard, purpose: prepared.purpose, captionPosition: prepared.captionPosition, script: prepared.script ?? null, scriptEdits: null, errorMessage: null, stage: null })
 }

@@ -4,7 +4,7 @@ import { Check, ExternalLink, Film } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import type { CaptionReviewDto, JobDto, Recommendation } from '../../src/shared/types.ts'
 import { getCaptions, plan } from '../../src/ui/api.ts'
-import { draftFrom, editsFrom, partProblems, type CaptionDraft } from '../../src/ui/captions.ts'
+import { draftFrom, editsFrom, isDirty, partProblems, type CaptionDraft } from '../../src/ui/captions.ts'
 import { formatDuration, formatViews, sourceFrame } from '../../src/ui/format.ts'
 import { BAD_LINK_MESSAGE, checkLink, initialReference } from '../../src/ui/reference.ts'
 import { ActionBar } from '../ui/ActionBar.tsx'
@@ -92,6 +92,17 @@ export function ReferencePicker({ job, onChanged, onCancel }: { job: JobDto; onC
     return () => ac.abort()
   }, [job.id])
   const captionProblem = Object.keys(partProblems(draft)).length > 0
+  // 저장하지 않은 자막 고침이 있으면 새로고침·창 닫기·뒤로 가기 전에 한 번 물어본다(긴 영상은 고칠 줄이 많다)
+  const dirty = review ? isDirty(review, draft) : false
+  useEffect(() => {
+    if (!dirty) return
+    const warn = (e: BeforeUnloadEvent) => {
+      e.preventDefault()
+      e.returnValue = ''
+    }
+    window.addEventListener('beforeunload', warn)
+    return () => window.removeEventListener('beforeunload', warn)
+  }, [dirty])
 
   const picked = job.recommendations.find((r) => r.id === recId)
   const checked = checkLink(link)
@@ -203,7 +214,7 @@ export function ReferencePicker({ job, onChanged, onCancel }: { job: JobDto; onC
 
       <ActionBar error={error} hint={captionProblem ? '자막이 너무 긴 줄이 있어요' : fileBusy ? '레퍼런스 파일을 올리는 중이에요' : hasReference ? undefined : '레퍼런스를 고르지 않았어요'}>
         {onCancel ? (
-          <Button variant="ghost" onClick={onCancel} disabled={submitting}>
+          <Button variant="ghost" onClick={() => (!dirty || window.confirm('고친 자막이 저장되지 않았어요. 취소할까요?')) && onCancel()} disabled={submitting}>
             취소
           </Button>
         ) : null}
