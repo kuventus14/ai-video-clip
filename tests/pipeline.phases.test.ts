@@ -31,6 +31,7 @@ function setup(over: Partial<PipelineDeps> = {}, videoInfo: VideoInfo = info()) 
   const fetches: string[] = []
   let cleanups = 0
   const builds: { sourcePath: string; canvas: { width: number; height: number }; reframe: string }[] = []
+  const voices: { sourcePath: string; outPath: string; durationSec: number }[] = []
   const deps: PipelineDeps = {
     probeVideo: async () => videoInfo,
     ensureH264: async (p, i) => ({ path: p, info: i, converted: false }),
@@ -56,10 +57,14 @@ function setup(over: Partial<PipelineDeps> = {}, videoInfo: VideoInfo = info()) 
       return { outPath: r.outPath, wallSec: 0.1 }
     },
     runQa: async () => PASS,
+    enhanceVoice: async (v) => {
+      voices.push({ sourcePath: v.sourcePath, outPath: v.outPath, durationSec: v.durationSec })
+      return v.outPath
+    },
     ...over,
   }
   const onStage = (s: Stage) => stages.push(s)
-  return { deps, stages, fetches, builds, cleanups: () => cleanups, onStage }
+  return { deps, stages, fetches, builds, voices, cleanups: () => cleanups, onStage }
 }
 
 const roundTrip = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T
@@ -165,6 +170,53 @@ describe('produceEdit', () => {
     expect(report.planCard).toEqual(prepared.planCard)
     expect(s.stages).toEqual(['cuts', 'track', 'build', 'render', 'qa', 'done']) // 가로 원본 → 세로: track 단계 포함
     expect(s.builds[0]).toMatchObject({ sourcePath: '/in/영상.mp4', canvas: { width: 1080, height: 1920 }, reframe: 'track' })
+  })
+
+  describe('소리 설정(audio)', () => {
+    async function prepare(s: ReturnType<typeof setup>) {
+      const analysis = await analyzeInput({ videoPath: '/in/영상.mp4', workDir: work }, s.deps)
+      const prepared = await prepareEdit({ analysis, workDir: work, purposeChoice: 'short' }, s.deps)
+      return { analysis, prepared }
+    }
+
+    test("'voice' 면 컷·추적 뒤 만들기 전에 목소리 보정을 한 번 하고, 만들 때는 보정한 영상을 쓴다(원본 소리는 쓰지 않는다)", async () => {
+      const s = setup()
+      const { analysis, prepared } = await prepare(s)
+      await produceEdit({ analysis, prepared, outDir: path.join(work, 'v1'), audio: 'voice', onStage: s.onStage }, s.deps)
+      expect(s.stages).toEqual(['cuts', 'track', 'voice', 'build', 'render', 'qa', 'done'])
+      expect(s.voices).toHaveLength(1)
+      expect(s.voices[0]).toMatchObject({ sourcePath: '/in/영상.mp4', durationSec: 45 })
+      expect(s.builds[0]!.sourcePath).toBe(s.voices[0]!.outPath)
+    })
+
+    test("기본(생략)이거나 'original' 이면 보정하지 않고 원본 영상을 그대로 쓴다", async () => {
+      for (const audio of [undefined, 'original' as const]) {
+        const s = setup()
+        const { analysis, prepared } = await prepare(s)
+        await produceEdit({ analysis, prepared, outDir: path.join(work, `o-${audio}`), audio, onStage: s.onStage }, s.deps)
+        expect(s.voices).toHaveLength(0)
+        expect(s.stages).not.toContain('voice')
+        expect(s.builds[0]!.sourcePath).toBe('/in/영상.mp4')
+      }
+    })
+
+    test('원본에 소리가 없으면 voice 를 골라도 건너뛴다', async () => {
+      const s = setup({}, info({ hasAudio: false }))
+      const { analysis, prepared } = await prepare(s)
+      await produceEdit({ analysis, prepared, outDir: path.join(work, 'noaudio'), audio: 'voice', onStage: s.onStage }, s.deps)
+      expect(s.voices).toHaveLength(0)
+      expect(s.builds[0]!.sourcePath).toBe('/in/영상.mp4')
+    })
+
+    test('검수 재작업으로 다시 만들어도 목소리 보정은 한 번만 하고 보정한 영상을 계속 쓴다', async () => {
+      const queue: QaReport[] = [{ passed: false, findings: [{ id: 'low-bitrate', severity: 'high', message: '화질', fixHint: 'rerender-quality' }], corrections: [], checkedAt: 'x' }, PASS]
+      const s = setup({ runQa: async () => queue.shift()! })
+      const { analysis, prepared } = await prepare(s)
+      const r = await produceEdit({ analysis, prepared, outDir: path.join(work, 'rework'), audio: 'voice', onStage: s.onStage }, s.deps)
+      expect(r.attempts).toBe(2)
+      expect(s.voices).toHaveLength(1)
+      expect(s.builds.map((b) => b.sourcePath)).toEqual([s.voices[0]!.outPath, s.voices[0]!.outPath])
+    })
   })
 
   test('workDir 을 주지 않으면 결과 폴더 안에 자기 작업 폴더를 만들고 끝나면 지운다', async () => {

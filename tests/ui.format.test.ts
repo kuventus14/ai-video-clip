@@ -250,6 +250,14 @@ describe('stageVisual — 진행 단계에 맞는 모션 그래픽 고르기', (
   })
 })
 
+describe('목소리 보정 단계 표시', () => {
+  it('stageVisual 은 소리 그림(listen)이고, 단계 표시줄에서는 "편집 구성" 칸에 속한다', () => {
+    expect(stageVisual('producing', '목소리 보정')).toBe('listen')
+    expect(stageVisual('producing', '목소리 보정 — 처리 중')).toBe('listen')
+    expect(currentStageIndex('producing', '목소리 보정')).toBe(phaseStages('producing').findIndex((s) => s.label === '편집 구성'))
+  })
+})
+
 describe('phaseStages — 지금 하는 일이 속한 묶음의 단계들', () => {
   it('분석·계획·제작 단계마다 차례대로', () => {
     expect(phaseStages('analyzing').map((s) => s.label)).toEqual(['음성 인식', '영상 이해'])

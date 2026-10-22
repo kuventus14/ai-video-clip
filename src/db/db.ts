@@ -40,6 +40,8 @@ const MIGRATIONS: string[] = [
   // 지금 상태가 된 시각 — 진행 화면의 경과 시간. 이미 있는 행은 마지막 수정 시각으로 채운다.
   `ALTER TABLE jobs ADD COLUMN status_changed_at TEXT;
   UPDATE jobs SET status_changed_at = updated_at;`,
+  // 소리 설정: 원본 그대로(original) / 목소리 또렷하게(voice). 이미 있는 작업은 원본 그대로.
+  `ALTER TABLE jobs ADD COLUMN audio_mode TEXT NOT NULL DEFAULT 'original';`,
 ]
 
 /** <dataDir>/app.db 를 열고(없으면 만들고) 마이그레이션한다. 화면 서버와 워커가 같은 파일을 연다(WAL). */

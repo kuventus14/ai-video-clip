@@ -81,6 +81,7 @@ export function cloneForOtherVersion(jobs: Jobs, parent: Job): { child: Job } | 
       purposeChoice: parent.purpose === 'short' ? 'post' : 'short',
       description: parent.description,
       requestText: parent.requestText,
+      audioMode: parent.audioMode,
       referenceSource: parent.referenceSource && parent.referenceSource === parent.referenceUploadPath ? referenceUploadPath : parent.referenceSource,
       referenceUploadPath,
       sourceName: parent.sourceName,

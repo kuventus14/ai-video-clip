@@ -30,6 +30,7 @@ const STAGE_LABEL: Record<Stage, string> = {
   understand: '영상 이해',
   plan: '편집 계획',
   cuts: '컷 계산',
+  voice: '목소리 보정',
   track: '사람 위치 추적',
   build: '편집 프로젝트 만들기',
   render: '렌더링',

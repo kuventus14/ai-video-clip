@@ -1,3 +1,5 @@
+import type { AudioMode } from './voice.ts'
+
 /** 작업(영상 하나를 편집하는 한 번의 흐름)의 상태. 화면·API·워커가 같은 값을 쓴다. */
 export type JobStatus =
   | 'created' // 만들었고 영상을 올리는 중
@@ -60,6 +62,8 @@ export interface JobDto {
   referenceSource: string | null
   hasUploadedReference: boolean
   captionsMode: 'auto' | 'off'
+  /** 소리: 원본 그대로 / 목소리 또렷하게 */
+  audioMode: AudioMode
   quality: 'draft' | 'looks' | 'delivery'
   summary: { topic: string; genre: string; oneLine: string; hookTitle: string; searchQueries: string[] } | null
   recommendations: Recommendation[]
@@ -103,5 +107,6 @@ export interface PlanInput {
 /** 계획을 승인하고 제작을 시작할 때 보내는 값(POST /api/jobs/<id>/approve) */
 export interface ApproveInput {
   captions?: 'auto' | 'off'
+  audio?: AudioMode
   quality?: 'draft' | 'looks' | 'delivery'
 }

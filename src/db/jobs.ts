@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import type { JobStatus, Phase, Recommendation } from '../shared/types.ts'
+import type { AudioMode } from '../shared/voice.ts'
 import { canTransition, isRunning, PHASE_OF, QUEUED_STATUSES, QUEUED_TO_RUNNING, RUNNING_STATUSES, type QueuedStatus } from './status.ts'
 
 export interface LogLine {
@@ -34,6 +35,7 @@ export interface Job {
   referenceUploadPath: string | null
   requestText: string
   captionsMode: 'auto' | 'off'
+  audioMode: AudioMode
   quality: 'draft' | 'looks' | 'delivery'
   recommendations: Recommendation[]
   summary: unknown | null
@@ -71,6 +73,7 @@ const FIELDS: Record<Exclude<keyof Job, 'id' | 'createdAt'>, [string, Kind]> = {
   referenceUploadPath: ['reference_upload_path', 'text'],
   requestText: ['request_text', 'text'],
   captionsMode: ['captions_mode', 'text'],
+  audioMode: ['audio_mode', 'text'],
   quality: ['quality', 'text'],
   recommendations: ['recommendations', 'json'],
   summary: ['summary', 'json'],

@@ -5,6 +5,7 @@ import { useState, type ComponentType } from 'react'
 import type { JobDto } from '../../src/shared/types.ts'
 import { approve, plan } from '../../src/ui/api.ts'
 import { sourceFrame } from '../../src/ui/format.ts'
+import type { AudioMode } from '../../src/shared/voice.ts'
 import { parsePlanCard, planItemKind, type PlanItemKind } from '../../src/ui/plan.ts'
 import { ActionBar } from '../ui/ActionBar.tsx'
 import { Button } from '../ui/Button.tsx'
@@ -34,6 +35,7 @@ export function PlanApproval({ job, onChanged, onEditReference }: { job: JobDto;
   const card = parsePlanCard(job.planCard ?? [])
   const [choice, setChoice] = useState<PurposeChoice>(job.purposeChoice)
   const [captionsOn, setCaptionsOn] = useState(job.captionsMode !== 'off')
+  const [audio, setAudio] = useState<AudioMode>(job.audioMode)
   const [quality, setQuality] = useState<Quality>(job.quality)
   const [editingRequest, setEditingRequest] = useState(false)
   const [request, setRequest] = useState(job.requestText)
@@ -97,6 +99,22 @@ export function PlanApproval({ job, onChanged, onEditReference }: { job: JobDto;
 
           <Switch checked={captionsOn} onChange={setCaptionsOn} label="자막 넣기" description="영상에 이미 자막이 들어 있다면 끄세요. 두 줄로 겹쳐 보일 수 있어요." />
 
+          <div className="flex flex-col gap-3">
+            <Segmented<AudioMode>
+              legend="소리"
+              value={audio}
+              onChange={setAudio}
+              disabled={busy !== null}
+              options={[
+                { value: 'original', label: '원본 그대로', hint: '소리를 건드리지 않아요' },
+                { value: 'voice', label: '목소리 또렷하게', hint: '소음 줄이고 크기 맞춤' },
+              ]}
+            />
+            <p className="text-[13px] text-ink-3">
+              {audio === 'voice' ? '주변 소음을 줄이고 목소리 크기를 맞춰요. 방의 울림까지 없애지는 못해요(마이크를 입 가까이 두고 찍은 소리처럼 되지는 않아요). 제작 시간이 조금 늘어요.' : '찍은 소리를 그대로 써요. 소음이 많은 영상은 목소리가 묻힐 수 있어요.'}
+            </p>
+          </div>
+
           <details className="group">
             <summary className="cursor-pointer rounded-chip py-1 text-[15px] font-semibold text-ink-2 hover:text-ink">고급 설정</summary>
             <div className="mt-4 flex flex-col gap-3">
@@ -145,7 +163,7 @@ export function PlanApproval({ job, onChanged, onEditReference }: { job: JobDto;
             레퍼런스 바꾸기
           </Button>
         ) : null}
-        <Button variant="primary" loading={busy === 'approve'} disabled={purposeChanged || busy === 'replan'} onClick={() => run('approve', () => approve(job.id, { captions: captionsOn ? 'auto' : 'off', quality }))}>
+        <Button variant="primary" loading={busy === 'approve'} disabled={purposeChanged || busy === 'replan'} onClick={() => run('approve', () => approve(job.id, { captions: captionsOn ? 'auto' : 'off', audio, quality }))}>
           승인하고 만들기
         </Button>
       </ActionBar>

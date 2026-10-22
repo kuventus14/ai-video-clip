@@ -144,6 +144,53 @@ describe('approve (Review Focus 2)', () => {
     expect(read(j.id)).toMatchObject({ status: 'queued_produce', quality: 'draft', captionsMode: 'off' })
   })
 
+  describe('소리 설정(audio)', () => {
+    const saved = process.env.VAE_DEEP_FILTER
+    let tool: string
+    beforeEach(() => {
+      tool = path.join(dir, 'deep-filter')
+      fs.writeFileSync(tool, '#!/bin/sh\n', { mode: 0o755 })
+      process.env.VAE_DEEP_FILTER = tool
+    })
+    afterEach(() => {
+      if (saved === undefined) delete process.env.VAE_DEEP_FILTER
+      else process.env.VAE_DEEP_FILTER = saved
+    })
+
+    test('voice 를 기록하고 응답 DTO 에 audioMode 가 있다', async () => {
+      const j = job('awaiting_plan')
+      const res = await call(approve, j.id, { audio: 'voice' })
+      expect(res.status).toBe(200)
+      expect(((await res.json()) as JobDto).audioMode).toBe('voice')
+      expect(read(j.id)).toMatchObject({ status: 'queued_produce', audioMode: 'voice' })
+    })
+
+    test('보내지 않으면 기존 값을 유지한다(기본 original)', async () => {
+      const j = job('awaiting_plan')
+      await call(approve, j.id, {})
+      expect(read(j.id).audioMode).toBe('original')
+      const k = job('awaiting_plan', { audioMode: 'voice' })
+      await call(approve, k.id, {})
+      expect(read(k.id).audioMode).toBe('voice')
+    })
+
+    test('잘못된 값은 400 이고 작업은 승인되지 않는다', async () => {
+      const j = job('awaiting_plan')
+      expect((await call(approve, j.id, { audio: 'loud' })).status).toBe(400)
+      expect(read(j.id).status).toBe('awaiting_plan')
+    })
+
+    test('보정 도구가 없는데 voice 를 고르면 400(설치 안내)이고 승인되지 않는다. original 은 도구 없이도 된다', async () => {
+      process.env.VAE_DEEP_FILTER = path.join(dir, 'missing-tool')
+      const j = job('awaiting_plan')
+      const res = await call(approve, j.id, { audio: 'voice' })
+      expect(res.status).toBe(400)
+      expect(((await res.json()) as { error: string }).error).toContain('README')
+      expect(read(j.id).status).toBe('awaiting_plan')
+      expect((await call(approve, j.id, { audio: 'original' })).status).toBe(200)
+    })
+  })
+
   test('awaiting_plan 이 아니면 409', async () => {
     expect((await call(approve, job('awaiting_reference').id, {})).status).toBe(409)
   })
@@ -194,6 +241,13 @@ describe('other-version', () => {
     fs.writeFileSync(path.join(d, 'prepared.json'), JSON.stringify({ purpose: 'short', referenceSource: 'https://youtu.be/abc', spec: { orientation: 'portrait' } }))
     return jobs.update(base.id, { sourcePath: source, thumbPath: thumb, summary: { oneLine: '요약' }, sourceInfo: { durationSec: 5, width: 1080, height: 1920 } })
   }
+
+  test('소리 설정(audioMode)은 새 작업이 부모에서 이어받는다 — 다른 버전을 만들 때마다 다시 고르지 않아도 된다', async () => {
+    const p = parent('confirmed', 'short')
+    getContext().jobs.update(p.id, { audioMode: 'voice' })
+    const child = (await (await call(otherVersion, p.id)).json()) as JobDto
+    expect(child.audioMode).toBe('voice')
+  })
 
   test('반대 용도의 새 작업이 계획 단계에서 시작하고, 원본·분석·계획을 가져온다', async () => {
     const p = parent('confirmed', 'short')

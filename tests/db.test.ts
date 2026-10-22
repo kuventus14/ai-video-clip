@@ -25,6 +25,7 @@ describe('Jobs — 만들기·읽기·수정', () => {
       purposeChoice: 'auto',
       quality: 'looks',
       captionsMode: 'auto',
+      audioMode: 'original',
       description: '',
       requestText: '',
       recommendations: [],
@@ -46,6 +47,13 @@ describe('Jobs — 만들기·읽기·수정', () => {
     expect(back.report).toEqual({ passed: true, n: [1, 2] })
     expect(back.recommendations).toEqual([rec])
     expect(back.sourceInfo).toEqual({ durationSec: 56.8, width: 1080, height: 1920 })
+  })
+
+  test('audioMode 는 기본이 original 이고 voice 로 바꿔 저장했다 읽어도 같다', () => {
+    const j = jobs.create()
+    expect(j.audioMode).toBe('original')
+    jobs.update(j.id, { audioMode: 'voice' })
+    expect(jobs.get(j.id)!.audioMode).toBe('voice')
   })
 
   test('update 는 updatedAt 을 갱신하고, 없는 작업은 던진다', () => {

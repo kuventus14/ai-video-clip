@@ -76,6 +76,7 @@ export function toJobDto(job: Job): JobDto {
     referenceSource: ref === null ? null : /^https?:\/\//i.test(ref) ? ref : `파일: ${path.basename(ref)}`,
     hasUploadedReference: !!job.referenceUploadPath,
     captionsMode: job.captionsMode,
+    audioMode: job.audioMode,
     quality: job.quality,
     summary: summary.success ? summary.data : null,
     recommendations: job.recommendations,

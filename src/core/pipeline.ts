@@ -13,6 +13,8 @@ import { analyzeReference, detectSceneCuts, FEASIBILITY, type StyleSpec } from '
 import { fetchReference } from './reference.ts'
 import { groupWordsIntoCues, remapKeyframes, remapWords } from './timeline.ts'
 import { transcribe } from './transcribe.ts'
+import { enhanceVoice } from './voice.ts'
+import type { AudioMode } from '../shared/voice.ts'
 import { describeVideo, type VideoSummary } from './understand.ts'
 import type { CaptionCue, Purpose, ReframeMode, Span, Transcript, VideoInfo } from './types.ts'
 
@@ -25,7 +27,7 @@ export class InputError extends Error {
   }
 }
 
-export type Stage = 'probe' | 'normalize' | 'transcribe' | 'reference' | 'purpose' | 'understand' | 'plan' | 'cuts' | 'track' | 'build' | 'render' | 'qa' | 'rework' | 'done'
+export type Stage = 'probe' | 'normalize' | 'transcribe' | 'reference' | 'purpose' | 'understand' | 'plan' | 'cuts' | 'track' | 'voice' | 'build' | 'render' | 'qa' | 'rework' | 'done'
 export type Quality = 'draft' | 'looks' | 'delivery'
 
 export interface EditOptions {
@@ -37,6 +39,8 @@ export interface EditOptions {
   request?: string
   quality?: Quality
   captions?: 'auto' | 'off'
+  /** 소리: 'original' 은 원본 그대로(기본), 'voice' 는 소음을 줄이고 목소리 크기를 맞춘다 */
+  audio?: AudioMode
   /** 작업 폴더(<outDir>/.vae-work-…)를 끝난 뒤에도 남긴다 */
   keepWork?: boolean
   onStage?: (s: Stage, detail?: string) => void
@@ -76,11 +80,12 @@ export interface PipelineDeps {
   buildProject: typeof buildProject
   renderProject: typeof renderProject
   runQa: typeof runQa
+  enhanceVoice: typeof enhanceVoice
 }
 
 const DEFAULTS: PipelineDeps = {
   probeVideo, ensureH264, transcribe, detectSilences, detectSceneCuts, describeVideo, fetchReference, analyzeReference,
-  interpretRequest, trackPeople, proofreadCues, buildProject, renderProject, runQa,
+  interpretRequest, trackPeople, proofreadCues, buildProject, renderProject, runQa, enhanceVoice,
 }
 
 const MIN_SEC = 1
@@ -287,6 +292,7 @@ export interface ProduceInput {
   workDir?: string
   quality?: Quality
   captions?: 'auto' | 'off'
+  audio?: AudioMode
   keepWork?: boolean
   onStage?: StageCallback
 }
@@ -350,6 +356,13 @@ export async function produceEdit(i: ProduceInput, overrides: Partial<PipelineDe
       }
     }
 
+    // 8-2) 목소리 보정: 소리만 정리한 영상을 한 번 만들어 두고, 재작업을 포함한 모든 렌더가 그것을 쓴다
+    let renderSrc = src
+    if (i.audio === 'voice' && info.hasAudio) {
+      stage('voice')
+      renderSrc = await d.enhanceVoice({ sourcePath: src, outPath: path.join(work, 'source-voice.mp4'), workDir: path.join(work, 'voice'), durationSec: info.durationSec })
+    }
+
     // 9) 만들고 검수하고, 필요하면 최대 2번 다시 만든다
     let quality: Quality = i.quality ?? 'looks'
     const history: { attempt: number; reasons: string[]; actions: string[] }[] = []
@@ -361,7 +374,7 @@ export async function produceEdit(i: ProduceInput, overrides: Partial<PipelineDe
       stage('build')
       const built = await d.buildProject({
         workDir: path.join(work, `attempt-${attempt}`),
-        sourcePath: src,
+        sourcePath: renderSrc,
         info,
         canvas,
         kept,
@@ -499,7 +512,7 @@ export async function runEdit(o: EditOptions, overrides: Partial<PipelineDeps> =
     const analysis = await analyzeInput({ videoPath: o.videoPath, workDir: work, description: o.description, reference: o.reference, onStage: o.onStage }, overrides)
     const prepared = await prepareEdit({ analysis, workDir: work, request: o.request, purposeChoice: o.purpose ?? 'auto', onStage: o.onStage }, overrides)
     o.onPlan?.(prepared.planCard, prepared.purpose)
-    return await produceEdit({ analysis, prepared, outDir, workDir: work, quality: o.quality, captions: o.captions, onStage: o.onStage }, overrides)
+    return await produceEdit({ analysis, prepared, outDir, workDir: work, quality: o.quality, captions: o.captions, audio: o.audio, onStage: o.onStage }, overrides)
   } finally {
     if (!o.keepWork) fs.rmSync(work, { recursive: true, force: true })
   }

@@ -4,6 +4,8 @@ import path from 'node:path'
 import { beforeEach, describe, expect, test } from 'vitest'
 import { ToolError } from '../src/core/exec.ts'
 import { ReferenceFetchError } from '../src/core/reference.ts'
+import { VoiceError } from '../src/core/voice.ts'
+import { VOICE_TOOL_MISSING } from '../src/shared/voice.ts'
 import type { Analysis, Prepared } from '../src/core/pipeline.ts'
 import { openDb } from '../src/db/db.ts'
 import { Jobs } from '../src/db/jobs.ts'
@@ -251,6 +253,27 @@ describe('produce 단계', () => {
     expect(fs.existsSync(after.thumbPath!)).toBe(true)
     expect(f.calls.produce[0]).toMatchObject({ quality: 'delivery', captions: 'off', outDir: path.join(jobs.jobDir(j.id), 'out') })
     expect(after.log.some((l) => l.message.includes('렌더링'))).toBe(true)
+  })
+
+  test('소리 설정(audioMode)을 엔진에 넘긴다 — 기본은 original', async () => {
+    for (const audioMode of ['voice', 'original'] as const) {
+      const j = job('queued_produce', { audioMode })
+      writeAnalysis(j.id)
+      fs.writeFileSync(path.join(jobs.jobDir(j.id), 'prepared.json'), JSON.stringify(PREPARED))
+      const f = fakes()
+      await runOnce(jobs, f.deps)
+      expect(f.calls.produce[0]).toMatchObject({ audio: audioMode })
+    }
+  })
+
+  test('목소리 보정 도구가 없어서 실패하면 설치 안내를 그대로 보여 주고 failed(produce) 로 둔다', async () => {
+    const j = job('queued_produce', { audioMode: 'voice' })
+    writeAnalysis(j.id)
+    fs.writeFileSync(path.join(jobs.jobDir(j.id), 'prepared.json'), JSON.stringify(PREPARED))
+    await runOnce(jobs, fakes({ produceEdit: async () => { throw new VoiceError(VOICE_TOOL_MISSING) } }).deps)
+    const after = jobs.get(j.id)!
+    expect(after).toMatchObject({ status: 'failed', failedPhase: 'produce' })
+    expect(after.errorMessage).toBe(VOICE_TOOL_MISSING)
   })
 
   test('결과 영상을 직접 재서 길이·크기를 리포트에 남긴다 (목록의 길이 표시용)', async () => {
