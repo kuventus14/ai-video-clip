@@ -96,6 +96,13 @@ describe('buildProject', () => {
     expect(h).toContain('-1849.33')
   })
 
+  test('blur-fill: 블러 배경은 어둡게 깔아(밝기 낮춤) 위아래 띠에 얹는 흰색·노란색 글자가 밝은 장면에서도 읽힌다', async () => {
+    const { projectDir } = await buildProject(input({ canvas: SHORT, info: { ...landscape, width: 1920, height: 1080 }, reframe: 'blur-fill' }))
+    const bg = html(projectDir).match(/<video id="seg-0-bg"[^>]*style="([^"]*)"/)![1]!
+    expect(bg).toContain('blur(')
+    expect(bg).toMatch(/brightness\((0\.[3-7]\d*)\)/)
+  })
+
   test('blur-fill: 구간마다 소리 없는 블러 배경 + 소리 있는 앞 영상, 총 4개', async () => {
     const { projectDir } = await buildProject(input({ canvas: POST, info: { ...landscape, width: 1080, height: 1920 }, reframe: 'blur-fill' }))
     const h = html(projectDir)

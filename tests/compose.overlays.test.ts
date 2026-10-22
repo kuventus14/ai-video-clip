@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { beforeAll, describe, expect, test } from 'vitest'
-import { buildProject, fitFontPx, isEmphasized, overlayLayout, type BuildInput, type RenderScript } from '../src/core/compose.ts'
+import { buildProject, chooseReframeMode, fitFontPx, isEmphasized, overlayLayout, type BuildInput, type RenderScript } from '../src/core/compose.ts'
 import { run } from '../src/core/exec.ts'
 import type { AppliedStyle } from '../src/core/interpret.ts'
 import { probeVideo } from '../src/core/media.ts'
@@ -71,6 +71,29 @@ describe('overlayLayout — 위·아래 띠 계산', () => {
   test('middle 은 화면 가운데 근처', () => {
     const l = overlayLayout('blur-fill', LAND, SHORT, 'middle')
     expect(Math.abs(l.captionTop! - 960)).toBeLessThan(200)
+  })
+})
+
+describe('chooseReframeMode → overlayLayout — 앱이 실제로 고르는 값으로 띠가 생기는가 (연결 시험)', () => {
+  const layoutFor = (src: { width: number; height: number }, canvas = SHORT, pos: 'top' | 'middle' | 'bottom' = 'bottom') => overlayLayout(chooseReframeMode(src, canvas), src, canvas, pos)
+
+  test('16:9·1:1·4:5 원본을 세로로 만들면 띠가 생긴다(영상을 자르지 않고 가운데에 두므로)', () => {
+    for (const src of [{ width: 1920, height: 1080 }, { width: 1080, height: 1080 }, { width: 1080, height: 1350 }]) {
+      expect(layoutFor(src).band, `${src.width}x${src.height}`).toBe(true)
+    }
+  })
+  test('3:4 에 가까워 띠가 모자라거나 21:9 → 16:9 처럼 띠가 얇으면 띠 배치를 쓰지 않는다(글자는 영상 위쪽에 얹는다)', () => {
+    expect(layoutFor({ width: 1080, height: 1440 }).band).toBe(false) // 위 띠 240px < 260
+    expect(layoutFor({ width: 2520, height: 1080 }, POST).band).toBe(false)
+  })
+  test('16:9 → 세로: 제목 묶음은 위 띠 안, bottom 자막은 아래 띠 안, top 자막도 위 띠 안(영상과 안 겹침)', () => {
+    const l = layoutFor({ width: 1920, height: 1080 })
+    expect(l.titleTop + l.stackHeight).toBeLessThanOrEqual(l.videoTop)
+    expect(l.captionTop!).toBeGreaterThanOrEqual(l.videoBottom)
+    expect(l.captionTop! + 120).toBeLessThanOrEqual(1920) // 자막 한 줄이 화면 밖으로 나가지 않는다
+    const top = layoutFor({ width: 1920, height: 1080 }, SHORT, 'top')
+    expect(top.captionTop!).toBeGreaterThanOrEqual(top.titleTop + top.stackHeight)
+    expect(top.captionTop! + 120).toBeLessThanOrEqual(top.videoTop)
   })
 })
 

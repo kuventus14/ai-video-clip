@@ -272,7 +272,7 @@ export async function buildProject(i: BuildInput): Promise<{ projectDir: string;
       : i.reframe === 'blur-fill'
         ? 'position:absolute;inset:0;width:100%;height:100%;object-fit: contain'
         : 'position:absolute;inset:0;width:100%;height:100%;object-fit: cover'
-  const bgStyle = 'position:absolute;left:-10%;top:-10%;width:120%;height:120%;object-fit: cover;filter: blur(40px)'
+  const bgStyle = 'position:absolute;left:-10%;top:-10%;width:120%;height:120%;object-fit: cover;filter: blur(40px) brightness(0.6)' // 어둡게: 위아래·양옆 띠에 얹는 글자가 밝은 장면에서도 읽히게
 
   const videos: string[] = []
   const segStarts: number[] = []
