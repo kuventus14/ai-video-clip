@@ -59,6 +59,9 @@ export interface OverlayLayout {
 
 const BAND_MIN_TOP = 260
 const BAND_MIN_BOTTOM = 200
+/** 자막 두 줄이 들어갈 높이(화면 높이 대비)와, 아래에서 비워 둘 안전 여백 — 플랫폼의 계정명·설명 UI 밑으로 내려가거나 잘리지 않게 */
+const CAPTION_TWO_LINES = 0.085
+const CAPTION_BOTTOM_SAFE = 0.17
 
 /** 글자 한 칸의 폭(em). 한글·한자는 1, 그 밖(영문·숫자·기호)은 0.6 쯤으로 어림한다. */
 const emWidth = (text: string): number => Array.from(text).reduce((w, c) => w + (/[\u1100-\u11ff\u3130-\u318f\uac00-\ud7af\u4e00-\u9fff\u3040-\u30ff]/.test(c) ? 1 : 0.6), 0)
@@ -104,7 +107,11 @@ export function overlayLayout(reframe: ReframeMode, info: Pick<VideoInfo, 'width
   let captionTop: number | null = null
   if (captionPosition === 'top') captionTop = Math.max(Math.round(0.26 * H), titleTop + stackHeight + 30)
   else if (captionPosition === 'middle') captionTop = Math.round(H / 2 - 40)
-  else if (band) captionTop = Math.round(videoBottom + 0.035 * H)
+  else if (band) {
+    // 아래 띠 안에 자막 두 줄이 안전 여백 위에서 끝날 때만 띠 자리를 쓴다(1:1·4:5 는 띠가 얕아 너무 낮아진다 → 기존 규칙: 아래에서 17%)
+    const slot = Math.round(videoBottom + 0.035 * H)
+    if (slot + CAPTION_TWO_LINES * H <= H * (1 - CAPTION_BOTTOM_SAFE)) captionTop = slot
+  }
   const reactionTop = band ? Math.round(videoBottom - (videoBottom - videoTop) * 0.2) : Math.round(0.62 * H)
   return { band, videoTop: Math.round(videoTop), videoBottom: Math.round(videoBottom), titleTop, stackHeight, captionTop, reactionTop }
 }

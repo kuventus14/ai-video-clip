@@ -262,6 +262,15 @@ export function timecode(sec: number): string {
   return `${p(Math.floor(total / 3600))}:${p(Math.floor((total % 3600) / 60))}:${p(total % 60)}`
 }
 
+/**
+ * 용도 미리보기 프레임에 영상을 담을 때 자르지 않고 가운데 + 블러로 채워야 하나. 앱이 실제로 만드는 방식(chooseReframeMode)과 같은 기준:
+ * 프레임 비율(가로 16:9 / 세로 9:16)과 영상 비율이 0.05 이상 다르면 true. (화면 쪽은 core 를 가져오지 못해 여기에 같은 규칙을 둔다.)
+ */
+export function previewNeedsBlur(shape: 'landscape' | 'portrait', source: { width: number; height: number }): boolean {
+  const frame = shape === 'landscape' ? 16 / 9 : 9 / 16
+  return Math.abs(source.width / source.height - frame) >= 0.05
+}
+
 /** 올린 영상의 장면(썸네일)과 크기 — 용도 프레임 예시에 쓴다. 둘 중 하나라도 없으면 null. */
 export function sourceFrame(job: Pick<JobDto, 'media' | 'sourceInfo'>): { thumb: string; width: number; height: number } | null {
   return job.media.thumb && job.sourceInfo ? { thumb: job.media.thumb, width: job.sourceInfo.width, height: job.sourceInfo.height } : null

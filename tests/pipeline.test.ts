@@ -152,6 +152,8 @@ describe('runEdit — 흐름', () => {
     const r = await run({ purpose: 'post' })
     expect(rec.builds[0]!.reframe).toBe('blur-fill')
     expect(r.planCard.join('\n')).toContain('블러')
+    expect(r.planCard.join('\n')).toContain('양옆') // 세로 → 가로는 양옆 띠(문구가 바뀌지 않았다)
+    expect(r.planCard.join('\n')).not.toContain('위아래를')
   })
 
   test("(m) 사람이 없는 가로 영상을 세로로 자르는('track') 경로는 중앙 크롭 경고가 결과에 남는다", async () => {

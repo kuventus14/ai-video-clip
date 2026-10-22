@@ -3,7 +3,7 @@
 import { ScanSearch } from 'lucide-react'
 import { useId } from 'react'
 import type { JobDto } from '../../src/shared/types.ts'
-import { LOW_CONFIDENCE, purposeNote } from '../../src/ui/format.ts'
+import { LOW_CONFIDENCE, previewNeedsBlur, purposeNote } from '../../src/ui/format.ts'
 import { cx } from '../ui/cx.ts'
 
 export type PurposeChoice = 'auto' | 'post' | 'short'
@@ -11,12 +11,12 @@ export type PurposeChoice = 'auto' | 'post' | 'short'
 const shortPurpose = (p: 'post' | 'short') => (p === 'post' ? '게시물 영상용' : '릴스·숏츠용')
 
 /**
- * 영상이 어떻게 담기는지 보여 주는 작은 프레임. 세로 영상을 가로 프레임에 담으면 양옆을 흐린 배경으로 채우고(실제 동작),
- * 가로 영상을 세로 프레임에 담으면 가운데를 잘라 담는 예시다(사람이 가운데 오도록 맞추는 건 만들 때 정해져요).
+ * 영상이 어떻게 담기는지 보여 주는 작은 프레임. 앱은 원본을 자르지 않는다: 비율이 프레임과 다르면 영상을 가운데에 두고
+ * 남는 곳(세로 영상 → 가로 프레임은 양옆, 가로 영상 → 세로 프레임은 위아래)을 같은 장면을 흐리게 채운다(실제 동작).
  */
 function FrameSample({ shape, source, selected }: { shape: 'landscape' | 'portrait'; source?: { thumb: string; width: number; height: number } | null; selected: boolean }) {
   const frame = shape === 'landscape' ? 'h-[72px] w-[128px]' : 'h-[72px] w-[41px]'
-  const blurFill = !!source && shape === 'landscape' && source.height > source.width
+  const blurFill = !!source && previewNeedsBlur(shape, source)
   return (
     <span className={cx('relative block shrink-0 overflow-hidden rounded-[7px] bg-stage ring-2 transition-[box-shadow,transform] duration-500 ease-[var(--ease-expo)]', frame, selected ? 'ring-accent' : 'ring-line-strong')} aria-hidden="true">
       {source ? (

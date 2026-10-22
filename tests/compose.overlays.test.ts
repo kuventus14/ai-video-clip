@@ -82,6 +82,15 @@ describe('chooseReframeMode → overlayLayout — 앱이 실제로 고르는 값
       expect(layoutFor(src).band, `${src.width}x${src.height}`).toBe(true)
     }
   })
+  test('(안전 여백) 아래 자막이 띠 안에 놓이는 것은 화면 아래 17% 선 위에서 끝날 때만이다 — 1:1·4:5 는 띠 자리를 쓰면 너무 낮아(플랫폼 UI 밑·잘림) 기존 규칙(아래에서 17%)으로 둔다', () => {
+    const safe = 1920 * (1 - 0.17)
+    const wide = layoutFor({ width: 1920, height: 1080 })
+    expect(wide.captionTop).not.toBeNull()
+    expect(wide.captionTop! + 160).toBeLessThanOrEqual(safe) // 두 줄이 들어간다
+    for (const src of [{ width: 1080, height: 1080 }, { width: 1080, height: 1350 }]) {
+      expect(layoutFor(src).captionTop, `${src.width}x${src.height}`).toBeNull()
+    }
+  })
   test('3:4 에 가까워 띠가 모자라거나 21:9 → 16:9 처럼 띠가 얇으면 띠 배치를 쓰지 않는다(글자는 영상 위쪽에 얹는다)', () => {
     expect(layoutFor({ width: 1080, height: 1440 }).band).toBe(false) // 위 띠 240px < 260
     expect(layoutFor({ width: 2520, height: 1080 }, POST).band).toBe(false)

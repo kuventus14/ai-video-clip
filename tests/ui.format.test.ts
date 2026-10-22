@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { JobStatus } from '../src/shared/types.ts'
-import { LOW_CONFIDENCE, ROW_CTA, sourceFrame, atDate, currentStageIndex, phaseStages, timecode, stageVisual, thumbAspect, estimateProduce, formatBytes, formatDuration, formatKoreanDate, formatViews, isBusy, pollIntervalMs, progressState, purposeLabel, purposeNote, NEXT_ACTION, shownPurpose, STATUS_LABEL, STEPS, stepFor, stepForJob } from '../src/ui/format.ts'
+import { LOW_CONFIDENCE, previewNeedsBlur, ROW_CTA, sourceFrame, atDate, currentStageIndex, phaseStages, timecode, stageVisual, thumbAspect, estimateProduce, formatBytes, formatDuration, formatKoreanDate, formatViews, isBusy, pollIntervalMs, progressState, purposeLabel, purposeNote, NEXT_ACTION, shownPurpose, STATUS_LABEL, STEPS, stepFor, stepForJob } from '../src/ui/format.ts'
 
 const ALL_STATUSES: JobStatus[] = ['created', 'queued_probe', 'probing', 'ready', 'queued_analysis', 'analyzing', 'awaiting_reference', 'queued_plan', 'planning', 'awaiting_plan', 'queued_produce', 'producing', 'awaiting_confirm', 'confirmed', 'failed']
 
@@ -333,5 +333,19 @@ describe('sourceFrame — 용도 프레임 예시에 쓸 원본 장면', () => {
     expect(sourceFrame({ media: { thumb: '/t.jpg' }, sourceInfo: { durationSec: 1, width: 1080, height: 1920 } })).toEqual({ thumb: '/t.jpg', width: 1080, height: 1920 })
     expect(sourceFrame({ media: {}, sourceInfo: { durationSec: 1, width: 1, height: 1 } })).toBeNull()
     expect(sourceFrame({ media: { thumb: '/t.jpg' }, sourceInfo: null })).toBeNull()
+  })
+})
+
+describe('previewNeedsBlur — 용도 미리보기 프레임이 앱이 실제로 만드는 모습(자르지 않고 가운데 + 블러)과 같은가', () => {
+  it('가로 프레임(16:9): 세로·정사각·4:5 영상은 블러로 채우고, 16:9(거의 같은 비율 포함)는 그대로', () => {
+    expect(previewNeedsBlur('landscape', { width: 1080, height: 1920 })).toBe(true)
+    expect(previewNeedsBlur('landscape', { width: 1080, height: 1080 })).toBe(true)
+    expect(previewNeedsBlur('landscape', { width: 1920, height: 1080 })).toBe(false)
+    expect(previewNeedsBlur('landscape', { width: 1920, height: 1088 })).toBe(false)
+  })
+  it('세로 프레임(9:16): 가로·정사각 영상도 자르지 않고 블러로 채운다(예전엔 가운데를 잘라 보여 줬다)', () => {
+    expect(previewNeedsBlur('portrait', { width: 1920, height: 1080 })).toBe(true)
+    expect(previewNeedsBlur('portrait', { width: 1080, height: 1080 })).toBe(true)
+    expect(previewNeedsBlur('portrait', { width: 1080, height: 1920 })).toBe(false)
   })
 })
