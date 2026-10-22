@@ -30,7 +30,7 @@
 
 배경음악 합계 71.1MB
 
-## 효과음 14개 (컷 전환 whoosh 8 + 제목 pop 6)
+## 효과음 11개 (컷 전환 whoosh 8 + 제목 pop 3)
 
 | 역할 | 제목 | 태그 | 길이 | 크기 | 출처 |
 |---|---|---|---|---|---|
@@ -45,15 +45,13 @@
 | pop | Message pop alert | Pop, Alerts, Notification | 0:01 | 13KB | [2354](https://mixkit.co/free-sound-effects/message-pop-alert-2354/) |
 | pop | Dry pop up notification alert | Pop, Alerts, Notification | 0:01 | 10KB | [2356](https://mixkit.co/free-sound-effects/dry-pop-up-notification-alert-2356/) |
 | pop | Bubble pop up alert notification | Pop, Alerts, Notification | 0:01 | 12KB | [2357](https://mixkit.co/free-sound-effects/bubble-pop-up-alert-notification-2357/) |
-| pop | Explainer video pops whoosh light pop | Pop, Thud, Whoosh | 0:01 | 8KB | [3005](https://mixkit.co/free-sound-effects/explainer-video-pops-whoosh-light-pop-3005/) |
-| pop | Long pop | Pop, Alerts, Notification, Funny | 0:01 | 15KB | [2358](https://mixkit.co/free-sound-effects/long-pop-2358/) |
-| pop | Hard pop click | Pop, Water, Cartoon, Funny | 0:01 | 39KB | [2364](https://mixkit.co/free-sound-effects/hard-pop-click-2364/) |
 
-효과음 합계 383KB. 전체 약 71.5MB — 계획의 상한(80MB) 안이에요.
+효과음 합계 321KB. 전체 약 71.5MB — 계획의 상한(80MB) 안이에요.
 
 ## 계획에서 뺀 것
 - 효과음 `impact`·`click`·`ding`: 지금 코드가 쓰는 역할은 `whoosh`(컷)와 `pop`(제목 카드)뿐이라 받지 않아요.
 - Pixabay·Freesound: 이번에는 쓰지 않아요(Pixabay 음악은 자동으로 받기 어렵고, Freesound 는 API 키가 있어야 해요). 나중에 곡을 더 늘릴 때 쓸 수 있어요.
+- 효과음 pop 3개(Explainer video pops whoosh light pop, Long pop, Hard pop click)는 Mixkit 이 제 확인 요청을 일시적으로 막아서(429) 항목 페이지를 확인하지 못해 뺐어요.
 - 4분이 넘는 긴 곡 2개(Night Sky Hip Hop, Deep Urban)는 용량 때문에 뺐어요.
 
 분위기(잔잔한·밝은·신나는) 분류는 Mixkit의 태그를 보고 제가 나눈 거예요. 앱에 들어간 뒤 승인 화면에서 직접 들어 보고 어울리지 않는 곡은 빼면 돼요.
