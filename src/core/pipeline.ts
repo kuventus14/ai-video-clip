@@ -492,6 +492,9 @@ export async function produceEdit(i: ProduceInput, overrides: Partial<PipelineDe
       message: `자막 ${s.index + 1}번을 "${s.text}" 로 고치는 게 좋을 수 있어요 (원문과 많이 달라서 자동으로 적용하지 않았어요).`,
       fixHint: 'none',
     }))
+    if (i.sfx === 'on' && soundReport?.sfxCount === 0) {
+      extraFindings.push({ id: 'sfx-none', severity: 'info', message: '효과음을 켰지만 넣을 곳(컷이 바뀌는 순간·제목 카드)이 없어서 넣지 않았어요.', fixHint: 'none' })
+    }
     const finalQa: QaReport = { ...qa, findings: [...qa.findings, ...extraFindings, ...cropFindings, ...suggestionFindings] }
     const resultPath = path.join(outDir, 'result.mp4')
     fs.copyFileSync(renderedPath, resultPath)

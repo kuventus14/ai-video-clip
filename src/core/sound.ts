@@ -67,9 +67,9 @@ export const BGM_NO_VOICE_LUFS = -22
 /** 효과음의 최대 음량은 목소리 최대 음량보다 이만큼(dB) 작게 */
 export const SFX_BELOW_VOICE_PEAK_DB = 8
 export const SFX_MAX_PEAK_DB = -6
-/** 목소리가 이 값(LU)보다 크게 들어오면 음악을 줄이기 시작한다 */
-export const DUCK_THRESHOLD_BELOW_VOICE_LU = 10
-export const DUCK_RATIO = 6
+/** 목소리가 이 값(LU)보다 크게 들어오면 음악을 줄이기 시작한다. 실제 영상 한 편(20초)으로 맞췄다: 이 값과 비율로 말할 때 음악이 6~8dB 줄고 목소리보다 약 22 LU 작게 들린다(쉴 때는 약 14 LU). */
+export const DUCK_THRESHOLD_BELOW_VOICE_LU = 18
+export const DUCK_RATIO = 8
 export const DUCK_ATTACK_MS = 15
 export const DUCK_RELEASE_MS = 350
 /** 합친 소리의 한계(≈ -1.9 dBFS). AAC 로 다시 인코딩하면 최대치가 0.8dB 가량 더 튀어서(과하게 키운 시험에서 실측) 이만큼 여유를 둔다. */

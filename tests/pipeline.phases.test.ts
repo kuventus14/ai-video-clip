@@ -300,6 +300,22 @@ describe('produceEdit', () => {
       expect(JSON.parse(fs.readFileSync(path.join(outDir, 'report.json'), 'utf8')).sound).toBeUndefined()
     })
 
+    test('효과음을 켰는데 넣을 곳(컷 경계·제목 카드)이 없어서 0개면 검수 결과에 알림(info)이 남는다', async () => {
+      const s = setup({ applySound: async (a) => ({ path: a.renderedPath, report: { sfxCount: 0 } }) })
+      const { analysis, prepared } = await prepare(s)
+      const r = await produceEdit({ analysis, prepared, outDir: path.join(work, 'sfx0'), sfx: 'on', onStage: s.onStage }, s.deps)
+      expect(r.qa.findings).toContainEqual(expect.objectContaining({ id: 'sfx-none', severity: 'info', fixHint: 'none' }))
+    })
+
+    test('효과음이 들어갔거나 꺼 두었으면 그 알림은 없다', async () => {
+      const s = setup()
+      const { analysis, prepared } = await prepare(s)
+      const on = await produceEdit({ analysis, prepared, outDir: path.join(work, 'sfx2'), sfx: 'on', onStage: s.onStage }, s.deps)
+      expect(on.qa.findings.map((f) => f.id)).not.toContain('sfx-none')
+      const off = await produceEdit({ analysis, prepared, outDir: path.join(work, 'sfx-off'), bgm: 'calm-1', sfx: 'off', onStage: s.onStage }, s.deps)
+      expect(off.qa.findings.map((f) => f.id)).not.toContain('sfx-none')
+    })
+
     test('소리 입히기가 SoundError 로 실패하면 같은 오류로 멈추고 작업 폴더를 지운다', async () => {
       const s = setup({ applySound: async () => { throw new SoundError('고른 배경음악(x)을 찾을 수 없어요') } })
       const { analysis, prepared } = await prepare(s)
