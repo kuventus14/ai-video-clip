@@ -63,6 +63,9 @@ function setup(over: Partial<PipelineDeps> = {}, videoInfo: VideoInfo = info()) 
       voices.push({ sourcePath: v.sourcePath, outPath: v.outPath, durationSec: v.durationSec })
       return v.outPath
     },
+    directEdit: undefined, // 이 시험들은 지금 방식(컷+자막)을 확인한다 — 편집 감독은 tests/pipeline.director.test.ts
+    extractReferenceFrames: undefined,
+    applyTempo: undefined,
     applySound: async (a) => {
       sounds.push(a)
       fs.mkdirSync(path.dirname(a.outPath), { recursive: true })

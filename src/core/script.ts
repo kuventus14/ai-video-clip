@@ -1,4 +1,6 @@
 import { z } from 'zod'
+import type { RenderScript } from './compose.ts'
+import { srcToOut } from './timeline.ts'
 import type { Span } from './types.ts'
 
 /** 편집 대본의 상한. 문구는 글자(코드포인트) 수, 시간은 초. */
@@ -224,4 +226,47 @@ export function normalizeScript(raw: unknown, ctx: { durationSec: number; fallba
   script.reactions = timedList(o.reactions, 'text', SCRIPT_LIMITS.maxReactions, SCRIPT_LIMITS.reaction, d, '리액션', notes) as EditScript['reactions']
   script.drop = normalizeDrop(o.drop, d, notes)
   return { script, notes }
+}
+
+const OPENING_COLORS = ['yellow', 'cyan', 'white'] as const
+
+/** 원본 시각 기준 대본을 출력 시각 기준 그림 대본으로 바꾼다. 잘려 나간 자리는 다음 남은 구간 시작에 붙이고, 영상 밖이면 뺀다. */
+export function toRenderScript(sc: EditScript, kept: Span[], hookSec: number, totalSec: number): RenderScript {
+  const at = (t: number) => srcToOut(t, kept, hookSec)
+  const secs = sc.sections.flatMap((s) => {
+    const start = at(s.atSec)
+    return start === null ? [] : [{ start, label: s.label }]
+  })
+  return {
+    title: sc.title,
+    ...(sc.hook && hookSec > 0 ? { hook: { sec: hookSec, question: sc.hook.question } } : {}),
+    openingLines: sc.openingLines.slice(0, 3).map((text, k) => ({ text, color: OPENING_COLORS[k]! })),
+    sections: secs.map((s, k) => ({ start: s.start, end: secs[k + 1]?.start ?? totalSec, label: s.label })),
+    questions: sc.questions.flatMap((q) => {
+      const start = at(q.atSec)
+      return start === null ? [] : [{ start, text: q.text }]
+    }),
+    reactions: sc.reactions.flatMap((r) => {
+      const start = at(r.atSec)
+      return start === null ? [] : [{ start, text: r.text }]
+    }),
+    emphasis: sc.emphasis,
+    hookSec,
+  }
+}
+
+/** 계획 카드(승인 화면)에 보여 줄 편집 구성 줄들. */
+export function scriptCardLines(sc: EditScript): string[] {
+  const lines: string[] = []
+  if (sc.hook) {
+    const len = sc.hook.sourceEnd - sc.hook.sourceStart
+    lines.push(`• 후킹: 원본 ${sc.hook.sourceStart.toFixed(1)}초부터 ${len.toFixed(1)}초 장면을 맨 앞에 두고 "${sc.hook.question}" 질문을 띄워요`)
+  }
+  lines.push(`• 제목: "${sc.title}"을(를) 화면 위에 고정해요`)
+  if (sc.openingLines.length) lines.push(`• 소개 줄: ${sc.openingLines.join(' / ')}`)
+  if (sc.sections.length) lines.push(`• 소제목: ${sc.sections.map((s) => s.label).join(' → ')}`)
+  if (sc.questions.length || sc.reactions.length) lines.push(`• 중간 질문 ${sc.questions.length}개, 리액션 ${sc.reactions.length}개를 넣어요`)
+  if (sc.speed > 1.001) lines.push(`• 속도: ${sc.speed}배로 올려 템포를 살려요`)
+  if (sc.drop.length) lines.push(`• 빼는 구간: ${sc.drop.length}곳(약 ${Math.round(sc.drop.reduce((a, d) => a + d.end - d.start, 0))}초)`)
+  return lines
 }

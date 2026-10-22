@@ -20,7 +20,7 @@ export const FEASIBILITY: Record<StyleField, Feasibility> = {
   hookTitle: 'approximate',
   transitions: 'approximate',
   music: 'approximate', // 레퍼런스의 음악은 쓰지 않고, 앱에 내장한 무료 곡을 사용자가 직접 고른다
-  structure: 'unsupported',
+  structure: 'approximate', // AI 편집 감독이 구성(훅 앞당기기·소제목·질문)을 새로 짠다. 레퍼런스와 똑같지는 않다
   orientation: 'exact',
 }
 

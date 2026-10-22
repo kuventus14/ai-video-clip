@@ -11,9 +11,12 @@ import { canvasFor, detectPurpose, resolvePurpose, type PurposeGuess } from './p
 import { computeCropPath, cropReversalsPerSec, type CropPath } from './reframe.ts'
 import { analyzeReference, detectSceneCuts, FEASIBILITY, type StyleSpec } from './styleSpec.ts'
 import { fetchReference } from './reference.ts'
-import { groupWordsIntoCues, remapKeyframes, remapWords } from './timeline.ts'
+import { buildTimeline, groupWordsIntoCues, remapKeyframes, remapWords, shiftCues, subtractSpans } from './timeline.ts'
 import { transcribe } from './transcribe.ts'
 import { applySound, type SoundReport } from './sound.ts'
+import { directEdit, extractReferenceFrames } from './director.ts'
+import { emptyScript, normalizeScript, scriptCardLines, toRenderScript, type EditScript } from './script.ts'
+import { applyTempo, scaleSec } from './tempo.ts'
 import { enhanceVoice } from './voice.ts'
 import type { SfxMode } from '../shared/sound.ts'
 import type { CaptionPosition } from '../shared/types.ts'
@@ -30,7 +33,7 @@ export class InputError extends Error {
   }
 }
 
-export type Stage = 'probe' | 'normalize' | 'transcribe' | 'reference' | 'purpose' | 'understand' | 'plan' | 'cuts' | 'track' | 'voice' | 'build' | 'render' | 'mix' | 'qa' | 'rework' | 'done'
+export type Stage = 'probe' | 'normalize' | 'transcribe' | 'reference' | 'purpose' | 'understand' | 'plan' | 'cuts' | 'direct' | 'track' | 'voice' | 'build' | 'render' | 'tempo' | 'mix' | 'qa' | 'rework' | 'done'
 export type Quality = 'draft' | 'looks' | 'delivery'
 
 export interface EditOptions {
@@ -88,11 +91,17 @@ export interface PipelineDeps {
   runQa: typeof runQa
   enhanceVoice: typeof enhanceVoice
   applySound: typeof applySound
+  /** 편집 감독(AI). 없으면 감독 단계를 건너뛰고 지금 방식(컷+자막)으로 만든다 */
+  directEdit?: typeof directEdit
+  /** 레퍼런스 장면 사진 만들기. 없으면 사진 없이 감독을 부른다 */
+  extractReferenceFrames?: typeof extractReferenceFrames
+  /** 렌더 뒤 속도 조정. 대본의 speed > 1 일 때만 쓴다 */
+  applyTempo?: typeof applyTempo
 }
 
 const DEFAULTS: PipelineDeps = {
   probeVideo, ensureH264, transcribe, detectSilences, detectSceneCuts, describeVideo, fetchReference, analyzeReference,
-  interpretRequest, trackPeople, proofreadCues, buildProject, renderProject, runQa, enhanceVoice, applySound,
+  interpretRequest, trackPeople, proofreadCues, buildProject, renderProject, runQa, enhanceVoice, applySound, directEdit, extractReferenceFrames, applyTempo,
 }
 
 const MIN_SEC = 1
@@ -177,6 +186,10 @@ export interface Prepared {
   referenceSource?: string
   /** 이 계획으로 만들면 자막이 놓일 위치(레퍼런스를 따르거나 기본 하단). 승인 화면의 기본값으로 쓰고 사용자가 바꿀 수 있다 */
   captionPosition: CaptionPosition
+  /** AI 편집 감독이 짠 편집 대본. 없으면(감독 실패·건너뜀) 지금 방식(컷+자막)으로 만든다 */
+  script?: EditScript
+  /** 대본을 정리하며 뺀 것 등 사용자에게 알려 줄 노트 */
+  directorNotes?: string[]
   spec?: StyleSpec
 }
 
@@ -189,13 +202,29 @@ export interface AnalyzeInput {
   onStage?: StageCallback
 }
 
+const REF_FRAMES_DIR = 'ref-frames'
+
+/** 레퍼런스를 받아 스타일을 분석하고, AI 편집 감독이 볼 장면 사진을 작업 폴더에 남긴 뒤 원본은 지운다(스펙: 레퍼런스 원본은 남기지 않는다). */
 async function fetchAndAnalyzeReference(d: PipelineDeps, source: string, workDir: string): Promise<{ spec: StyleSpec; info: VideoInfo }> {
   const ref = await d.fetchReference(source, path.join(workDir, 'ref'))
   try {
-    return { spec: await d.analyzeReference({ path: ref.path, info: ref.info }), info: ref.info }
+    const spec = await d.analyzeReference({ path: ref.path, info: ref.info })
+    const framesDir = path.join(workDir, REF_FRAMES_DIR)
+    fs.rmSync(framesDir, { recursive: true, force: true })
+    try {
+      await d.extractReferenceFrames?.(ref.path, ref.info.durationSec, framesDir)
+    } catch {
+      fs.rmSync(framesDir, { recursive: true, force: true }) // 사진을 못 만들어도 분석은 계속한다(감독이 사진 없이 돈다)
+    }
+    return { spec, info: ref.info }
   } finally {
     await ref.cleanup()
   }
+}
+
+function readRefFrames(workDir: string): string[] {
+  const dir = path.join(workDir, REF_FRAMES_DIR)
+  return fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => f.endsWith('.jpg')).sort().map((f) => path.join(dir, f)) : []
 }
 
 /** 파일 정보 없이 스펙만 있을 때, 레퍼런스의 방향을 용도 인식용 가짜 크기로 바꾼다. */
@@ -292,7 +321,26 @@ export async function prepareEdit(i: PrepareInput, overrides: Partial<PipelineDe
     : planCardLines(plan, specUsed)
   const planCard = [...baseCard, ...reframeCardLines(reframe, a.info, canvas)]
   const captionPosition = deriveAppliedStyle(plan, specUsed, a.summary, purpose).captions.position
-  return { purpose, purposeChoice: i.purposeChoice, purposeGuess, plan, planCard, reframe, referenceSource: i.reference, captionPosition, spec }
+
+  // 편집 감독: 영상·대본·(레퍼런스 사진)을 보고 편집 대본을 짠다. 실패해도 작업을 막지 않고 지금 방식으로 되돌아간다.
+  let script: EditScript | undefined
+  let directorNotes: string[] | undefined
+  let finalCard = planCard
+  if (d.directEdit) {
+    stage('direct')
+    try {
+      const out = await d.directEdit({ info: a.info, transcript: a.transcript, summary: a.summary, sourcePath: a.sourcePath, spec, refFrames: spec ? readRefFrames(i.workDir) : [], workDir: i.workDir })
+      // 감독 구현이 무엇을 돌려주든 대본을 한 번 더 정리한다(영상이 10초 이하면 제목만 등) — 정리는 여러 번 해도 같다
+      const clean = normalizeScript(out.script, { durationSec: a.info.durationSec, fallbackTitle: a.summary.genre || a.summary.topic })
+      script = clean.script
+      directorNotes = [...out.notes, ...clean.notes]
+    } catch {
+      script = undefined
+    }
+    if (script) finalCard = [...planCard.filter((l) => !l.startsWith('• 영상 구성')), ...scriptCardLines(script)]
+    else finalCard = [...planCard.filter((l) => !l.startsWith('• 영상 구성')), '• 편집 구성을 AI가 짜지 못해서 기본 방식(컷+자막)으로 만들어요']
+  }
+  return { purpose, purposeChoice: i.purposeChoice, purposeGuess, plan, planCard: finalCard, reframe, referenceSource: i.reference, captionPosition, ...(script ? { script, directorNotes } : {}), spec }
 }
 
 export interface ProduceInput {
@@ -305,6 +353,8 @@ export interface ProduceInput {
   captions?: 'auto' | 'off'
   /** 주면 계획이 정한 위치 대신 이 위치에 자막을 둔다 */
   captionPosition?: CaptionPosition
+  /** 승인 화면에서 사용자가 문구를 고친 편집 대본. 없으면 prepared.script 를 쓴다 */
+  script?: EditScript
   audio?: AudioMode
   bgm?: string | null
   sfx?: SfxMode
@@ -330,13 +380,33 @@ export async function produceEdit(i: ProduceInput, overrides: Partial<PipelineDe
   const canvas = canvasFor(purpose)
   const style = deriveAppliedStyle(plan, prepared.spec ?? defaultStyleSpec(purpose), summary, purpose)
   if (i.captionPosition) style.captions.position = i.captionPosition
+  // 편집 대본이 있으면 대본의 제목·훅 질문이 옛 제목 카드를 대신한다
+  const script = i.script ?? prepared.script
+  if (script) delete style.hookTitle
 
   try {
     // 6) 컷
     stage('cuts')
     const silences = await d.detectSilences(src)
     const cutPlan = planCuts({ transcript, silences, durationSec: info.durationSec, padSec: style.padSec })
-    const kept: Span[] = cutPlan.kept.length ? cutPlan.kept : [{ start: 0, end: info.durationSec }]
+    let kept: Span[] = cutPlan.kept.length ? cutPlan.kept : [{ start: 0, end: info.durationSec }]
+    // 편집 감독이 "빼도 된다"고 한 약한 구간을 뺀다(다 지워 버리면 쓰지 않는다)
+    if (script?.drop.length) {
+      const trimmed = subtractSpans(kept, script.drop)
+      if (trimmed.length) kept = trimmed
+    }
+    // 훅 장면을 맨 앞에 붙인 출력 타임라인(훅이 없으면 kept 그대로)
+    const timeline = buildTimeline(kept, script?.hook ? { start: script.hook.sourceStart, end: script.hook.sourceEnd } : undefined)
+    const hookSec = timeline.hookSec
+    const renderScript = script ? toRenderScript(script, kept, hookSec, timeline.totalSec) : undefined
+    const speed = script?.speed ?? 1
+    const tempoOn = speed > 1.001 && d.applyTempo !== undefined
+    const effSpeed = tempoOn ? speed : 1
+    // 자막·단어 시각은 본편(kept) 기준으로 만들고, 쓸 때 훅 길이만큼 밀고 속도로 나눈다
+    const outTime = <T extends { start: number; end: number }>(xs: T[], toBuild: boolean): T[] => {
+      const shifted = shiftCues(xs, hookSec)
+      return toBuild ? shifted : shifted.map((x) => ({ ...x, start: scaleSec(x.start, effSpeed), end: scaleSec(x.end, effSpeed) }))
+    }
 
     // 7) 세로 크롭이면 사람 위치 추적
     let track: PersonTrack | undefined
@@ -395,15 +465,22 @@ export async function produceEdit(i: ProduceInput, overrides: Partial<PipelineDe
         sourcePath: renderSrc,
         info,
         canvas,
-        kept,
-        cues,
-        crop: cropPath ? remapKeyframes(cropPath.keyframes, kept) : undefined,
+        kept: timeline.segments,
+        cues: outTime(cues, true),
+        crop: cropPath ? remapKeyframes(cropPath.keyframes, timeline.segments) : undefined,
         reframe,
         style,
+        script: renderScript,
       })
       stage('render', `${quality} 화질`)
       const rendered = await d.renderProject(built.projectDir, { outPath: path.join(work, `render-${attempt}.mp4`), quality })
       renderedPath = rendered.outPath
+
+      // 속도 조정: 자막·오버레이가 이미 입혀진 영상 전체를 같은 배수로 빠르게 한다(어긋나지 않는다)
+      if (tempoOn) {
+        stage('tempo', `${speed}배`)
+        renderedPath = await d.applyTempo!({ inputPath: renderedPath, outPath: path.join(work, `tempo-${attempt}.mp4`), speed, hasAudio: info.hasAudio })
+      }
 
       // 배경음악·효과음: 렌더가 끝난 영상에 입히고, 검수는 입힌 결과를 본다(재작업으로 다시 렌더할 때마다 다시 입힌다)
       if (wantsSound) {
@@ -412,11 +489,12 @@ export async function produceEdit(i: ProduceInput, overrides: Partial<PipelineDe
           renderedPath,
           outPath: path.join(work, `mix-${attempt}.mp4`),
           choice: { bgm: i.bgm ?? null, sfx: i.sfx ?? 'off' },
-          kept,
-          hookTitle: style.hookTitle !== undefined,
-          durationSec: built.durationSec,
+          kept: timeline.segments,
+          hookTitle: Boolean(script?.hook) || style.hookTitle !== undefined,
+          durationSec: scaleSec(built.durationSec, effSpeed),
           hasAudio: info.hasAudio,
           hasSpeech: transcript.hasSpeech,
+          speed: effSpeed,
         })
         renderedPath = mixed.path
         soundReport = mixed.report
@@ -428,14 +506,15 @@ export async function produceEdit(i: ProduceInput, overrides: Partial<PipelineDe
         outputPath: renderedPath,
         canvas,
         reframe,
-        cues,
-        words: outWords,
+        cues: outTime(cues, false),
+        words: outTime(outWords, false),
         maxChars,
         summary: { topic: summary.topic, genre: summary.genre },
         skipCaptions: captionsOff,
         purpose,
         sourcePath: src,
-        kept,
+        kept: timeline.segments,
+        speed: effSpeed,
       })
 
       const isActionable = (f: Finding): boolean => {
@@ -525,7 +604,8 @@ export async function produceEdit(i: ProduceInput, overrides: Partial<PipelineDe
           history,
           appliedCorrections: applied,
           suggestions,
-          unchecked: UNCHECKED,
+          unchecked: script ? [...UNCHECKED, 'AI 가 쓴 문구(제목·질문·소제목)가 영상 내용과 맞는지(사람이 읽어 보는 확인)'] : UNCHECKED,
+          ...(script ? { script, directorNotes: prepared.directorNotes ?? [] } : {}),
           ...(soundReport ? { sound: soundReport } : {}),
           qa: finalQa,
         },

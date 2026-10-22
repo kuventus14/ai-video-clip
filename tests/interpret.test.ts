@@ -48,7 +48,7 @@ describe('interpretRequest', () => {
     expect(p.mode).toBe('full-reference')
     expect(p.take).toEqual(expect.arrayContaining(['pacing', 'captions', 'hookTitle', 'transitions']))
     expect(p.take).toContain('music') // 곡은 사용자가 직접 고르는 방식으로 지원한다
-    expect(p.take).not.toContain('structure')
+    expect(p.take).toContain('structure') // 편집 감독이 구성을 짠다
     expect(p.skip).toEqual([])
     expect(EditPlan.safeParse(p).success).toBe(true)
   })
@@ -97,10 +97,11 @@ describe('interpretRequest', () => {
 })
 
 describe('planCardLines', () => {
-  test('지원하지 않는 항목(영상 구성)은 정직하게 알린다', () => {
-    const lines = planCardLines(plan(), spec()).join('\n')
+  test('영상 구성은 이제 편집 감독이 새로 짜는 항목이라 "지원하지 않아요"가 아니라 설명이 나온다', () => {
+    const lines = planCardLines(plan({ take: ['pacing', 'structure'] }), spec()).join('\n')
     expect(lines).toContain('이렇게 이해했어요')
-    expect(lines).toMatch(/영상 구성.*지원하지 않아요/)
+    expect(lines).toMatch(/영상 구성.*편집 대본/)
+    expect(lines).not.toMatch(/영상 구성.*지원하지 않아요/)
     expect(lines).not.toMatch(/음악.*지원하지 않아요/)
   })
 

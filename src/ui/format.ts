@@ -204,8 +204,8 @@ export function stageVisual(status: JobStatus, stage: string | null): StageVisua
   if (s.startsWith('음성 인식') || s.startsWith('목소리 보정') || s.startsWith('배경음악')) return 'listen'
   if (s.startsWith('영상 이해') || s.startsWith('사람 위치') || s.startsWith('용도 판단')) return 'watch'
   if (s.startsWith('레퍼런스')) return 'reference'
-  if (s.startsWith('편집 계획') || s.startsWith('컷 계산')) return 'plan'
-  if (s.startsWith('편집 프로젝트') || s.startsWith('렌더링')) return 'render'
+  if (s.startsWith('편집 계획') || s.startsWith('편집 구성 짜기') || s.startsWith('컷 계산')) return 'plan'
+  if (s.startsWith('편집 프로젝트') || s.startsWith('렌더링') || s.startsWith('속도 맞추기')) return 'render'
   if (s.startsWith('검수')) return 'qa'
   if (s.startsWith('영상 확인') || s.startsWith('형식 변환')) return 'probe'
   return status === 'analyzing' ? 'watch' : status === 'planning' ? 'plan' : 'render'
@@ -234,14 +234,14 @@ export function phaseStages(status: JobStatus): PhaseStage[] {
     case 'planning':
       return [
         { visual: 'reference', label: '레퍼런스 분석', match: ['레퍼런스'] },
-        { visual: 'plan', label: '편집 계획', match: ['편집 계획'] },
+        { visual: 'plan', label: '편집 계획', match: ['편집 계획', '편집 구성 짜기'] },
       ]
     case 'queued_produce':
     case 'producing':
       return [
         { visual: 'plan', label: '컷 계산', match: ['컷 계산'] },
         { visual: 'watch', label: '편집 구성', match: ['사람 위치', '목소리 보정', '편집 프로젝트'] },
-        { visual: 'render', label: '렌더링', match: ['렌더링', '배경음악'] },
+        { visual: 'render', label: '렌더링', match: ['렌더링', '속도 맞추기', '배경음악'] },
         { visual: 'qa', label: '검수', match: ['검수'] },
       ]
     default:

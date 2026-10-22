@@ -53,3 +53,22 @@ describe('planItemKind — 계획 항목 앞의 아이콘 종류', () => {
     expect(planItemKind('')).toBe('other')
   })
 })
+
+describe('planItemKind — 편집 감독 줄', () => {
+  it.each([
+    ['후킹: 원본 14.2초부터 …', 'title'],
+    ['소제목: 여기서 포인트! → 체크 방법!', 'title'],
+    ['소개 줄: 롱아이언 실전편 / …', 'title'],
+    ['중간 질문 2개, 리액션 1개를 넣어요', 'title'],
+    ['속도: 1.1배로 올려 템포를 살려요', 'cuts'],
+    ['빼는 구간: 2곳(약 5초)', 'cuts'],
+    ['영상 구성: 레퍼런스의 구성을 따라 AI 가 편집 대본을 새로 짜요', 'title'],
+    ['편집 구성을 AI가 짜지 못해서 기본 방식(컷+자막)으로 만들어요', 'other'],
+  ] as const)('%s → %s', (text, kind) => {
+    expect(planItemKind(text)).toBe(kind)
+  })
+  it('AI 가 못 짰다는 줄은 주의(노란 줄)로 표시된다', () => {
+    const r = parsePlanCard(['이렇게 이해했어요: 기본 스타일로 편집해요.', '• 편집 구성을 AI가 짜지 못해서 기본 방식(컷+자막)으로 만들어요'])
+    expect(r.items[0]!.tone).toBe('warn')
+  })
+})

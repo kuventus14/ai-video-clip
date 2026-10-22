@@ -265,6 +265,17 @@ describe('배경음악·효과음 입히기 단계 표시', () => {
   })
 })
 
+describe('편집 구성 짜기·속도 맞추기 단계 표시', () => {
+  it('편집 구성 짜기는 계획 단계의 "편집 계획" 칸에 머물고 계획 그림(plan)이다', () => {
+    expect(stageVisual('planning', '편집 구성 짜기')).toBe('plan')
+    expect(currentStageIndex('planning', '편집 구성 짜기')).toBe(phaseStages('planning').findIndex((s) => s.label === '편집 계획'))
+  })
+  it('속도 맞추기는 제작 단계의 "렌더링" 칸에 머물고(되돌아가지 않게) 렌더 그림이다', () => {
+    expect(stageVisual('producing', '속도 맞추기 — 1.1배')).toBe('render')
+    expect(currentStageIndex('producing', '속도 맞추기 — 1.1배')).toBe(phaseStages('producing').findIndex((s) => s.label === '렌더링'))
+  })
+})
+
 describe('phaseStages — 지금 하는 일이 속한 묶음의 단계들', () => {
   it('분석·계획·제작 단계마다 차례대로', () => {
     expect(phaseStages('analyzing').map((s) => s.label)).toEqual(['음성 인식', '영상 이해'])

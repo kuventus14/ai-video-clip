@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { buildTimeline, groupWordsIntoCues, remapKeyframes, remapSpans, remapTime, remapWords, shiftCues, srcToOut } from '../src/core/timeline.ts'
+import { buildTimeline, groupWordsIntoCues, remapKeyframes, remapSpans, remapTime, remapWords, shiftCues, srcToOut, subtractSpans } from '../src/core/timeline.ts'
 import type { Word } from '../src/core/types.ts'
 
 const w = (text: string, start: number, end: number): Word => ({ text, start, end, confidence: 0.9 })
@@ -175,5 +175,24 @@ describe('훅이 본편과 겹칠 때 자막과 크롭 (Review Focus 1)', () => 
     const bodyStart = out.find((k) => k.t >= tl.hookSec)!
     expect(bodyStart.t).toBeCloseTo(3, 3)
     expect(bodyStart.centerX).toBeCloseTo(0.3, 3) // 본편(원본 0초)의 위치로 돌아온다
+  })
+})
+
+describe('subtractSpans — 빼도 되는 구간(drop)을 남은 구간에서 뺀다', () => {
+  const kept = [{ start: 0, end: 10 }, { start: 20, end: 30 }]
+  test('걸치는 구간을 잘라 낸다', () => {
+    expect(subtractSpans(kept, [{ start: 5, end: 22 }])).toEqual([{ start: 0, end: 5 }, { start: 22, end: 30 }])
+  })
+  test('뺄 것이 없으면 그대로', () => {
+    expect(subtractSpans(kept, [])).toEqual(kept)
+  })
+  test('가운데를 빼면 둘로 나뉜다', () => {
+    expect(subtractSpans([{ start: 0, end: 10 }], [{ start: 4, end: 6 }])).toEqual([{ start: 0, end: 4 }, { start: 6, end: 10 }])
+  })
+  test('0.3초보다 짧게 남는 조각은 버린다', () => {
+    expect(subtractSpans([{ start: 0, end: 10 }], [{ start: 0.2, end: 9.9 }])).toEqual([])
+  })
+  test('여러 구간·겹치는 구간도 처리한다', () => {
+    expect(subtractSpans([{ start: 0, end: 20 }], [{ start: 2, end: 4 }, { start: 3, end: 6 }, { start: 15, end: 16 }])).toEqual([{ start: 0, end: 2 }, { start: 6, end: 15 }, { start: 16, end: 20 }])
   })
 })

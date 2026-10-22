@@ -105,6 +105,8 @@ function detail(f: StyleField, spec: StyleSpec): string {
       return TRANSITION_KO[spec.transitions.dominant]
     case 'orientation':
       return '선택한 용도(가로/세로)에 맞춰요'
+    case 'structure':
+      return '레퍼런스의 구성(훅 → 흐름 → 결과)을 참고해 AI 가 편집 대본을 새로 짜요'
     case 'music':
       return spec.music.present
         ? '레퍼런스에 음악이 있는 것 같아요. 같은 곡은 쓸 수 없고, 아래 "배경음악"에서 곡을 직접 골라 넣을 수 있어요'

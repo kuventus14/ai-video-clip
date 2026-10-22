@@ -35,6 +35,8 @@ export interface QaInput {
   /** 원본 영상 경로와 남긴 구간 — 원본에도 있던 검은 구간을 결함으로 보지 않으려고 쓴다 */
   sourcePath?: string
   kept?: Span[]
+  /** 렌더 뒤 속도 조정 배수(기본 1) — 원본의 검은 구간이 결과에서 나타날 시각을 맞춘다 */
+  speed?: number
 }
 
 export interface QaReport {
@@ -83,7 +85,7 @@ export async function runQa(
   if (blackSpans.some((s) => s.end - s.start >= 0.5) && i.sourcePath && i.kept) {
     // 원본에도 검은 구간(페이드·어두운 장면)이 있었다면 우리가 만든 결함이 아니다
     const sourceBlack = await run('ffmpeg', ['-hide_banner', '-nostdin', '-i', i.sourcePath, '-vf', BLACKDETECT, '-an', '-f', 'null', '-'])
-    const expected = remapSpans(parseBlackdetect(sourceBlack.stderr), i.kept)
+    const expected = remapSpans(parseBlackdetect(sourceBlack.stderr), i.kept).map((sp) => ({ start: sp.start / (i.speed ?? 1), end: sp.end / (i.speed ?? 1) }))
     blackSpans = blackSpans.filter((s) => overlapSec(s, expected) < (s.end - s.start) / 2)
   }
   findings.push(...checkBlackSegments(blackSpans))

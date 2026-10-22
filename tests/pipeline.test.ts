@@ -88,6 +88,9 @@ function setup(over: Partial<PipelineDeps> = {}, o: { qaQueue?: QaReport[]; vide
     },
     enhanceVoice: async (v) => v.outPath,
     applySound: async (a) => ({ path: a.renderedPath, report: { sfxCount: 0 } }),
+    directEdit: undefined, // 이 시험들은 지금 방식(컷+자막)을 확인한다 — 편집 감독은 tests/pipeline.director.test.ts
+    extractReferenceFrames: undefined,
+    applyTempo: undefined,
     runQa: async (q) => {
       rec.qas.push(q)
       return qaQueue.shift() ?? PASS

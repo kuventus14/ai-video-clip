@@ -73,7 +73,7 @@ describe('FEASIBILITY', () => {
       hookTitle: 'approximate',
       transitions: 'approximate',
       music: 'approximate',
-      structure: 'unsupported',
+      structure: 'approximate', // AI 편집 감독이 구성을 새로 짠다(훅 앞당기기·소제목·질문)
       orientation: 'exact',
     })
   })

@@ -10,7 +10,7 @@ export interface ParsedPlanCard {
 }
 
 const HEADLINE = /^이렇게 이해했어요:\s*/
-const WARN = /반영하지 못했어요|지원하지 않아요|비슷하게만 가능해요/
+const WARN = /반영하지 못했어요|지원하지 않아요|비슷하게만 가능해요|짜지 못해서/
 
 /** planCard 의 줄들("이렇게 이해했어요: …" 머리말 + "• …" 항목)을 화면용으로 나눈다. 줄은 하나도 잃지 않는다. */
 export function parsePlanCard(lines: string[]): ParsedPlanCard {
@@ -35,8 +35,8 @@ export type PlanItemKind = 'captions' | 'title' | 'cuts' | 'frame' | 'music' | '
 export function planItemKind(text: string): PlanItemKind {
   const head = text.trim()
   if (head.startsWith('자막')) return 'captions'
-  if (head.startsWith('제목')) return 'title'
-  if (head.startsWith('컷')) return 'cuts'
+  if (head.startsWith('제목') || head.startsWith('후킹') || head.startsWith('소제목') || head.startsWith('소개 줄') || head.startsWith('중간 질문') || head.startsWith('영상 구성')) return 'title'
+  if (head.startsWith('컷') || head.startsWith('속도') || head.startsWith('빼는 구간')) return 'cuts'
   if (head.startsWith('화면')) return 'frame'
   if (head.startsWith('음악') || head.startsWith('효과음')) return 'music'
   if (head.startsWith('전환')) return 'transition'

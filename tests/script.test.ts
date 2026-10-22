@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { emptyScript, normalizeScript, SCRIPT_LIMITS, type EditScript } from '../src/core/script.ts'
+import { emptyScript, normalizeScript, SCRIPT_LIMITS, scriptCardLines, toRenderScript, type EditScript } from '../src/core/script.ts'
 
 const ctx = { durationSec: 60, fallbackTitle: '골프 레슨' }
 const good = (over: Record<string, unknown> = {}) => ({
@@ -144,5 +144,55 @@ describe('emptyScript', () => {
   test('제목만 있고 훅·소제목이 없으며 속도 1', () => {
     const s: EditScript = emptyScript('제목')
     expect(s).toEqual({ version: 1, title: '제목', openingLines: [], sections: [], questions: [], reactions: [], emphasis: [], speed: 1, drop: [] })
+  })
+})
+
+describe('toRenderScript — 원본 시각의 대본을 출력 시각으로', () => {
+  const sc: EditScript = { ...emptyScript('제목'), hook: { sourceStart: 54, sourceEnd: 57, question: '질문?' }, openingLines: ['하나', '둘', '셋'], speed: 1.1,
+    sections: [{ atSec: 10, label: 'A' }, { atSec: 25, label: 'B' }], questions: [{ atSec: 12, text: 'Q' }], reactions: [{ atSec: 56, text: 'R' }], emphasis: ['스윙'] }
+  const kept = [{ start: 0, end: 60 }]
+  test('시각이 훅 길이(3초)만큼 밀리고, 소제목 끝은 다음 소제목 시작·마지막은 총 길이', () => {
+    const r = toRenderScript(sc, kept, 3, 63)
+    expect(r.sections).toEqual([{ start: 13, end: 28, label: 'A' }, { start: 28, end: 63, label: 'B' }])
+    expect(r.questions).toEqual([{ start: 15, text: 'Q' }])
+    expect(r.reactions).toEqual([{ start: 59, text: 'R' }])
+    expect(r.hook).toEqual({ sec: 3, question: '질문?' })
+    expect(r.hookSec).toBe(3)
+    expect(r.title).toBe('제목')
+    expect(r.emphasis).toEqual(['스윙'])
+  })
+  test('소개 줄 색은 노랑·하늘·흰 순', () => {
+    expect(toRenderScript(sc, kept, 3, 63).openingLines).toEqual([{ text: '하나', color: 'yellow' }, { text: '둘', color: 'cyan' }, { text: '셋', color: 'white' }])
+  })
+  test('훅이 없으면 hook 도 없고 hookSec 0', () => {
+    const r = toRenderScript({ ...sc, hook: undefined }, kept, 0, 60)
+    expect(r.hook).toBeUndefined()
+    expect(r.hookSec).toBe(0)
+  })
+  test('잘려 나간 자리의 소제목은 다음 남은 구간 시작에 붙고, 영상 밖이면 뺀다', () => {
+    const r = toRenderScript({ ...sc, sections: [{ atSec: 15, label: '잘림' }, { atSec: 70, label: '밖' }] }, [{ start: 0, end: 10 }, { start: 20, end: 30 }], 0, 20)
+    expect(r.sections).toEqual([{ start: 10, end: 20, label: '잘림' }])
+  })
+})
+
+describe('scriptCardLines — 계획 카드에 보여 줄 편집 구성', () => {
+  const sc: EditScript = { ...emptyScript('프로님의 롱아이언 꿀팁'), hook: { sourceStart: 14.2, sourceEnd: 16.7, question: '스윙, 끝까지 이렇게 가면?' }, openingLines: ['a'],
+    sections: [{ atSec: 0, label: '여기서 포인트!' }, { atSec: 8, label: '체크 방법!' }], questions: [{ atSec: 1, text: 'q' }, { atSec: 5, text: 'q2' }], reactions: [{ atSec: 16, text: 'r' }], speed: 1.1, drop: [{ start: 3, end: 5 }, { start: 9, end: 12 }] }
+  test('후킹·제목·소제목 흐름·질문/리액션 개수·속도·빼는 구간 줄이 나온다', () => {
+    const lines = scriptCardLines(sc).join('\n')
+    expect(lines).toMatch(/• 후킹: .*14\.2.*2\.5초.*스윙, 끝까지 이렇게 가면\?/)
+    expect(lines).toContain('• 제목: "프로님의 롱아이언 꿀팁"')
+    expect(lines).toContain('• 소제목: 여기서 포인트! → 체크 방법!')
+    expect(lines).toMatch(/• 중간 질문 2개.*리액션 1개/)
+    expect(lines).toMatch(/• 속도: 1\.1배/)
+    expect(lines).toMatch(/• 빼는 구간: 2곳.*5초/)
+  })
+  test('훅·소제목이 없으면 그 줄이 없고, 속도 1·drop 없음이면 속도·빼는 구간 줄도 없다', () => {
+    const lines = scriptCardLines(emptyScript('제목')).join('\n')
+    expect(lines).not.toContain('후킹')
+    expect(lines).not.toContain('소제목')
+    expect(lines).not.toContain('속도')
+    expect(lines).not.toContain('빼는 구간')
+    expect(lines).toContain('• 제목: "제목"')
   })
 })

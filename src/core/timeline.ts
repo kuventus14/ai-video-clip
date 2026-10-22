@@ -90,6 +90,25 @@ export function srcToOut(t: number, kept: Span[], hookSec: number): number | nul
   return next < 0 ? null : round6(off[next]! + hookSec)
 }
 
+/** 남은 구간(kept)에서 빼도 되는 구간(drop)을 뺀다. 0.3초보다 짧게 남는 조각은 버린다. */
+export function subtractSpans(kept: Span[], drop: Span[]): Span[] {
+  const MIN_PIECE = 0.3
+  const out: Span[] = []
+  for (const k of kept) {
+    let pieces: Span[] = [{ ...k }]
+    for (const d of drop) {
+      pieces = pieces.flatMap((p) => {
+        if (d.end <= p.start || d.start >= p.end) return [p]
+        const left = d.start > p.start ? [{ start: p.start, end: d.start }] : []
+        const right = d.end < p.end ? [{ start: d.end, end: p.end }] : []
+        return [...left, ...right]
+      })
+    }
+    out.push(...pieces.filter((p) => p.end - p.start >= MIN_PIECE).map((p) => ({ start: round6(p.start), end: round6(p.end) })))
+  }
+  return out
+}
+
 /** 자막 큐의 start·end 를 같이 민다. */
 export function shiftCues<T extends { start: number; end: number }>(cues: T[], dt: number): T[] {
   return cues.map((c) => ({ ...c, start: round6(c.start + dt), end: round6(c.end + dt) }))
