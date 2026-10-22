@@ -50,6 +50,8 @@ const MIGRATIONS: string[] = [
   // 편집 감독의 대본(계획 단계에서 저장, JSON)과 사용자가 승인 전에 고친 문구(JSON). 이미 있는 작업은 NULL.
   `ALTER TABLE jobs ADD COLUMN script TEXT;
   ALTER TABLE jobs ADD COLUMN script_edits TEXT;`,
+  // 자막 확인 화면에서 사용자가 고친 줄(JSON 배열 [{i, text}]). 이미 있는 작업은 NULL(고친 것 없음).
+  `ALTER TABLE jobs ADD COLUMN transcript_edits TEXT;`,
 ]
 
 /** <dataDir>/app.db 를 열고(없으면 만들고) 마이그레이션한다. 화면 서버와 워커가 같은 파일을 연다(WAL). */

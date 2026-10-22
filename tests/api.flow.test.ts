@@ -83,6 +83,49 @@ describe('start', () => {
   })
 })
 
+describe('plan — 고친 자막(captionEdits)', () => {
+  const EDITS = [{ i: 0, text: '고친 글' }, { i: 2, text: null }]
+
+  test('보내면 작업에 저장되고, 보내지 않으면 그대로, 빈 배열이면 비워진다', async () => {
+    const j = job('awaiting_reference')
+    expect((await call(plan, j.id, { captionEdits: EDITS })).status).toBe(200)
+    expect(read(j.id).transcriptEdits).toEqual(EDITS)
+
+    const again = job('awaiting_plan', { transcriptEdits: EDITS })
+    await call(plan, again.id, { request: '다른 요청' })
+    expect(read(again.id).transcriptEdits).toEqual(EDITS) // 안 보냈으니 그대로
+
+    const clear = job('awaiting_plan', { transcriptEdits: EDITS })
+    await call(plan, clear.id, { captionEdits: [] })
+    expect(read(clear.id).transcriptEdits).toEqual([])
+  })
+
+  test('잘못된 본문(글자가 아닌 text · 음수·소수 줄 번호 · 160자 초과 · 501개)은 400 이고 저장되지 않는다', async () => {
+    const bad: unknown[] = [
+      [{ i: 0, text: 5 }],
+      [{ i: -1, text: 'x' }],
+      [{ i: 1.5, text: 'x' }],
+      [{ i: 0, text: '가'.repeat(161) }],
+      Array.from({ length: 501 }, (_, i) => ({ i, text: 'x' })),
+      [{ i: 0, text: 'x', extra: 1 }],
+    ]
+    for (const captionEdits of bad) {
+      const j = job('awaiting_reference')
+      expect((await call(plan, j.id, { captionEdits })).status).toBe(400)
+      expect(read(j.id)).toMatchObject({ status: 'awaiting_reference', transcriptEdits: null })
+    }
+  })
+
+  test('JobDto.captionEditCount 는 저장된 개수', async () => {
+    const j = job('awaiting_plan', { transcriptEdits: EDITS })
+    const res = await call(plan, j.id, { request: '요청' })
+    expect(((await res.json()) as JobDto).captionEditCount).toBe(2)
+    expect(((await call(plan, job('awaiting_reference').id, {})).status)).toBe(200)
+    const none = job('awaiting_plan')
+    expect(((await (await call(plan, none.id, {})).json()) as JobDto).captionEditCount).toBe(0)
+  })
+})
+
 describe('plan', () => {
   test.each(['awaiting_reference', 'awaiting_plan', 'awaiting_confirm'] as JobStatus[])('%s → queued_plan, 입력을 갱신하고 오류를 비운다', async (status) => {
     const j = job(status, { referenceSource: 'https://youtu.be/old', requestText: '이전 요청', purposeChoice: 'auto' })
@@ -502,6 +545,14 @@ describe('other-version', () => {
     const child = (await (await call(otherVersion, p.id)).json()) as JobDto
     const cd = getContext().jobs.jobDir(child.id)
     expect(fs.readFileSync(path.join(cd, 'ref-frames', 'frame-00.jpg'), 'utf8')).toBe('REFJPG')
+  })
+
+  test('고친 자막(transcriptEdits)도 새 작업이 이어받는다 — 다른 버전에서도 같은 글자로 만든다', async () => {
+    const p = parent('confirmed', 'short')
+    getContext().jobs.update(p.id, { transcriptEdits: [{ i: 1, text: '고친 글' }] })
+    const child = (await (await call(otherVersion, p.id)).json()) as JobDto
+    expect(read(child.id).transcriptEdits).toEqual([{ i: 1, text: '고친 글' }])
+    expect(child.captionEditCount).toBe(1)
   })
 
   test('부모를 지워도 자식의 파일은 남는다', async () => {

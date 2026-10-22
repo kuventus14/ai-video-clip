@@ -31,6 +31,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   if (ref.value !== undefined) patch.referenceSource = ref.value
   if (body.data.request !== undefined) patch.requestText = body.data.request.trim()
   if (body.data.purposeChoice !== undefined) patch.purposeChoice = body.data.purposeChoice
+  if (body.data.captionEdits !== undefined) patch.transcriptEdits = body.data.captionEdits
 
   const next = jobs.transition(job.id, FROM, 'queued_plan', patch)
   return next ? Response.json(toJobDto(next)) : jsonError(409, '지금은 계획을 다시 요청할 수 없는 상태예요')

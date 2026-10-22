@@ -72,6 +72,8 @@ export interface JobDto {
   captionPosition: CaptionPosition | null
   /** 편집 감독이 짠 구성(승인 화면에 보여 주고 문구를 고칠 수 있다). 감독이 실패했거나 계획 전이면 null. 사용자가 고친 문구가 반영돼 있다 */
   script: ScriptDto | null
+  /** 자막 확인에서 고친 줄 수(없으면 0) */
+  captionEditCount: number
   quality: 'draft' | 'looks' | 'delivery'
   summary: { topic: string; genre: string; oneLine: string; hookTitle: string; searchQueries: string[] } | null
   recommendations: Recommendation[]
@@ -110,15 +112,17 @@ export interface PlanInput {
   reference?: string | null
   request?: string
   purposeChoice?: 'auto' | PurposeValue
+  /** 자막 확인에서 고친 줄 전체(보내면 저장된 것을 이 값으로 바꾼다, 빈 배열이면 비운다). 보내지 않으면 그대로 */
+  captionEdits?: CaptionEdit[]
 }
 
-/** 승인 화면에서 사용자가 고칠 수 있는 대본 문구(고친 칸만 보낸다) */
 /** 자막 확인 화면에서 고친 한 줄. i = 줄 번호(reviewParts), text null(또는 공백뿐) = 이 줄을 지운다 */
 export interface CaptionEdit {
   i: number
   text: string | null
 }
 
+/** 승인 화면에서 사용자가 고칠 수 있는 대본 문구(고친 칸만 보낸다) */
 export interface ScriptEdits {
   title?: string
   hookQuestion?: string

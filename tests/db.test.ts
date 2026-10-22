@@ -95,15 +95,37 @@ describe('Jobs — 만들기·읽기·수정', () => {
     expect(jobs.get(j.id)).toMatchObject({ script: null, scriptEdits: null })
   })
 
-  test('버전 3 DB 를 열면 최신(6)으로 올라가고, 이미 있던 작업은 bgmId null · sfxMode off · captionPosition null · script null', () => {
+  test('고친 자막(transcriptEdits)도 JSON 으로 저장되고 복원된다', () => {
+    const j = jobs.create()
+    jobs.update(j.id, { transcriptEdits: [{ i: 0, text: '고친 글' }, { i: 3, text: null }] })
+    expect(jobs.get(j.id)!.transcriptEdits).toEqual([{ i: 0, text: '고친 글' }, { i: 3, text: null }])
+    jobs.update(j.id, { transcriptEdits: null })
+    expect(jobs.get(j.id)!.transcriptEdits).toBeNull()
+    expect(jobs.create().transcriptEdits).toBeNull()
+  })
+
+  test('버전 6 DB(자막 편집 칸 없음)를 열면 7 로 올라가고 기존 작업의 transcriptEdits 는 null', () => {
+    const old = fs.mkdtempSync(path.join(os.tmpdir(), 'vae-db-v6-'))
+    const db = openDb(old)
+    const id = new Jobs(db, old).create().id
+    db.exec('ALTER TABLE jobs DROP COLUMN transcript_edits; UPDATE meta SET version = 6')
+    db.close()
+    const reopened = openDb(old)
+    expect((reopened.prepare('SELECT version FROM meta').get() as { version: number }).version).toBe(7)
+    expect(new Jobs(reopened, old).get(id)).toMatchObject({ transcriptEdits: null })
+    reopened.close()
+    fs.rmSync(old, { recursive: true, force: true })
+  })
+
+  test('버전 3 DB 를 열면 최신(7)으로 올라가고, 이미 있던 작업은 bgmId null · sfxMode off · captionPosition null · script null', () => {
     const old = fs.mkdtempSync(path.join(os.tmpdir(), 'vae-db-old-'))
     const db = openDb(old)
     const id = new Jobs(db, old).create().id
-    db.exec('ALTER TABLE jobs DROP COLUMN script; ALTER TABLE jobs DROP COLUMN script_edits; ALTER TABLE jobs DROP COLUMN caption_position; ALTER TABLE jobs DROP COLUMN bgm_id; ALTER TABLE jobs DROP COLUMN sfx_mode; UPDATE meta SET version = 3')
+    db.exec('ALTER TABLE jobs DROP COLUMN transcript_edits; ALTER TABLE jobs DROP COLUMN script; ALTER TABLE jobs DROP COLUMN script_edits; ALTER TABLE jobs DROP COLUMN caption_position; ALTER TABLE jobs DROP COLUMN bgm_id; ALTER TABLE jobs DROP COLUMN sfx_mode; UPDATE meta SET version = 3')
     db.close()
 
     const reopened = openDb(old)
-    expect((reopened.prepare('SELECT version FROM meta').get() as { version: number }).version).toBe(6)
+    expect((reopened.prepare('SELECT version FROM meta').get() as { version: number }).version).toBe(7)
     expect(new Jobs(reopened, old).get(id)).toMatchObject({ bgmId: null, sfxMode: 'off', captionPosition: null, script: null, scriptEdits: null, audioMode: 'original' })
     reopened.close()
     fs.rmSync(old, { recursive: true, force: true })

@@ -11,10 +11,16 @@ export const StartBody = z.object({
 })
 
 /** 레퍼런스·요청·용도를 (다시) 정해 계획을 요청한다. 보내지 않은 항목은 그대로 둔다. reference:null 은 레퍼런스를 지운다. */
+/** 자막 확인에서 고친 줄. 줄 번호는 0 이상 정수, 글자는 160자 이하(null = 지움). 알 수 없는 칸은 받지 않는다. */
+export const CaptionEditsBody = z
+  .array(z.strictObject({ i: z.number().int().min(0), text: z.string().max(160).nullable() }))
+  .max(500)
+
 export const PlanBody = z.object({
   reference: z.string().max(2000).nullable().optional(),
   request: z.string().max(4000).optional(),
   purposeChoice: PurposeChoice.optional(),
+  captionEdits: CaptionEditsBody.optional(),
 })
 
 const scriptText = (max: number) =>

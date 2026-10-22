@@ -109,6 +109,7 @@ export function toJobDto(job: Job): JobDto {
     sfxMode: job.sfxMode,
     captionPosition: job.captionPosition,
     script: toScriptDto(job.script, job.scriptEdits),
+    captionEditCount: job.transcriptEdits?.length ?? 0,
     quality: job.quality,
     summary: summary.success ? summary.data : null,
     recommendations: job.recommendations,
