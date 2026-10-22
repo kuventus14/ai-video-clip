@@ -1,0 +1,227 @@
+import { z } from 'zod'
+import type { Span } from './types.ts'
+
+/** 편집 대본의 상한. 문구는 글자(코드포인트) 수, 시간은 초. */
+export const SCRIPT_LIMITS = {
+  title: 18,
+  question: 22,
+  reaction: 24,
+  section: 10,
+  opening: 22,
+  emphasisWord: 12,
+  maxSections: 5,
+  maxQuestions: 3,
+  maxReactions: 2,
+  maxOpening: 3,
+  maxEmphasis: 30,
+  hookMinSec: 1.5,
+  hookMaxSec: 4,
+  speedMin: 1,
+  speedMax: 1.25,
+  dropMaxFraction: 0.25,
+  shortVideoSec: 10,
+  /** 같은 종류의 오버레이 사이 최소 간격 */
+  minGapSec: 2,
+} as const
+
+const Labeled = z.object({ atSec: z.number().finite(), label: z.string() })
+const Texted = z.object({ atSec: z.number().finite(), text: z.string() })
+
+/** AI 편집 감독이 내는 편집 대본. 시간은 모두 **원본 영상 기준** 초. */
+export const EditScriptSchema = z.object({
+  version: z.literal(1),
+  /** 화면 위에 계속 고정되는 흰 박스 제목 */
+  title: z.string(),
+  /** 맨 앞에 먼저 보여 줄 인상적인 장면(원본 구간)과 그 위에 띄울 큰 질문 */
+  hook: z.object({ sourceStart: z.number().finite(), sourceEnd: z.number().finite(), question: z.string() }).optional(),
+  /** 훅 직후 3초 안팎 보여 주는 소개 줄(최대 3) */
+  openingLines: z.array(z.string()),
+  /** 노란 소제목: atSec 부터 다음 소제목까지 위에 머문다 */
+  sections: z.array(Labeled),
+  /** 중간 훅 질문(핑크, 2.5초) */
+  questions: z.array(Texted),
+  /** 리액션 자막(노란 박스, 2.5초) */
+  reactions: z.array(Texted),
+  /** 대사 자막에서 노란색으로 강조할 단어 */
+  emphasis: z.array(z.string()),
+  /** 전체 속도(1~1.25) */
+  speed: z.number(),
+  /** 빼도 되는 약한 구간 */
+  drop: z.array(z.object({ start: z.number(), end: z.number() })),
+})
+export type EditScript = z.infer<typeof EditScriptSchema>
+
+export const emptyScript = (title: string): EditScript => ({ version: 1, title, openingLines: [], sections: [], questions: [], reactions: [], emphasis: [], speed: 1, drop: [] })
+
+const len = (s: string) => Array.from(s).length
+const URL_RE = /https?:\/\/|www\./i
+// 글자·숫자가 하나도 없으면(이모지·기호뿐) 쓸 수 없는 문구다
+const HAS_TEXT = /[\p{L}\p{N}]/u
+
+/** 문구를 정리해 돌려주고, 못 쓰면 이유(한국어)를 돌려준다. 상한을 넘으면 잘라 붙이지 않고 거절한다. */
+function cleanText(v: unknown, max: number): { ok: string } | { why: string } {
+  if (typeof v !== 'string') return { why: '문구가 글자가 아니에요' }
+  const t = v.replace(/\s+/g, ' ').trim()
+  if (!t) return { why: '비어 있어요' }
+  if (URL_RE.test(t)) return { why: '주소가 들어 있어요' }
+  if (!HAS_TEXT.test(t)) return { why: '글자가 없어요' }
+  if (len(t) > max) return { why: `${max}자를 넘어요` }
+  return { ok: t }
+}
+
+const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
+const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null)
+const round3 = (n: number) => Math.round(n * 1000) / 1000
+
+/** 어절 단위로 max 글자 안에 들어가게 줄인다(제목 대체용). 첫 어절이 너무 길면 앞 max 글자. */
+function fitWords(text: string, max: number): string {
+  const t = text.replace(/\s+/g, ' ').trim()
+  if (len(t) <= max) return t
+  let out = ''
+  for (const w of t.split(' ')) {
+    const next = out ? `${out} ${w}` : w
+    if (len(next) > max) break
+    out = next
+  }
+  return out || Array.from(t).slice(0, max).join('')
+}
+
+/** 시각 순으로 정렬하고, 앞 항목과 minGapSec 안이면 뒤의 것을 뺀 뒤 max 개로 자른다. */
+function spaced<T extends { atSec: number }>(items: T[], max: number, notes: string[], what: string): T[] {
+  const sorted = [...items].sort((a, b) => a.atSec - b.atSec)
+  const out: T[] = []
+  for (const it of sorted) {
+    if (out.length && it.atSec - out.at(-1)!.atSec < SCRIPT_LIMITS.minGapSec) {
+      notes.push(`${what}이(가) 앞 항목과 ${SCRIPT_LIMITS.minGapSec}초 안이라 뺐어요`)
+      continue
+    }
+    out.push(it)
+  }
+  if (out.length > max) notes.push(`${what}은(는) ${max}개까지만 써요`)
+  return out.slice(0, max)
+}
+
+function timedList(raw: unknown, key: 'label' | 'text', max: number, textMax: number, durationSec: number, what: string, notes: string[]): { atSec: number; label?: string; text?: string }[] {
+  if (!Array.isArray(raw)) return []
+  const items: { atSec: number; label?: string; text?: string }[] = []
+  for (const r of raw) {
+    if (!isObj(r)) continue
+    const at = num(r.atSec)
+    if (at === null || at < 0 || at > durationSec) {
+      notes.push(`${what}의 시각이 영상 밖이라 뺐어요`)
+      continue
+    }
+    const c = cleanText(r[key], textMax)
+    if ('why' in c) {
+      notes.push(`${what} 문구를 뺐어요(${c.why})`)
+      continue
+    }
+    items.push({ atSec: round3(at), [key]: c.ok })
+  }
+  return spaced(items, max, notes, what)
+}
+
+function normalizeDrop(raw: unknown, durationSec: number, notes: string[]): Span[] {
+  if (!Array.isArray(raw)) return []
+  const spans: Span[] = []
+  for (const r of raw) {
+    if (!isObj(r)) continue
+    const s = num(r.start)
+    const e = num(r.end)
+    if (s === null || e === null) continue
+    const a = Math.max(0, s)
+    const b = Math.min(durationSec, e)
+    if (b - a > 0.05) spans.push({ start: round3(a), end: round3(b) })
+  }
+  spans.sort((x, y) => x.start - y.start)
+  const merged: Span[] = []
+  for (const sp of spans) {
+    const last = merged.at(-1)
+    if (last && sp.start <= last.end) last.end = Math.max(last.end, sp.end)
+    else merged.push({ ...sp })
+  }
+  let budget = durationSec * SCRIPT_LIMITS.dropMaxFraction
+  const out: Span[] = []
+  for (const sp of merged) {
+    if (budget <= 0.05) {
+      notes.push('빼도 되는 구간이 전체의 25%를 넘어서 뒤쪽은 뺐어요')
+      break
+    }
+    const length = sp.end - sp.start
+    if (length > budget) {
+      out.push({ start: sp.start, end: round3(sp.start + budget) })
+      notes.push('빼도 되는 구간이 전체의 25%를 넘어서 줄였어요')
+      budget = 0
+    } else {
+      out.push(sp)
+      budget -= length
+    }
+  }
+  return out
+}
+
+/**
+ * AI 가 낸 대본(무엇이든)을 쓸 수 있는 편집 대본으로 정리한다. **던지지 않는다**: 못 쓰는 항목만 빼고 이유를 notes(한국어)에 남긴다.
+ * 10초 이하 영상은 제목만 남긴다(훅·소제목을 억지로 만들면 영상이 더 나빠진다).
+ */
+export function normalizeScript(raw: unknown, ctx: { durationSec: number; fallbackTitle: string }): { script: EditScript; notes: string[] } {
+  const notes: string[] = []
+  const d = ctx.durationSec
+  const o = isObj(raw) ? raw : {}
+  if (!isObj(raw)) notes.push('AI 대본을 읽을 수 없어서 제목만 있는 대본으로 시작해요')
+
+  // 제목: 비었거나 상한을 넘으면 장르(fallbackTitle)로 대체
+  const t = cleanText(o.title, SCRIPT_LIMITS.title)
+  if ('why' in t && isObj(raw)) notes.push(`제목을 쓰지 않았어요(${t.why}) — 영상 장르로 대신했어요`)
+  const title = 'ok' in t ? t.ok : fitWords(ctx.fallbackTitle, SCRIPT_LIMITS.title)
+
+  const script = emptyScript(title)
+  const sp = num(o.speed)
+  script.speed = sp === null ? 1 : Math.round(Math.min(SCRIPT_LIMITS.speedMax, Math.max(SCRIPT_LIMITS.speedMin, sp)) * 100) / 100
+
+  if (Array.isArray(o.emphasis)) {
+    const seen = new Set<string>()
+    for (const w of o.emphasis) {
+      const c = cleanText(w, SCRIPT_LIMITS.emphasisWord)
+      if ('ok' in c && !seen.has(c.ok)) {
+        seen.add(c.ok)
+        script.emphasis.push(c.ok)
+      }
+    }
+    script.emphasis = script.emphasis.slice(0, SCRIPT_LIMITS.maxEmphasis)
+  }
+
+  if (d <= SCRIPT_LIMITS.shortVideoSec) {
+    notes.push('영상이 짧아서(10초 이하) 훅·소제목·질문 없이 제목만 넣어요')
+    return { script, notes }
+  }
+
+  // 훅: 구간은 1.5~4초(길면 4초로 줄임), 질문이 없거나 못 쓰면 훅 자체를 두지 않는다
+  if (isObj(o.hook)) {
+    const s = num(o.hook.sourceStart)
+    const e = num(o.hook.sourceEnd)
+    const q = cleanText(o.hook.question, SCRIPT_LIMITS.question)
+    if (s === null || e === null || s < 0 || s >= d) notes.push('훅 장면이 영상 밖이라 훅을 뺐어요')
+    else if ('why' in q) notes.push(`훅 질문을 쓸 수 없어서(${q.why}) 훅을 뺐어요`)
+    else {
+      const end = Math.min(e, d, s + SCRIPT_LIMITS.hookMaxSec)
+      if (end - s < SCRIPT_LIMITS.hookMinSec) notes.push('훅 장면이 1.5초보다 짧아서 훅을 뺐어요')
+      else script.hook = { sourceStart: round3(s), sourceEnd: round3(end), question: q.ok }
+    }
+  }
+
+  if (Array.isArray(o.openingLines)) {
+    for (const l of o.openingLines) {
+      const c = cleanText(l, SCRIPT_LIMITS.opening)
+      if ('ok' in c) script.openingLines.push(c.ok)
+      else notes.push(`소개 줄을 뺐어요(${c.why})`)
+    }
+    script.openingLines = script.openingLines.slice(0, SCRIPT_LIMITS.maxOpening)
+  }
+
+  script.sections = timedList(o.sections, 'label', SCRIPT_LIMITS.maxSections, SCRIPT_LIMITS.section, d, '소제목', notes) as EditScript['sections']
+  script.questions = timedList(o.questions, 'text', SCRIPT_LIMITS.maxQuestions, SCRIPT_LIMITS.question, d, '중간 질문', notes) as EditScript['questions']
+  script.reactions = timedList(o.reactions, 'text', SCRIPT_LIMITS.maxReactions, SCRIPT_LIMITS.reaction, d, '리액션', notes) as EditScript['reactions']
+  script.drop = normalizeDrop(o.drop, d, notes)
+  return { script, notes }
+}
