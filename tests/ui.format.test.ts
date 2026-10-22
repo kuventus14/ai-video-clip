@@ -88,7 +88,7 @@ describe('atDate — "…에" 붙이기', () => {
 
 describe('단계', () => {
   it('STEPS 는 여섯 단계', () => {
-    expect([...STEPS]).toEqual(['업로드', '분석', '레퍼런스', '계획 확인', '제작', '결과'])
+    expect([...STEPS]).toEqual(['업로드', '분석', '자막·레퍼런스', '계획 확인', '제작', '결과'])
   })
   it('stepFor 가 상태를 단계로 옮긴다', () => {
     expect(stepFor('created')).toBe(0)
@@ -322,7 +322,9 @@ describe('ROW_CTA — 목록 행의 "내 차례" 버튼 글자', () => {
   it('내 할 일이 있는 상태마다 한 줄, NEXT_ACTION 과 같은 상태들', () => {
     expect(Object.keys(ROW_CTA).sort()).toEqual(Object.keys(NEXT_ACTION).sort())
     expect(ROW_CTA.awaiting_confirm).toBe('결과 확인')
-    expect(ROW_CTA.awaiting_reference).toBe('레퍼런스 고르기')
+    expect(ROW_CTA.awaiting_reference).toBe('자막·레퍼런스 확인')
+    expect(STATUS_LABEL.awaiting_reference).toBe('자막·레퍼런스 확인')
+    expect(NEXT_ACTION.awaiting_reference).toBe('자막과 레퍼런스를 확인해 주세요')
   })
 })
 

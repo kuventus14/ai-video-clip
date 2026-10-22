@@ -308,6 +308,19 @@ describe('runEdit — 검은 띠 자동 제거', () => {
   })
 })
 
+describe('runEdit — 사용자가 고친 자막', () => {
+  test('(Review Focus 3) 신뢰도 1(사용자가 고친 글자)인 줄은 자막 교정이 다시 바꾸지 못하고, 안 고친 줄의 교정은 그대로 된다', async () => {
+    const tr: Transcript = {
+      language: 'ko', durationSec: 56.8, hasSpeech: true,
+      words: [word('가나다', 1, 1), word('라마바', 5, 0.9)],
+      segments: [{ text: '가나다', start: 1, end: 1.4 }, { text: '라마바', start: 5, end: 5.4 }],
+    }
+    const { rec, run } = setup({ proofreadCues: async (cues) => cues.map((c, index) => ({ index, text: `${c.text}요`, reason: 'typo' as const })) }, { transcript: tr })
+    await run()
+    expect(rec.builds[0]!.cues.map((c) => c.text)).toEqual(['가나다', '라마바요'])
+  })
+})
+
 describe('runEdit — 입력 검증', () => {
   test('(f) 700초는 too-long, 0.5초는 too-short, 못 읽으면 unreadable', async () => {
     const long = await setup({}, { videoInfo: info({ durationSec: 700 }) }).run().catch((e) => e)

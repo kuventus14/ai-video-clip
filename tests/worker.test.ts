@@ -174,12 +174,29 @@ describe('analysis 단계', () => {
     expect(f.calls.search[0]!.purpose).toBe('post')
   })
 
-  test('레퍼런스가 이미 있으면 검색하지 않고 곧바로 queued_plan', async () => {
+  test('레퍼런스가 이미 있어도 말이 있으면 자막 확인을 위해 awaiting_reference 에서 멈춘다(추천은 검색하지 않는다)', async () => {
     const j = job('queued_analysis', { referenceSource: 'https://youtu.be/abc' })
     const f = fakes()
     await runOnce(jobs, f.deps)
+    const after = jobs.get(j.id)!
+    expect(after.status).toBe('awaiting_reference')
+    expect(after.referenceSource).toBe('https://youtu.be/abc')
+    expect(after.recommendations).toEqual([])
+    expect(f.calls.search).toHaveLength(0)
+  })
+
+  test('말이 없는 영상(고칠 자막이 없음)은 레퍼런스가 있으면 지금처럼 곧바로 queued_plan', async () => {
+    const j = job('queued_analysis', { referenceSource: 'https://youtu.be/abc' })
+    const f = fakes({ analyzeInput: async () => ({ ...ANALYSIS, transcript: { ...ANALYSIS.transcript, hasSpeech: false } }) })
+    await runOnce(jobs, f.deps)
     expect(jobs.get(j.id)!.status).toBe('queued_plan')
     expect(f.calls.search).toHaveLength(0)
+  })
+
+  test('(Review Focus 1) 분석을 다시 하면 예전 인식 결과에 대한 자막 편집은 비운다', async () => {
+    const j = job('queued_analysis', { transcriptEdits: [{ i: 0, text: '예전 글' }] })
+    await runOnce(jobs, fakes().deps)
+    expect(jobs.get(j.id)!.transcriptEdits).toBeNull()
   })
 
   test('(Review Focus 4) 검색이 실패해도 작업은 awaiting_reference 로 가고 경고만 남긴다', async () => {
@@ -197,6 +214,51 @@ describe('analysis 단계', () => {
     const after = jobs.get(j.id)!
     expect(after.log.some((l) => l.stage === 'transcribe' && l.message.includes('음성 인식'))).toBe(true)
     expect(after.stage).toBeNull() // 끝나면 비운다
+  })
+})
+
+const W = (text: string, start: number, end: number, confidence = 0.3) => ({ text, start, end, confidence })
+const SPEECH: Analysis = { ...ANALYSIS, transcript: { language: 'ko', durationSec: 56.8, hasSpeech: true, words: [W('이렇게', 0, 0.5), W('되면서', 0.5, 1), W('이게', 4, 4.5), W('섀도우', 4.5, 5)], segments: [] } }
+const writeSpeech = (id: string) => fs.writeFileSync(path.join(jobs.jobDir(id), 'analysis.json'), JSON.stringify(SPEECH))
+
+describe('자막 편집 적용 (plan·produce)', () => {
+  const EDITS = [{ i: 0, text: '이렇게 돼서' }, { i: 1, text: '이게 스윙' }]
+
+  test('plan: prepareEdit 에 고친 글자의 transcript 를 넘기고, analysis.json 은 원본 그대로다', async () => {
+    const j = job('queued_plan', { transcriptEdits: EDITS })
+    writeSpeech(j.id)
+    const f = fakes()
+    await runOnce(jobs, f.deps)
+    expect(f.calls.prepare[0]!.analysis.transcript.words.map((x) => x.text)).toEqual(['이렇게', '돼서', '이게', '스윙'])
+    expect(f.calls.prepare[0]!.analysis.transcript.words.every((x) => x.confidence === 1)).toBe(true)
+    const onDisk = JSON.parse(fs.readFileSync(path.join(jobs.jobDir(j.id), 'analysis.json'), 'utf8'))
+    expect(onDisk.transcript.words.map((x: { text: string }) => x.text)).toEqual(['이렇게', '되면서', '이게', '섀도우'])
+  })
+
+  test('produce: produceEdit 에도 같은 고친 transcript 를 넘긴다', async () => {
+    const j = job('queued_produce', { transcriptEdits: EDITS })
+    writeSpeech(j.id)
+    fs.writeFileSync(path.join(jobs.jobDir(j.id), 'prepared.json'), JSON.stringify(PREPARED))
+    const f = fakes()
+    await runOnce(jobs, f.deps)
+    expect(f.calls.produce[0]!.analysis.transcript.words.map((x) => x.text)).toEqual(['이렇게', '돼서', '이게', '스윙'])
+  })
+
+  test('편집이 없으면 인식 결과를 그대로 넘긴다', async () => {
+    const j = job('queued_plan')
+    writeSpeech(j.id)
+    const f = fakes()
+    await runOnce(jobs, f.deps)
+    expect(f.calls.prepare[0]!.analysis.transcript.words.map((x) => x.text)).toEqual(['이렇게', '되면서', '이게', '섀도우'])
+  })
+
+  test('(Review Focus 2) 모든 줄을 지워도 던지지 않고 계획까지 간다(말 없는 영상으로 이어진다)', async () => {
+    const j = job('queued_plan', { transcriptEdits: [{ i: 0, text: null }, { i: 1, text: '   ' }] })
+    writeSpeech(j.id)
+    const f = fakes()
+    await runOnce(jobs, f.deps)
+    expect(jobs.get(j.id)!.status).toBe('awaiting_plan')
+    expect(f.calls.prepare[0]!.analysis.transcript).toMatchObject({ words: [], hasSpeech: false })
   })
 })
 

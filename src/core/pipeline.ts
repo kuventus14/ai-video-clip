@@ -112,6 +112,8 @@ const MIN_SEC = 1
 const MAX_SEC = 600
 const MAX_ATTEMPTS = 3 // 최초 + 재작업 2회
 const LOW_CONFIDENCE = 0.5
+/** 사용자가 직접 확인한 글자의 신뢰도(applyTranscriptEdits 가 1 로 둔다) */
+const USER_VERIFIED = 0.999
 const HINT_RETRANSCRIBE_MIN_LOW_WORDS = 5
 const HINT_MAX_CHARS = 200
 const CROP_JITTER_PER_SEC = 1
@@ -458,7 +460,15 @@ export async function produceEdit(i: ProduceInput, overrides: Partial<PipelineDe
     if (cues.length) {
       try {
         const suspectWords = outWords.filter((w) => w.confidence < LOW_CONFIDENCE).map((w) => w.text)
-        const fixes = await d.proofreadCues(cues, { topic: summary.topic, genre: summary.genre, suspectWords })
+        // 사용자가 자막 확인에서 고친 글자(신뢰도 1)는 교정이 다시 바꾸지 않는다
+        const verified = (c: CaptionCue) => {
+          const ws = outWords.filter((w) => w.start >= c.start - 1e-6 && w.end <= c.end + 1e-6)
+          return ws.length > 0 && ws.every((w) => w.confidence >= USER_VERIFIED)
+        }
+        const fixes = (await d.proofreadCues(cues, { topic: summary.topic, genre: summary.genre, suspectWords })).filter((f) => {
+          const c = cues[f.index]
+          return !(c && verified(c))
+        })
         const part = partitionCorrections(cues, fixes)
         cues = applyCorrections(cues, part.safe)
         applied.push(...part.safe)

@@ -70,7 +70,7 @@ export const STATUS_LABEL: Record<JobStatus, string> = {
   ready: '시작 전',
   queued_analysis: '분석 대기',
   analyzing: '분석 중',
-  awaiting_reference: '레퍼런스 선택',
+  awaiting_reference: '자막·레퍼런스 확인',
   queued_plan: '계획 대기',
   planning: '계획 만드는 중',
   awaiting_plan: '계획 확인',
@@ -84,7 +84,7 @@ export const STATUS_LABEL: Record<JobStatus, string> = {
 /** 내가 할 일이 있는 상태(워커가 아니라 사용자를 기다리는 상태)의 안내. 이 상태가 아니면 항목이 없다. */
 export const NEXT_ACTION: Partial<Record<JobStatus, string>> = {
   ready: '설명과 용도를 정하고 시작해 주세요',
-  awaiting_reference: '레퍼런스를 골라 주세요',
+  awaiting_reference: '자막과 레퍼런스를 확인해 주세요',
   awaiting_plan: '이해한 내용을 확인해 주세요',
   awaiting_confirm: '결과를 확인해 주세요',
 }
@@ -92,12 +92,12 @@ export const NEXT_ACTION: Partial<Record<JobStatus, string>> = {
 /** 목록 행에서 "내 차례" 를 알리는 짧은 버튼 글자(NEXT_ACTION 과 같은 상태들) */
 export const ROW_CTA: Partial<Record<JobStatus, string>> = {
   ready: '시작하기',
-  awaiting_reference: '레퍼런스 고르기',
+  awaiting_reference: '자막·레퍼런스 확인',
   awaiting_plan: '계획 확인',
   awaiting_confirm: '결과 확인',
 }
 
-export const STEPS = ['업로드', '분석', '레퍼런스', '계획 확인', '제작', '결과'] as const
+export const STEPS = ['업로드', '분석', '자막·레퍼런스', '계획 확인', '제작', '결과'] as const
 export type StepIndex = 0 | 1 | 2 | 3 | 4 | 5
 
 const STEP_OF: Record<Exclude<JobStatus, 'failed'>, StepIndex> = {

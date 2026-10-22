@@ -7,6 +7,7 @@ import { applyScriptEdits } from '../core/script.ts'
 import { ReferenceFetchError } from '../core/reference.ts'
 import { TempoError } from '../core/tempo.ts'
 import { VoiceError } from '../core/voice.ts'
+import { applyTranscriptEdits } from '../shared/captionReview.ts'
 import { SoundError } from '../shared/sound.ts'
 import { resolvePurpose } from '../core/purpose.ts'
 import { broadQueries, SearchError } from '../core/search.ts'
@@ -96,29 +97,37 @@ export async function probePhase({ jobs, d, job, dir }: PhaseContext): Promise<v
 export async function analysisPhase({ jobs, d, job, dir, onStage }: PhaseContext): Promise<void> {
   const analysis = await d.analyzeInput({ videoPath: requireSource(job), workDir: dir, description: job.description, onStage })
   writeJson(path.join(dir, 'analysis.json'), analysis)
+  // 인식 결과가 새로 만들어졌으니 예전 결과의 줄 번호로 고쳐 둔 자막 편집은 더는 맞지 않는다
+  if (job.transcriptEdits) jobs.update(job.id, { transcriptEdits: null })
 
-  if (job.referenceSource) {
+  // 말이 없는 영상은 확인할 자막이 없으니 레퍼런스가 이미 있으면 곧바로 계획으로 간다.
+  if (job.referenceSource && !analysis.transcript.hasSpeech) {
     jobs.transition(job.id, ['analyzing'], 'queued_plan', { summary: analysis.summary, purposeGuess: analysis.purposeGuess, stage: null })
     return
   }
 
+  // 그 밖에는 awaiting_reference 에서 멈춰 자막을 확인하게 한다(레퍼런스를 미리 넣었어도). 레퍼런스가 없을 때만 추천을 찾는다.
   // 검색이 실패해도(인터넷 없음 등) 작업은 막지 않는다 — 링크·파일을 직접 넣을 수 있다.
-  const purpose = resolvePurpose(analysis.purposeGuess, job.purposeChoice)
   let recommendations: Job['recommendations'] = []
-  try {
-    onStage('understand', '비슷한 인기 영상을 찾는 중')
-    recommendations = await d.searchReferences({ queries: broadQueries(analysis.summary), purpose })
-    jobs.log(job.id, 'search', `추천 영상 ${recommendations.length}개를 찾았어요`)
-  } catch (e) {
-    jobs.log(job.id, 'search', `추천 영상을 찾지 못했어요. 링크나 파일로 직접 골라 주세요. (${describeError(e).message})`)
+  if (!job.referenceSource) {
+    const purpose = resolvePurpose(analysis.purposeGuess, job.purposeChoice)
+    try {
+      onStage('understand', '비슷한 인기 영상을 찾는 중')
+      recommendations = await d.searchReferences({ queries: broadQueries(analysis.summary), purpose })
+      jobs.log(job.id, 'search', `추천 영상 ${recommendations.length}개를 찾았어요`)
+    } catch (e) {
+      jobs.log(job.id, 'search', `추천 영상을 찾지 못했어요. 링크나 파일로 직접 골라 주세요. (${describeError(e).message})`)
+    }
   }
   jobs.transition(job.id, ['analyzing'], 'awaiting_reference', { summary: analysis.summary, purposeGuess: analysis.purposeGuess, recommendations, stage: null })
 }
 
 /** 고른 레퍼런스·요청으로 편집 계획과 "이렇게 이해했어요" 카드를 만든다. */
 export async function planPhase({ jobs, d, job, dir, onStage }: PhaseContext): Promise<void> {
-  const analysis = readJson<Analysis>(path.join(dir, 'analysis.json'))
-  if (!analysis) throw new Error('분석 결과(analysis.json)를 찾을 수 없어요')
+  const raw = readJson<Analysis>(path.join(dir, 'analysis.json'))
+  if (!raw) throw new Error('분석 결과(analysis.json)를 찾을 수 없어요')
+  // 사용자가 자막 확인에서 고친 글자를 입힌 인식 결과로 계획한다(편집 감독이 틀린 글자로 문구를 쓰지 않게). 파일은 원본 그대로 둔다.
+  const analysis: Analysis = { ...raw, transcript: applyTranscriptEdits(raw.transcript, job.transcriptEdits) }
   const previous = readJson<Prepared>(path.join(dir, 'prepared.json'))
 
   const reference = job.referenceSource ?? undefined
@@ -132,9 +141,10 @@ export async function planPhase({ jobs, d, job, dir, onStage }: PhaseContext): P
 
 /** 편집·렌더링·검수를 해서 결과 영상과 리포트를 만든다. */
 export async function producePhase({ jobs, d, job, dir, onStage }: PhaseContext): Promise<void> {
-  const analysis = readJson<Analysis>(path.join(dir, 'analysis.json'))
+  const raw = readJson<Analysis>(path.join(dir, 'analysis.json'))
   const prepared = readJson<Prepared>(path.join(dir, 'prepared.json'))
-  if (!analysis || !prepared) throw new Error('분석·계획 결과를 찾을 수 없어요')
+  if (!raw || !prepared) throw new Error('분석·계획 결과를 찾을 수 없어요')
+  const analysis: Analysis = { ...raw, transcript: applyTranscriptEdits(raw.transcript, job.transcriptEdits) }
 
   const outDir = path.join(dir, 'out')
   // 승인 화면에서 문구를 고쳤다면 계획 대본 위에 덮어서 넘긴다(상한을 넘는 값은 정리된다). 고치지 않았으면 엔진이 prepared.script 를 그대로 쓴다.
