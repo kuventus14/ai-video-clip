@@ -191,6 +191,51 @@ describe('approve (Review Focus 2)', () => {
     })
   })
 
+  describe('편집 구성 문구 수정(scriptEdits)', () => {
+    const SCRIPT = { version: 1, title: '프로님의 롱아이언 꿀팁', hook: { sourceStart: 30, sourceEnd: 33, question: '왜 나만 안 맞을까?' }, openingLines: ['롱아이언 실전편', '꿀팁 공개?'],
+      sections: [{ atSec: 5, label: '여기서 포인트!' }, { atSec: 20, label: '체크 방법!' }], questions: [{ atSec: 10, text: 'q' }], reactions: [], emphasis: [], speed: 1.1, drop: [] }
+
+    test('계획 단계의 대본이 응답 DTO 에 보이기 좋게 들어 있다(제목·훅 질문·소개 줄·소제목·개수·속도)', async () => {
+      const j = job('awaiting_plan', { script: SCRIPT })
+      const dto = (await (await call(approve, j.id, {})).json()) as JobDto
+      expect(dto.script).toEqual({ title: '프로님의 롱아이언 꿀팁', hookSec: 3, hookQuestion: '왜 나만 안 맞을까?', openingLines: ['롱아이언 실전편', '꿀팁 공개?'], sections: ['여기서 포인트!', '체크 방법!'], questions: 1, reactions: 0, speed: 1.1 })
+    })
+    test('대본이 없는 작업(감독 실패)의 DTO.script 는 null', async () => {
+      const dto = (await (await call(approve, job('awaiting_plan').id, {})).json()) as JobDto
+      expect(dto.script).toBeNull()
+    })
+    test('승인에 scriptEdits 를 보내면 저장되고, DTO 에는 고친 값이 보인다', async () => {
+      const j = job('awaiting_plan', { script: SCRIPT })
+      const res = await call(approve, j.id, { scriptEdits: { title: '내가 고친 제목', hookQuestion: '새 질문?', openingLines: ['한 줄만'] } })
+      expect(res.status).toBe(200)
+      expect(read(j.id).scriptEdits).toEqual({ title: '내가 고친 제목', hookQuestion: '새 질문?', openingLines: ['한 줄만'] })
+      expect(((await res.json()) as JobDto).script).toMatchObject({ title: '내가 고친 제목', hookQuestion: '새 질문?', openingLines: ['한 줄만'] })
+    })
+    test('보내지 않으면 기존 수정값을 유지한다', async () => {
+      const j = job('awaiting_plan', { script: SCRIPT, scriptEdits: { title: '이전에 고친 제목' } })
+      await call(approve, j.id, {})
+      expect(read(j.id).scriptEdits).toEqual({ title: '이전에 고친 제목' })
+    })
+    test.each([
+      ['제목 19자', { title: '가'.repeat(19) }],
+      ['빈 제목', { title: '' }],
+      ['훅 질문 23자', { hookQuestion: '가'.repeat(23) }],
+      ['소개 줄 4개', { openingLines: ['a', 'b', 'c', 'd'] }],
+      ['소개 줄 23자', { openingLines: ['가'.repeat(23)] }],
+      ['주소가 든 제목', { title: 'https://example.com' }],
+      ['알 수 없는 칸', { speed: 3 }],
+    ])('잘못된 수정값(%s)은 400 이고 승인되지 않는다', async (_n, edits) => {
+      const j = job('awaiting_plan', { script: SCRIPT })
+      expect((await call(approve, j.id, { scriptEdits: edits })).status).toBe(400)
+      expect(read(j.id).status).toBe('awaiting_plan')
+    })
+    test('대본이 없는 작업(감독 실패)에 scriptEdits 를 보내면 무시하고 승인된다', async () => {
+      const j = job('awaiting_plan')
+      expect((await call(approve, j.id, { scriptEdits: { title: '제목' } })).status).toBe(200)
+      expect(read(j.id).scriptEdits).toBeNull()
+    })
+  })
+
   describe('자막 위치(captionPosition)', () => {
     test.each(['top', 'middle', 'bottom'] as const)('%s 를 기록하고 응답 DTO 에 captionPosition 이 있다', async (position) => {
       const j = job('awaiting_plan')

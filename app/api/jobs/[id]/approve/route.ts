@@ -39,6 +39,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   if (body.data.sfx) patch.sfxMode = body.data.sfx
   if (body.data.captions) patch.captionsMode = body.data.captions
   if (body.data.captionPosition) patch.captionPosition = body.data.captionPosition
+  // 문구 수정값은 편집 대본이 있는 작업에만 받는다(감독이 실패한 작업에는 고칠 문구가 없다)
+  if (body.data.scriptEdits && found.job.script) patch.scriptEdits = body.data.scriptEdits
   if (body.data.quality) patch.quality = body.data.quality
   const next = found.jobs.transition(found.job.id, ['awaiting_plan'], 'queued_produce', patch)
   return next ? Response.json(toJobDto(next)) : jsonError(409, '이미 승인했거나 지금은 승인할 수 없는 상태예요')

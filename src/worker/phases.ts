@@ -3,6 +3,7 @@ import path from 'node:path'
 import { LlmError } from '../core/llm.ts'
 import { ToolError } from '../core/exec.ts'
 import { assertDurationOk, InputError, type Analysis, type Prepared, type Stage } from '../core/pipeline.ts'
+import { applyScriptEdits } from '../core/script.ts'
 import { ReferenceFetchError } from '../core/reference.ts'
 import { VoiceError } from '../core/voice.ts'
 import { SoundError } from '../shared/sound.ts'
@@ -125,7 +126,7 @@ export async function planPhase({ jobs, d, job, dir, onStage }: PhaseContext): P
 
   const prepared = await d.prepareEdit({ analysis, workDir: dir, reference, knownSpec, request: job.requestText, purposeChoice: job.purposeChoice, onStage })
   writeJson(path.join(dir, 'prepared.json'), prepared)
-  jobs.transition(job.id, ['planning'], 'awaiting_plan', { plan: prepared.plan, planCard: prepared.planCard, purpose: prepared.purpose, captionPosition: prepared.captionPosition, errorMessage: null, stage: null })
+  jobs.transition(job.id, ['planning'], 'awaiting_plan', { plan: prepared.plan, planCard: prepared.planCard, purpose: prepared.purpose, captionPosition: prepared.captionPosition, script: prepared.script ?? null, scriptEdits: null, errorMessage: null, stage: null })
 }
 
 /** 편집·렌더링·검수를 해서 결과 영상과 리포트를 만든다. */
@@ -135,7 +136,9 @@ export async function producePhase({ jobs, d, job, dir, onStage }: PhaseContext)
   if (!analysis || !prepared) throw new Error('분석·계획 결과를 찾을 수 없어요')
 
   const outDir = path.join(dir, 'out')
-  const result = await d.produceEdit({ analysis, prepared, outDir, quality: job.quality, captions: job.captionsMode, captionPosition: job.captionPosition ?? undefined, audio: job.audioMode, bgm: job.bgmId, sfx: job.sfxMode, onStage })
+  // 승인 화면에서 문구를 고쳤다면 계획 대본 위에 덮어서 넘긴다(상한을 넘는 값은 정리된다). 고치지 않았으면 엔진이 prepared.script 를 그대로 쓴다.
+  const script = job.scriptEdits && prepared.script ? applyScriptEdits(prepared.script, job.scriptEdits, { durationSec: analysis.info.durationSec, fallbackTitle: analysis.summary.genre || analysis.summary.topic }) : undefined
+  const result = await d.produceEdit({ analysis, prepared, outDir, script, quality: job.quality, captions: job.captionsMode, captionPosition: job.captionPosition ?? undefined, audio: job.audioMode, bgm: job.bgmId, sfx: job.sfxMode, onStage })
 
   let thumbPath: string | null = null
   try {

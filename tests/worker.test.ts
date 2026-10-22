@@ -40,6 +40,7 @@ const PREPARED: Prepared = {
   reframe: 'none',
   referenceSource: 'https://youtu.be/abc',
   captionPosition: 'top',
+  script: { version: 1, title: '계획 제목', hook: { sourceStart: 10, sourceEnd: 13, question: '계획 질문?' }, openingLines: ['소개'], sections: [], questions: [], reactions: [], emphasis: [], speed: 1.1, drop: [] },
   spec: SPEC,
 }
 const REC: Recommendation = { id: 'abc', url: 'https://www.youtube.com/watch?v=abc', title: '추천 영상', viewCount: 1000, durationSec: 59, thumbnail: 'https://i.ytimg.com/vi/abc/hqdefault.jpg' }
@@ -208,6 +209,8 @@ describe('plan 단계', () => {
     expect(after).toMatchObject({ status: 'awaiting_plan', purpose: 'short', planCard: ['이렇게 이해했어요: …'] })
     expect(after.plan).toEqual(PREPARED.plan)
     expect(after.captionPosition).toBe('top') // 계획이 정한 자막 위치가 승인 화면의 기본값으로 저장된다
+    expect(after.script).toEqual(PREPARED.script) // 편집 감독의 대본도 저장돼 승인 화면이 보여 준다
+    expect(after.scriptEdits).toBeNull() // 계획을 다시 만들면 이전 문구 수정값은 지운다
     expect(fs.existsSync(path.join(jobs.jobDir(j.id), 'prepared.json'))).toBe(true)
     expect(f.calls.prepare[0]).toMatchObject({ request: '컷을 더 빠르게', purposeChoice: 'short', reference: 'https://youtu.be/abc' })
     expect(f.calls.prepare[0]!.analysis.summary.topic).toBe('롱아이언')
@@ -256,6 +259,41 @@ describe('produce 단계', () => {
     expect(fs.existsSync(after.thumbPath!)).toBe(true)
     expect(f.calls.produce[0]).toMatchObject({ quality: 'delivery', captions: 'off', outDir: path.join(jobs.jobDir(j.id), 'out') })
     expect(after.log.some((l) => l.message.includes('렌더링'))).toBe(true)
+  })
+
+  test('계획을 다시 만들면 이전 문구 수정값(scriptEdits)을 지운다', async () => {
+    const j = job('queued_plan', { scriptEdits: { title: '예전에 고친 제목' } })
+    writeAnalysis(j.id)
+    await runOnce(jobs, fakes().deps)
+    expect(jobs.get(j.id)!.scriptEdits).toBeNull()
+  })
+
+  test('제작은 사용자가 고친 문구를 계획 대본 위에 덮어서 엔진에 넘긴다', async () => {
+    const j = job('queued_produce', { script: PREPARED.script, scriptEdits: { title: '내가 고친 제목', hookQuestion: '내 질문?', openingLines: [] } })
+    writeAnalysis(j.id)
+    fs.writeFileSync(path.join(jobs.jobDir(j.id), 'prepared.json'), JSON.stringify(PREPARED))
+    const f = fakes()
+    await runOnce(jobs, f.deps)
+    const s = f.calls.produce[0]!.script!
+    expect(s.title).toBe('내가 고친 제목')
+    expect(s.hook?.question).toBe('내 질문?')
+    expect(s.openingLines).toEqual([])
+    expect(s.speed).toBe(1.1) // 고치지 않은 값은 그대로
+  })
+
+  test('수정값이 없으면 prepared.json 의 대본을 그대로(엔진은 prepared.script 를 쓴다), 대본이 없으면 넘기지 않는다', async () => {
+    const a = job('queued_produce')
+    writeAnalysis(a.id)
+    fs.writeFileSync(path.join(jobs.jobDir(a.id), 'prepared.json'), JSON.stringify(PREPARED))
+    const f = fakes()
+    await runOnce(jobs, f.deps)
+    expect(f.calls.produce[0]!.script).toBeUndefined() // job.scriptEdits 가 없으면 넘기지 않고 prepared.script 에 맡긴다
+    const b = job('queued_produce', { scriptEdits: { title: 'x' } })
+    writeAnalysis(b.id)
+    fs.writeFileSync(path.join(jobs.jobDir(b.id), 'prepared.json'), JSON.stringify({ ...PREPARED, script: undefined }))
+    const g = fakes()
+    await runOnce(jobs, g.deps)
+    expect(g.calls.produce[0]!.script).toBeUndefined() // 대본이 없는 작업에는 수정값이 있어도 넘기지 않는다
   })
 
   test('승인 화면에서 고른 자막 위치(captionPosition)를 엔진에 넘긴다 — 고르지 않았으면 넘기지 않는다', async () => {

@@ -70,6 +70,8 @@ export interface JobDto {
   sfxMode: SfxMode
   /** 자막 위치(상·중·하). 계획이 정한 값이 들어 있고 승인 화면에서 바꾼다. 아직 계획 전이면 null */
   captionPosition: CaptionPosition | null
+  /** 편집 감독이 짠 구성(승인 화면에 보여 주고 문구를 고칠 수 있다). 감독이 실패했거나 계획 전이면 null. 사용자가 고친 문구가 반영돼 있다 */
+  script: ScriptDto | null
   quality: 'draft' | 'looks' | 'delivery'
   summary: { topic: string; genre: string; oneLine: string; hookTitle: string; searchQueries: string[] } | null
   recommendations: Recommendation[]
@@ -110,6 +112,27 @@ export interface PlanInput {
   purposeChoice?: 'auto' | PurposeValue
 }
 
+/** 승인 화면에서 사용자가 고칠 수 있는 대본 문구(고친 칸만 보낸다) */
+export interface ScriptEdits {
+  title?: string
+  hookQuestion?: string
+  openingLines?: string[]
+}
+
+/** 승인 화면에 보여 주는 편집 구성 */
+export interface ScriptDto {
+  title: string
+  /** 맨 앞에 붙는 훅 장면 길이(초). 훅이 없으면 0 */
+  hookSec: number
+  hookQuestion: string | null
+  openingLines: string[]
+  /** 소제목 흐름 */
+  sections: string[]
+  questions: number
+  reactions: number
+  speed: number
+}
+
 /** 자막을 화면 위·가운데·아래 중 어디에 둘지 */
 export type CaptionPosition = 'top' | 'middle' | 'bottom'
 
@@ -117,6 +140,8 @@ export type CaptionPosition = 'top' | 'middle' | 'bottom'
 export interface ApproveInput {
   captions?: 'auto' | 'off'
   captionPosition?: CaptionPosition
+  /** 편집 구성의 문구를 고쳤을 때(고친 칸만) */
+  scriptEdits?: ScriptEdits
   audio?: AudioMode
   /** 배경음악 곡 id. null 이면 고른 곡을 지운다. 보내지 않으면 그대로 */
   bgm?: string | null

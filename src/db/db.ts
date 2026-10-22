@@ -47,6 +47,9 @@ const MIGRATIONS: string[] = [
   ALTER TABLE jobs ADD COLUMN sfx_mode TEXT NOT NULL DEFAULT 'off';`,
   // 자막 위치(top/middle/bottom). 계획을 만들 때 레퍼런스에 맞춰 정해 두고 승인 화면에서 바꾼다. 이미 있는 작업은 NULL(제작 때 계획의 기본값을 쓴다).
   `ALTER TABLE jobs ADD COLUMN caption_position TEXT;`,
+  // 편집 감독의 대본(계획 단계에서 저장, JSON)과 사용자가 승인 전에 고친 문구(JSON). 이미 있는 작업은 NULL.
+  `ALTER TABLE jobs ADD COLUMN script TEXT;
+  ALTER TABLE jobs ADD COLUMN script_edits TEXT;`,
 ]
 
 /** <dataDir>/app.db 를 열고(없으면 만들고) 마이그레이션한다. 화면 서버와 워커가 같은 파일을 연다(WAL). */

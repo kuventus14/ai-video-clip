@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { emptyScript, normalizeScript, SCRIPT_LIMITS, scriptCardLines, toRenderScript, type EditScript } from '../src/core/script.ts'
+import { applyScriptEdits, emptyScript, normalizeScript, SCRIPT_LIMITS, scriptCardLines, toRenderScript, type EditScript } from '../src/core/script.ts'
 
 const ctx = { durationSec: 60, fallbackTitle: '골프 레슨' }
 const good = (over: Record<string, unknown> = {}) => ({
@@ -194,5 +194,32 @@ describe('scriptCardLines — 계획 카드에 보여 줄 편집 구성', () => 
     expect(lines).not.toContain('속도')
     expect(lines).not.toContain('빼는 구간')
     expect(lines).toContain('• 제목: "제목"')
+  })
+})
+
+describe('applyScriptEdits — 사용자가 고친 문구를 대본에 덮어쓴다', () => {
+  const sc: EditScript = { ...emptyScript('원래 제목'), hook: { sourceStart: 10, sourceEnd: 13, question: '원래 질문?' }, openingLines: ['하나', '둘'], sections: [{ atSec: 5, label: 'A' }] }
+  const ctx = { durationSec: 60, fallbackTitle: '골프 레슨' }
+  test('제목·훅 질문·소개 줄을 덮어쓰고 나머지(시각·소제목·속도)는 그대로', () => {
+    const r = applyScriptEdits(sc, { title: '새 제목', hookQuestion: '새 질문?', openingLines: ['셋'] }, ctx)
+    expect(r.title).toBe('새 제목')
+    expect(r.hook).toEqual({ sourceStart: 10, sourceEnd: 13, question: '새 질문?' })
+    expect(r.openingLines).toEqual(['셋'])
+    expect(r.sections).toEqual(sc.sections)
+  })
+  test('고치지 않은 칸은 그대로(빈 객체·null 이면 원본)', () => {
+    expect(applyScriptEdits(sc, {}, ctx)).toEqual(sc)
+    expect(applyScriptEdits(sc, null, ctx)).toEqual(sc)
+  })
+  test('소개 줄을 빈 목록으로 고치면 소개 줄이 없어진다', () => {
+    expect(applyScriptEdits(sc, { openingLines: [] }, ctx).openingLines).toEqual([])
+  })
+  test('훅이 없는 대본에 훅 질문을 고쳐도 훅은 생기지 않는다', () => {
+    expect(applyScriptEdits({ ...sc, hook: undefined }, { hookQuestion: '질문?' }, ctx).hook).toBeUndefined()
+  })
+  test('상한(18자·22자)을 넘는 수정값은 정리돼서 쓰지 못한 칸은 원래 값/대체값으로 돌아간다', () => {
+    const r = applyScriptEdits(sc, { title: '가'.repeat(19), hookQuestion: '나'.repeat(23) }, ctx)
+    expect(Array.from(r.title).length).toBeLessThanOrEqual(SCRIPT_LIMITS.title)
+    expect(r.hook).toBeUndefined() // 질문을 못 쓰면 훅 자체를 두지 않는다(정리 규칙)
   })
 })

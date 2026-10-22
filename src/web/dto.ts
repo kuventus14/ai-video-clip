@@ -3,7 +3,7 @@ import path from 'node:path'
 import { z } from 'zod'
 import type { Job } from '../db/jobs.ts'
 import type { Catalog } from '../shared/sound.ts'
-import type { JobDto, ReportDto, SoundListDto } from '../shared/types.ts'
+import type { JobDto, ReportDto, ScriptDto, ScriptEdits, SoundListDto } from '../shared/types.ts'
 
 const SummarySchema = z.object({
   topic: z.string(),
@@ -12,6 +12,33 @@ const SummarySchema = z.object({
   hookTitle: z.string(),
   searchQueries: z.array(z.string()),
 })
+
+/** 편집 감독이 짠 대본 중 화면에 보여 주는 부분만 읽는다(저장된 JSON 이 낡았거나 깨져 있으면 null) */
+const ScriptSchema = z.object({
+  title: z.string(),
+  hook: z.object({ sourceStart: z.number(), sourceEnd: z.number(), question: z.string() }).optional(),
+  openingLines: z.array(z.string()),
+  sections: z.array(z.object({ label: z.string() })),
+  questions: z.array(z.unknown()),
+  reactions: z.array(z.unknown()),
+  speed: z.number(),
+})
+
+function toScriptDto(raw: unknown, edits: ScriptEdits | null): ScriptDto | null {
+  const sc = ScriptSchema.safeParse(raw)
+  if (!sc.success) return null
+  const d = sc.data
+  return {
+    title: edits?.title ?? d.title,
+    hookSec: d.hook ? Math.round((d.hook.sourceEnd - d.hook.sourceStart) * 1000) / 1000 : 0,
+    hookQuestion: d.hook ? (edits?.hookQuestion ?? d.hook.question) : null,
+    openingLines: edits?.openingLines ?? d.openingLines,
+    sections: d.sections.map((x) => x.label),
+    questions: d.questions.length,
+    reactions: d.reactions.length,
+    speed: d.speed,
+  }
+}
 
 const Finding = z.object({ id: z.string(), severity: z.enum(['high', 'medium', 'info']), message: z.string(), atSec: z.number().optional() })
 const Correction = z.object({ index: z.number(), text: z.string(), reason: z.string(), original: z.string().optional() })
@@ -81,6 +108,7 @@ export function toJobDto(job: Job): JobDto {
     bgmId: job.bgmId,
     sfxMode: job.sfxMode,
     captionPosition: job.captionPosition,
+    script: toScriptDto(job.script, job.scriptEdits),
     quality: job.quality,
     summary: summary.success ? summary.data : null,
     recommendations: job.recommendations,

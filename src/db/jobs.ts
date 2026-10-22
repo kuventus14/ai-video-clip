@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
-import type { CaptionPosition, JobStatus, Phase, Recommendation } from '../shared/types.ts'
+import type { CaptionPosition, JobStatus, Phase, Recommendation, ScriptEdits } from '../shared/types.ts'
 import type { SfxMode } from '../shared/sound.ts'
 import type { AudioMode } from '../shared/voice.ts'
 import { canTransition, isRunning, PHASE_OF, QUEUED_STATUSES, QUEUED_TO_RUNNING, RUNNING_STATUSES, type QueuedStatus } from './status.ts'
@@ -41,6 +41,9 @@ export interface Job {
   bgmId: string | null
   sfxMode: SfxMode
   captionPosition: CaptionPosition | null
+  /** 편집 감독의 대본(core 의 EditScript 모양의 JSON) */
+  script: unknown | null
+  scriptEdits: ScriptEdits | null
   quality: 'draft' | 'looks' | 'delivery'
   recommendations: Recommendation[]
   summary: unknown | null
@@ -82,6 +85,8 @@ const FIELDS: Record<Exclude<keyof Job, 'id' | 'createdAt'>, [string, Kind]> = {
   bgmId: ['bgm_id', 'text'],
   sfxMode: ['sfx_mode', 'text'],
   captionPosition: ['caption_position', 'text'],
+  script: ['script', 'json'],
+  scriptEdits: ['script_edits', 'json'],
   quality: ['quality', 'text'],
   recommendations: ['recommendations', 'json'],
   summary: ['summary', 'json'],

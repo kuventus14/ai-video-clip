@@ -29,6 +29,8 @@ describe('Jobs — 만들기·읽기·수정', () => {
       bgmId: null,
       sfxMode: 'off',
       captionPosition: null,
+      script: null,
+      scriptEdits: null,
       description: '',
       requestText: '',
       recommendations: [],
@@ -80,16 +82,29 @@ describe('Jobs — 만들기·읽기·수정', () => {
     expect(jobs.get(j.id)!.captionPosition).toBeNull()
   })
 
-  test('버전 3 DB 를 열면 최신(5)으로 올라가고, 이미 있던 작업은 bgmId null · sfxMode off · captionPosition null', () => {
+  test('script·scriptEdits 는 기본이 null 이고 JSON 으로 저장했다 읽어도 같다', () => {
+    const j = jobs.create()
+    expect(j.script).toBeNull()
+    expect(j.scriptEdits).toBeNull()
+    const script = { version: 1, title: '제목', openingLines: ['a'], sections: [{ atSec: 3, label: 'L' }], questions: [], reactions: [], emphasis: ['단어'], speed: 1.1, drop: [] }
+    jobs.update(j.id, { script, scriptEdits: { title: '고친 제목', openingLines: [] } })
+    const back = jobs.get(j.id)!
+    expect(back.script).toEqual(script)
+    expect(back.scriptEdits).toEqual({ title: '고친 제목', openingLines: [] })
+    jobs.update(j.id, { script: null, scriptEdits: null })
+    expect(jobs.get(j.id)).toMatchObject({ script: null, scriptEdits: null })
+  })
+
+  test('버전 3 DB 를 열면 최신(6)으로 올라가고, 이미 있던 작업은 bgmId null · sfxMode off · captionPosition null · script null', () => {
     const old = fs.mkdtempSync(path.join(os.tmpdir(), 'vae-db-old-'))
     const db = openDb(old)
     const id = new Jobs(db, old).create().id
-    db.exec('ALTER TABLE jobs DROP COLUMN caption_position; ALTER TABLE jobs DROP COLUMN bgm_id; ALTER TABLE jobs DROP COLUMN sfx_mode; UPDATE meta SET version = 3')
+    db.exec('ALTER TABLE jobs DROP COLUMN script; ALTER TABLE jobs DROP COLUMN script_edits; ALTER TABLE jobs DROP COLUMN caption_position; ALTER TABLE jobs DROP COLUMN bgm_id; ALTER TABLE jobs DROP COLUMN sfx_mode; UPDATE meta SET version = 3')
     db.close()
 
     const reopened = openDb(old)
-    expect((reopened.prepare('SELECT version FROM meta').get() as { version: number }).version).toBe(5)
-    expect(new Jobs(reopened, old).get(id)).toMatchObject({ bgmId: null, sfxMode: 'off', captionPosition: null, audioMode: 'original' })
+    expect((reopened.prepare('SELECT version FROM meta').get() as { version: number }).version).toBe(6)
+    expect(new Jobs(reopened, old).get(id)).toMatchObject({ bgmId: null, sfxMode: 'off', captionPosition: null, script: null, scriptEdits: null, audioMode: 'original' })
     reopened.close()
     fs.rmSync(old, { recursive: true, force: true })
   })

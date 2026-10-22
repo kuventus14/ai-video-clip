@@ -1,20 +1,17 @@
 import { z } from 'zod'
+import { cleanScriptText, SCRIPT_TEXT_LIMITS } from '../shared/scriptText.ts'
+import type { ScriptEdits } from '../shared/types.ts'
 import type { RenderScript } from './compose.ts'
 import { srcToOut } from './timeline.ts'
 import type { Span } from './types.ts'
 
 /** 편집 대본의 상한. 문구는 글자(코드포인트) 수, 시간은 초. */
 export const SCRIPT_LIMITS = {
-  title: 18,
-  question: 22,
-  reaction: 24,
-  section: 10,
-  opening: 22,
+  ...SCRIPT_TEXT_LIMITS,
   emphasisWord: 12,
   maxSections: 5,
   maxQuestions: 3,
   maxReactions: 2,
-  maxOpening: 3,
   maxEmphasis: 30,
   hookMinSec: 1.5,
   hookMaxSec: 4,
@@ -56,20 +53,7 @@ export type EditScript = z.infer<typeof EditScriptSchema>
 export const emptyScript = (title: string): EditScript => ({ version: 1, title, openingLines: [], sections: [], questions: [], reactions: [], emphasis: [], speed: 1, drop: [] })
 
 const len = (s: string) => Array.from(s).length
-const URL_RE = /https?:\/\/|www\./i
-// 글자·숫자가 하나도 없으면(이모지·기호뿐) 쓸 수 없는 문구다
-const HAS_TEXT = /[\p{L}\p{N}]/u
-
-/** 문구를 정리해 돌려주고, 못 쓰면 이유(한국어)를 돌려준다. 상한을 넘으면 잘라 붙이지 않고 거절한다. */
-function cleanText(v: unknown, max: number): { ok: string } | { why: string } {
-  if (typeof v !== 'string') return { why: '문구가 글자가 아니에요' }
-  const t = v.replace(/\s+/g, ' ').trim()
-  if (!t) return { why: '비어 있어요' }
-  if (URL_RE.test(t)) return { why: '주소가 들어 있어요' }
-  if (!HAS_TEXT.test(t)) return { why: '글자가 없어요' }
-  if (len(t) > max) return { why: `${max}자를 넘어요` }
-  return { ok: t }
-}
+const cleanText = cleanScriptText
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null)
@@ -269,4 +253,18 @@ export function scriptCardLines(sc: EditScript): string[] {
   if (sc.speed > 1.001) lines.push(`• 속도: ${sc.speed}배로 올려 템포를 살려요`)
   if (sc.drop.length) lines.push(`• 빼는 구간: ${sc.drop.length}곳(약 ${Math.round(sc.drop.reduce((a, d) => a + d.end - d.start, 0))}초)`)
   return lines
+}
+
+/** 사용자가 승인 화면에서 고친 문구(제목·훅 질문·소개 줄)를 대본에 덮어쓴다. 상한을 넘는 값은 정리 규칙에 따라 빠진다. */
+export function applyScriptEdits(script: EditScript, edits: ScriptEdits | null | undefined, ctx: { durationSec: number; fallbackTitle: string }): EditScript {
+  if (!edits || (edits.title === undefined && edits.hookQuestion === undefined && edits.openingLines === undefined)) return script
+  return normalizeScript(
+    {
+      ...script,
+      title: edits.title ?? script.title,
+      hook: script.hook ? { ...script.hook, question: edits.hookQuestion ?? script.hook.question } : undefined,
+      openingLines: edits.openingLines ?? script.openingLines,
+    },
+    ctx,
+  ).script
 }

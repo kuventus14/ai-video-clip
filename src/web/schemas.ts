@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { cleanScriptText, SCRIPT_TEXT_LIMITS } from '../shared/scriptText.ts'
 
 export const PurposeChoice = z.enum(['auto', 'post', 'short'])
 
@@ -16,9 +17,20 @@ export const PlanBody = z.object({
   purposeChoice: PurposeChoice.optional(),
 })
 
+const scriptText = (max: number) =>
+  z.string().refine((v) => 'ok' in cleanScriptText(v, max), `문구는 글자가 있어야 하고 ${max}자 이하, 주소 없이 써 주세요`)
+
+/** 승인 화면에서 고친 편집 구성 문구(고친 칸만). 알 수 없는 칸은 받지 않는다. */
+export const ScriptEditsBody = z.strictObject({
+  title: scriptText(SCRIPT_TEXT_LIMITS.title).optional(),
+  hookQuestion: scriptText(SCRIPT_TEXT_LIMITS.question).optional(),
+  openingLines: z.array(scriptText(SCRIPT_TEXT_LIMITS.opening)).max(SCRIPT_TEXT_LIMITS.maxOpening).optional(),
+})
+
 export const ApproveBody = z.object({
   captions: z.enum(['auto', 'off']).optional(),
   captionPosition: z.enum(['top', 'middle', 'bottom']).optional(),
+  scriptEdits: ScriptEditsBody.optional(),
   audio: z.enum(['original', 'voice']).optional(),
   bgm: z.string().min(1).max(80).nullable().optional(),
   sfx: z.enum(['off', 'on']).optional(),
