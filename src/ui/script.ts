@@ -63,3 +63,11 @@ export function overLimit(form: ScriptForm, original: ScriptDto): string[] {
   p.openingLines.forEach((w, i) => w && out.push(`소개 줄 ${i + 1}: ${w}`))
   return out
 }
+
+/**
+ * 소개 줄을 더 쓸 수 있는가. 제목만 있는 대본(10초 이하 영상 등)은 서버가 소개 줄을 버리므로 쓰게 하면 입력이 사라진다.
+ */
+export function canAddOpeningLine(original: ScriptDto, form: ScriptForm): boolean {
+  const titleOnly = original.hookQuestion === null && original.openingLines.length === 0 && original.sections.length === 0 && original.questions === 0 && original.reactions === 0
+  return !titleOnly && form.openingLines.length < SCRIPT_TEXT_LIMITS.maxOpening
+}

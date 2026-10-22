@@ -136,6 +136,17 @@ describe('buildProject + script', () => {
     expect(Number(attr(h, 'ov-q-0', 'data-start'))).toBeGreaterThanOrEqual(openEnd - 1e-6)
   })
 
+  test('같은 종류의 질문·리액션은 서로 겹치지 않는다(앞의 것이 끝난 뒤로 밀리고, 남는 시간이 모자라면 뺀다)', async () => {
+    const close: RenderScript = { ...SCRIPT, questions: [{ start: 7, text: '첫째 질문' }, { start: 8, text: '바로 뒤 질문' }], reactions: [{ start: 7, text: '첫 리액션' }, { start: 8, text: '바로 뒤 리액션' }, { start: 8.5, text: '또 뒤 리액션' }, { start: 9, text: '마지막 리액션' }] }
+    const { projectDir } = await buildProject(input({ script: close }))
+    const h = html(projectDir)
+    const win = (id: string) => [Number(attr(h, id, 'data-start')), Number(attr(h, id, 'data-start')) + Number(attr(h, id, 'data-duration'))] as const
+    expect(win('ov-q-1')[0]).toBeGreaterThanOrEqual(win('ov-q-0')[1] - 1e-6)
+    expect(win('ov-r-1')[0]).toBeGreaterThanOrEqual(win('ov-r-0')[1] - 1e-6)
+    expect(win('ov-r-2')[0]).toBeGreaterThanOrEqual(win('ov-r-1')[1] - 1e-6)
+    expect(h).not.toContain('마지막 리액션') // 14.5초로 밀리면 영상 끝(15초)까지 0.8초도 안 남아 뺀다
+  })
+
   test('강조 단어가 든 큐는 그 단어만 노랑 span, 없는 큐는 평문(기존 "마지막 단어 강조" 규칙은 쓰지 않는다)', async () => {
     const { projectDir } = await buildProject(input())
     const h = html(projectDir)

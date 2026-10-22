@@ -3,7 +3,7 @@
 import { Plus } from 'lucide-react'
 import { SCRIPT_TEXT_LIMITS } from '../../src/shared/scriptText.ts'
 import type { ScriptDto } from '../../src/shared/types.ts'
-import { scriptProblems, type ScriptForm } from '../../src/ui/script.ts'
+import { canAddOpeningLine, scriptProblems, type ScriptForm } from '../../src/ui/script.ts'
 import { Button } from '../ui/Button.tsx'
 import { Card } from '../ui/Card.tsx'
 import { Field, Input } from '../ui/Field.tsx'
@@ -54,7 +54,7 @@ export function ScriptEditor({ script, form, onChange, disabled }: { script: Scr
               {problems.tooMany}
             </p>
           ) : null}
-          {form.openingLines.length < SCRIPT_TEXT_LIMITS.maxOpening ? (
+          {canAddOpeningLine(script, form) ? (
             <div>
               <Button size="sm" disabled={disabled} onClick={() => onChange({ ...form, openingLines: [...form.openingLines, ''] })}>
                 <Plus size={16} strokeWidth={2} aria-hidden="true" />

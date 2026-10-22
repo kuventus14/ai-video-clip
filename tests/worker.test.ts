@@ -4,6 +4,7 @@ import path from 'node:path'
 import { beforeEach, describe, expect, test } from 'vitest'
 import { ToolError } from '../src/core/exec.ts'
 import { ReferenceFetchError } from '../src/core/reference.ts'
+import { TempoError } from '../src/core/tempo.ts'
 import { VoiceError } from '../src/core/voice.ts'
 import { SoundError } from '../src/shared/sound.ts'
 import { VOICE_TOOL_MISSING } from '../src/shared/voice.ts'
@@ -339,6 +340,14 @@ describe('produce 단계', () => {
     await runOnce(jobs, fakes({ produceEdit: async () => { throw new SoundError('음원 파일이 없어요: gone (bgm/gone.mp3)') } }).deps)
     const after = jobs.get(j.id)!
     expect(after).toMatchObject({ status: 'failed', failedPhase: 'produce', errorMessage: '음원 파일이 없어요: gone (bgm/gone.mp3)' })
+  })
+
+  test('속도 조정 오류(TempoError)도 한국어 안내를 그대로 보여 주고 failed(produce) 로 둔다', async () => {
+    const j = job('queued_produce')
+    writeAnalysis(j.id)
+    fs.writeFileSync(path.join(jobs.jobDir(j.id), 'prepared.json'), JSON.stringify(PREPARED))
+    await runOnce(jobs, fakes({ produceEdit: async () => { throw new TempoError('속도를 맞추지 못했어요: ffmpeg 가 실패했어요') } }).deps)
+    expect(jobs.get(j.id)).toMatchObject({ status: 'failed', failedPhase: 'produce', errorMessage: '속도를 맞추지 못했어요: ffmpeg 가 실패했어요' })
   })
 
   test('목소리 보정 도구가 없어서 실패하면 설치 안내를 그대로 보여 주고 failed(produce) 로 둔다', async () => {

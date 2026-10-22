@@ -5,6 +5,7 @@ import { ToolError } from '../core/exec.ts'
 import { assertDurationOk, InputError, type Analysis, type Prepared, type Stage } from '../core/pipeline.ts'
 import { applyScriptEdits } from '../core/script.ts'
 import { ReferenceFetchError } from '../core/reference.ts'
+import { TempoError } from '../core/tempo.ts'
 import { VoiceError } from '../core/voice.ts'
 import { SoundError } from '../shared/sound.ts'
 import { resolvePurpose } from '../core/purpose.ts'
@@ -51,7 +52,7 @@ export function stageText(s: Stage, detail?: string): string {
 
 /** 사용자에게 그대로 보여 줄 수 있는 오류는 메시지를, 그 밖의 오류는 일반 안내를 돌려준다. */
 export function describeError(e: unknown): { message: string; detail?: string } {
-  if (e instanceof InputError || e instanceof ReferenceFetchError || e instanceof LlmError || e instanceof SearchError || e instanceof VoiceError || e instanceof SoundError) {
+  if (e instanceof InputError || e instanceof ReferenceFetchError || e instanceof LlmError || e instanceof SearchError || e instanceof VoiceError || e instanceof SoundError || e instanceof TempoError) {
     return { message: e.message }
   }
   // 도구(ffprobe·ffmpeg 등)의 원문에는 이 컴퓨터의 파일 경로와 영어 오류가 섞여 있다 — 화면에는 안내만, 원문은 진행 기록에 남긴다

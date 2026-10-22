@@ -63,6 +63,9 @@ export function cloneForOtherVersion(jobs: Jobs, parent: Job): { child: Job } | 
 
     const preparedFile = path.join(parentDir, 'prepared.json')
     if (fs.existsSync(preparedFile)) fs.copyFileSync(preparedFile, path.join(childDir, 'prepared.json'))
+    // 레퍼런스 장면 사진: 계획이 같은 레퍼런스의 스타일 명세를 다시 쓰므로 새로 만들지 않는다 — 가져가야 편집 감독이 레퍼런스를 본다
+    const refFrames = path.join(parentDir, 'ref-frames')
+    if (fs.existsSync(refFrames)) fs.cpSync(refFrames, path.join(childDir, 'ref-frames'), { recursive: true })
 
     let referenceUploadPath: string | null = null
     if (parent.referenceUploadPath && fs.existsSync(parent.referenceUploadPath)) {

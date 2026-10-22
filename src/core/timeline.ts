@@ -78,6 +78,14 @@ export function buildTimeline(kept: Span[], hook?: Span): OutputTimeline {
 }
 
 /**
+ * 훅이 본편 첫머리와 같은 장면이면(본편이 시작하는 곳에서 windowSec 안에 시작) 앞에 한 번 더 붙이면 같은 장면이
+ * 연달아 두 번 나온다. 그럴 때 true — 부르는 쪽이 훅 구간을 붙이지 않고 질문만 본편 첫머리 위에 띄운다.
+ */
+export function hookRepeatsOpening(hook: Span, kept: Span[], windowSec: number): boolean {
+  return kept.length > 0 && hook.start < kept[0]!.start + windowSec
+}
+
+/**
  * 원본 시각 t 를 출력 시각으로(훅 길이만큼 밀린다). 잘려 나간 자리면 그 뒤 첫 남은 구간의 시작에 붙인다
  * (오버레이가 "그 무렵"에 나오게). 영상 밖(음수, 마지막 남은 구간 뒤)이면 null.
  */

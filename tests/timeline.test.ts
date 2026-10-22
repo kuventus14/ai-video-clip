@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { buildTimeline, groupWordsIntoCues, remapKeyframes, remapSpans, remapTime, remapWords, shiftCues, srcToOut, subtractSpans } from '../src/core/timeline.ts'
+import { buildTimeline, groupWordsIntoCues, hookRepeatsOpening, remapKeyframes, remapSpans, remapTime, remapWords, shiftCues, srcToOut, subtractSpans } from '../src/core/timeline.ts'
 import type { Word } from '../src/core/types.ts'
 
 const w = (text: string, start: number, end: number): Word => ({ text, start, end, confidence: 0.9 })
@@ -194,5 +194,22 @@ describe('subtractSpans — 빼도 되는 구간(drop)을 남은 구간에서 �
   })
   test('여러 구간·겹치는 구간도 처리한다', () => {
     expect(subtractSpans([{ start: 0, end: 20 }], [{ start: 2, end: 4 }, { start: 3, end: 6 }, { start: 15, end: 16 }])).toEqual([{ start: 0, end: 2 }, { start: 6, end: 15 }, { start: 16, end: 20 }])
+  })
+})
+
+describe('hookRepeatsOpening — 훅이 본편 첫머리와 같은 장면이라 연달아 두 번 나오는가', () => {
+  test('훅이 본편이 시작하는 곳에서 창(4초) 안에 시작하면 true', () => {
+    expect(hookRepeatsOpening({ start: 0.5, end: 3.5 }, [{ start: 0, end: 40 }], 4)).toBe(true)
+    expect(hookRepeatsOpening({ start: 3.9, end: 6.9 }, [{ start: 0, end: 40 }], 4)).toBe(true)
+  })
+  test('앞의 침묵을 자른 본편(0.8초부터)이면 그 시작을 기준으로 본다', () => {
+    expect(hookRepeatsOpening({ start: 4.5, end: 7.5 }, [{ start: 0.8, end: 40 }], 4)).toBe(true)
+    expect(hookRepeatsOpening({ start: 5, end: 8 }, [{ start: 0.8, end: 40 }], 4)).toBe(false)
+  })
+  test('영상 뒤쪽 장면(14초~)이면 false(맛보기 훅)', () => {
+    expect(hookRepeatsOpening({ start: 14, end: 17 }, [{ start: 0, end: 40 }], 4)).toBe(false)
+  })
+  test('남은 구간이 없으면 false', () => {
+    expect(hookRepeatsOpening({ start: 0, end: 3 }, [], 4)).toBe(false)
   })
 })

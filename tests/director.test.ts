@@ -56,6 +56,14 @@ describe('buildDirectorPrompt', () => {
     expect(withRef).toContain('#FFD400')
     expect(withRef).not.toContain('레퍼런스 없음')
   })
+  test('레퍼런스 사진이 없어도 측정한 스타일 요약이 있으면 쓴다(사진 만들기 실패·다른 버전 만들기) — "레퍼런스 없음"이라고 하지 않는다', () => {
+    const p = buildDirectorPrompt({ ...base, refCount: 0, spec: SPEC })
+    expect(p).not.toContain('레퍼런스 없음')
+    expect(p).toContain('하이파이브 장면으로 시작')
+    expect(p).toContain('#FFD400')
+    expect(p).toMatch(/베끼지/)
+    expect(p).not.toMatch(/이미지 \d+~\d+\(레퍼런스/) // 없는 사진을 가리키지 않는다
+  })
   test('레퍼런스의 문구·내용을 베끼지 말라는 규칙이 있다(스펙의 안티골)', () => {
     expect(buildDirectorPrompt({ ...base, refCount: 6, spec: SPEC })).toMatch(/베끼지/)
   })
@@ -99,18 +107,23 @@ describe('directEdit', () => {
     expect(r.script.hook?.question).toBe('롱아이언, 왜 나만 안 맞을까?')
     expect(r.notes).toEqual([])
   })
-  test('엉터리 JSON·JSON 없는 글 → 던지지 않고 제목만 있는 대본(장르)', async () => {
-    for (const reply of ['죄송해요, 못 하겠어요', '{ "title": 5, "hook": "x", "speed": "빨리" }', '[1,2,3]']) {
-      const r = await directEdit(mk(), deps(reply).d)
-      expect(r.script.title).toBe('골프 레슨')
-      expect(r.script.hook).toBeUndefined()
-      expect(r.notes.length).toBeGreaterThan(0)
+  test('JSON 이 아닌 글·객체가 아닌 JSON → LlmError(invalid-json)로 던진다(부른 쪽이 기본 방식으로 되돌아간다)', async () => {
+    for (const reply of ['죄송해요, 못 하겠어요', '[1,2,3]']) {
+      const e = await directEdit(mk(), deps(reply).d).catch((x) => x)
+      expect(e).toBeInstanceOf(LlmError)
+      expect((e as LlmError).kind).toBe('invalid-json')
     }
+  })
+  test('객체지만 쓸 게 없으면 제목만 있는 대본 — 제목은 영상의 훅 제목(장르보다 먼저)', async () => {
+    const r = await directEdit(mk(), deps('{ "title": 5, "hook": "x", "speed": "빨리" }').d)
+    expect(r.script.title).toBe('롱아이언 꿀팁')
+    expect(r.script.hook).toBeUndefined()
+    expect(r.notes.length).toBeGreaterThan(0)
   })
   test('범위 밖 시간·긴 문구는 정리돼서 돌아온다', async () => {
     const reply = JSON.stringify({ title: '가'.repeat(30), hook: { sourceStart: 500, sourceEnd: 503, question: '?' }, sections: [{ atSec: 9999, label: 'x' }] })
     const r = await directEdit(mk(), deps(reply).d)
-    expect(r.script.title).toBe('골프 레슨')
+    expect(r.script.title).toBe('롱아이언 꿀팁')
     expect(r.script.hook).toBeUndefined()
     expect(r.script.sections).toEqual([])
   })

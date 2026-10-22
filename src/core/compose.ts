@@ -208,10 +208,12 @@ function overlayParts(sc: RenderScript, totalSec: number, c: Canvas, layout: Ove
     n++
   }
   n = 0
+  let lastQEnd = 0 // 같은 자리에 뜨는 질문끼리는 앞의 것이 끝난 뒤로 민다
   for (const q of sc.questions) {
-    const start = Math.max(q.start, openEnd)
+    const start = Math.max(q.start, openEnd, lastQEnd)
     const dur = Math.min(2.5, totalSec - start)
     if (dur < 0.8) continue
+    lastQEnd = start + dur
     stackParts.push(`      <div id="ov-q-${n}" class="clip ovc" style="top:${slotC}px" data-start="${fmt(start)}" data-duration="${fmt(dur)}" data-track-index="6"><div class="ov q" style="font-size:${fs(q.text, z.q)}px">${escapeHtml(q.text)}</div></div>`)
     enter(`ov-q-${n}`, start)
     n++
@@ -219,11 +221,14 @@ function overlayParts(sc: RenderScript, totalSec: number, c: Canvas, layout: Ove
 
   const reactionParts: string[] = []
   n = 0
+  let lastREnd = 0
   for (const r of sc.reactions) {
-    const dur = Math.min(2.5, totalSec - r.start)
+    const start = Math.max(r.start, lastREnd)
+    const dur = Math.min(2.5, totalSec - start)
     if (dur < 0.8) continue
-    reactionParts.push(`    <div id="ov-r-${n}" class="clip ovr" data-start="${fmt(r.start)}" data-duration="${fmt(dur)}" data-track-index="7"><div class="ov react" style="font-size:${fs(r.text, z.react)}px">${escapeHtml(r.text)}</div></div>`)
-    js.push(`tl.fromTo("#ov-r-${n} .ov", { scale: 0.8, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.2, ease: "back.out(1.7)", immediateRender: false }, ${fmt(r.start)});`)
+    lastREnd = start + dur
+    reactionParts.push(`    <div id="ov-r-${n}" class="clip ovr" data-start="${fmt(start)}" data-duration="${fmt(dur)}" data-track-index="7"><div class="ov react" style="font-size:${fs(r.text, z.react)}px">${escapeHtml(r.text)}</div></div>`)
+    js.push(`tl.fromTo("#ov-r-${n} .ov", { scale: 0.8, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.2, ease: "back.out(1.7)", immediateRender: false }, ${fmt(start)});`)
     n++
   }
 

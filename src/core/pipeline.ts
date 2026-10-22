@@ -11,12 +11,12 @@ import { canvasFor, detectPurpose, resolvePurpose, type PurposeGuess } from './p
 import { computeCropPath, cropReversalsPerSec, type CropPath } from './reframe.ts'
 import { analyzeReference, detectSceneCuts, FEASIBILITY, type StyleSpec } from './styleSpec.ts'
 import { fetchReference } from './reference.ts'
-import { buildTimeline, groupWordsIntoCues, remapKeyframes, remapWords, shiftCues, subtractSpans } from './timeline.ts'
+import { buildTimeline, groupWordsIntoCues, hookRepeatsOpening, remapKeyframes, remapWords, shiftCues, subtractSpans } from './timeline.ts'
 import { transcribe } from './transcribe.ts'
 import { applySound, type SoundReport } from './sound.ts'
 import { directEdit, extractReferenceFrames } from './director.ts'
 import { cropToContent, detectContentRect } from './letterbox.ts'
-import { emptyScript, normalizeScript, scriptCardLines, toRenderScript, type EditScript } from './script.ts'
+import { emptyScript, normalizeScript, SCRIPT_LIMITS, scriptCardLines, toRenderScript, type EditScript } from './script.ts'
 import { applyTempo, scaleSec } from './tempo.ts'
 import { enhanceVoice } from './voice.ts'
 import type { SfxMode } from '../shared/sound.ts'
@@ -350,7 +350,7 @@ export async function prepareEdit(i: PrepareInput, overrides: Partial<PipelineDe
     try {
       const out = await d.directEdit({ info: a.info, transcript: a.transcript, summary: a.summary, sourcePath: a.sourcePath, spec, refFrames: spec ? readRefFrames(i.workDir) : [], workDir: i.workDir })
       // 감독 구현이 무엇을 돌려주든 대본을 한 번 더 정리한다(영상이 10초 이하면 제목만 등) — 정리는 여러 번 해도 같다
-      const clean = normalizeScript(out.script, { durationSec: a.info.durationSec, fallbackTitle: a.summary.genre || a.summary.topic })
+      const clean = normalizeScript(out.script, { durationSec: a.info.durationSec, fallbackTitle: a.summary.hookTitle || a.summary.genre || a.summary.topic })
       script = clean.script
       directorNotes = [...out.notes, ...clean.notes]
     } catch {
@@ -415,9 +415,16 @@ export async function produceEdit(i: ProduceInput, overrides: Partial<PipelineDe
       if (trimmed.length) kept = trimmed
     }
     // 훅 장면을 맨 앞에 붙인 출력 타임라인(훅이 없으면 kept 그대로)
-    const timeline = buildTimeline(kept, script?.hook ? { start: script.hook.sourceStart, end: script.hook.sourceEnd } : undefined)
+    // 훅이 영상 맨 앞 장면이면 앞에 또 붙이지 않고(같은 말이 연달아 두 번 나온다) 질문만 본편 첫머리 위에 띄운다
+    const hookSpan = script?.hook ? { start: script.hook.sourceStart, end: script.hook.sourceEnd } : undefined
+    const hookInPlace = hookSpan !== undefined && hookRepeatsOpening(hookSpan, kept, SCRIPT_LIMITS.hookMaxSec)
+    const timeline = buildTimeline(kept, hookInPlace ? undefined : hookSpan)
     const hookSec = timeline.hookSec
-    const renderScript = script ? toRenderScript(script, kept, hookSec, timeline.totalSec) : undefined
+    let renderScript = script ? toRenderScript(script, kept, hookSec, timeline.totalSec) : undefined
+    if (renderScript && script?.hook && hookInPlace) {
+      const sec = Math.min(script.hook.sourceEnd - script.hook.sourceStart, timeline.totalSec)
+      renderScript = { ...renderScript, hook: { sec, question: script.hook.question }, hookSec: sec }
+    }
     const speed = script?.speed ?? 1
     const tempoOn = speed > 1.001 && d.applyTempo !== undefined
     const effSpeed = tempoOn ? speed : 1

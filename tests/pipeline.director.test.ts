@@ -195,6 +195,16 @@ describe('produceEdit — 대본대로 만들기', () => {
     expect(s.builds[0]!.script?.hook?.question).toBe('왜 나만 안 맞을까?')
   })
 
+  test('훅이 영상 맨 앞(0.5~3.5초)에서 오면 같은 장면을 연달아 두 번 붙이지 않는다 — 질문은 본편 첫머리 위에 띄운다', async () => {
+    const early: EditScript = { ...SCRIPT, hook: { sourceStart: 0.5, sourceEnd: 3.5, question: '왜 나만 안 맞을까?' } }
+    const s = setup({ directEdit: async () => ({ script: early, notes: [] }) })
+    await produce(s)
+    expect(s.builds[0]!.kept).toEqual([{ start: 0, end: 45 }]) // 훅 구간이 앞에 붙지 않는다
+    expect(s.builds[0]!.script?.hook).toMatchObject({ sec: 3, question: '왜 나만 안 맞을까?' }) // 질문은 남는다
+    expect(s.builds[0]!.script?.sections[0]).toMatchObject({ start: 5 }) // 시각도 밀리지 않는다
+    expect(s.builds[0]!.cues[0]!.start).toBeLessThan(3) // 자막도 밀리지 않는다
+  })
+
   test('훅 구간과 겹치는 단어("팁입니다" 30초)가 본편에서만 자막이 된다 — 두 번 나오지 않는다 (Review Focus 1)', async () => {
     const s = setup()
     await produce(s)

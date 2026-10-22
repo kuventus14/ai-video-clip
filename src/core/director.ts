@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { askClaude, extractJson } from './llm.ts'
+import { askClaude, extractJson, LlmError } from './llm.ts'
 import { extractFrames } from './media.ts'
 import { normalizeScript, SCRIPT_LIMITS, type EditScript } from './script.ts'
 import type { StyleSpec } from './styleSpec.ts'
@@ -49,7 +49,7 @@ function transcriptBlock(t: Transcript): string {
 }
 
 function referenceBlock(refCount: number, firstRefImage: number, spec?: StyleSpec): string {
-  if (!refCount) return '레퍼런스 없음 — 위 규칙으로 한국어 릴스에서 흔히 통하는 기본 스타일로 짜세요.'
+  if (!refCount && !spec) return '레퍼런스 없음 — 위 규칙으로 한국어 릴스에서 흔히 통하는 기본 스타일로 짜세요.'
   const s = spec
   const style = s
     ? [
@@ -61,7 +61,9 @@ function referenceBlock(refCount: number, firstRefImage: number, spec?: StyleSpe
       ].filter(Boolean).join('\n')
     : ''
   return [
-    `레퍼런스 영상(이미지 ${firstRefImage}~${firstRefImage + refCount - 1}, 앞 6장은 첫 5초 안을 촘촘히)을 보고 **편집 방식**을 따라 하세요: 훅을 여는 방식, 고정 제목 박스가 있는지, 소제목·질문·리액션을 어떻게 연출하는지, 템포.`,
+    refCount
+      ? `레퍼런스 영상(이미지 ${firstRefImage}~${firstRefImage + refCount - 1}, 앞 6장은 첫 5초 안을 촘촘히)을 보고 **편집 방식**을 따라 하세요: 훅을 여는 방식, 고정 제목 박스가 있는지, 소제목·질문·리액션을 어떻게 연출하는지, 템포.`
+      : '레퍼런스 장면 사진은 없지만 레퍼런스에서 측정한 스타일 요약이 있습니다. 아래 요약을 보고 **편집 방식**을 따라 하세요: 훅을 여는 방식, 고정 제목 박스가 있는지, 템포.',
     '레퍼런스의 문구·내용·제목을 베끼지 마세요. 연출 방식만 가져오고, 문구는 내 영상의 내용으로 새로 쓰세요.',
     style ? `레퍼런스 스타일 요약(측정 결과):\n${style}` : '',
   ].filter(Boolean).join('\n')
@@ -83,7 +85,7 @@ export function buildDirectorPrompt(i: { info: VideoInfo; transcript: Transcript
     `## 레퍼런스\n${referenceBlock(i.refCount, n + 1, i.spec)}`,
     '',
     '## 만드는 규칙',
-    `1. **hook**: 영상에서 결과·장면이 가장 인상적인 순간(예: 풀스윙, 공이 날아가는 결과, 가장 극적인 리액션)을 골라 **맨 앞에 먼저 보여 줄 ${L.hookMinSec}~${L.hookMaxSec}초 구간**(sourceStart~sourceEnd, 원본 시각)을 정합니다. 그 장면 위에 시청자의 호기심을 건드리는 큰 질문 한 줄(question, ${L.question}자 이하, 물음표로 끝)을 띄웁니다. 영상 앞쪽이 이미 강하면 그 장면을 써도 됩니다. 인상적인 장면이 없으면 hook 을 생략하세요.`,
+    `1. **hook**: 영상에서 결과·장면이 가장 인상적인 순간(예: 풀스윙, 공이 날아가는 결과, 가장 극적인 리액션)을 골라 **맨 앞에 먼저 보여 줄 ${L.hookMinSec}~${L.hookMaxSec}초 구간**(sourceStart~sourceEnd, 원본 시각)을 정합니다. 그 장면 위에 시청자의 호기심을 건드리는 큰 질문 한 줄(question, ${L.question}자 이하, 물음표로 끝)을 띄웁니다. 영상의 맨 앞 ${L.hookMaxSec}초는 고르지 마세요(본편이 어차피 거기서 시작합니다). 인상적인 장면이 없으면 hook 을 생략하세요.`,
     `2. **title**: 영상 내내 위에 고정되는 제목 박스 문구(${L.title}자 이하). 예: "프로님의 롱아이언 꿀팁" 같은 형식 — 내용은 내 영상에 맞게.`,
     `3. **openingLines**: 훅 직후 3초쯤 보여 줄 소개 줄 0~${L.maxOpening}개(각 ${L.opening}자 이하). 첫 줄은 주제, 둘째는 호기심, 셋째는 기대되는 결과.`,
     `4. **sections**: 영상 흐름을 3~${L.maxSections}단계로 나눠 각 시작 시각(atSec)과 짧은 소제목(label, ${L.section}자 이하)을 정합니다. 예시 패턴: "여기서 포인트!" → "체크 방법!" → "적용해보면!". 대본의 실제 흐름(설명 → 확인 → 적용)에 맞춥니다.`,
@@ -103,7 +105,8 @@ export function buildDirectorPrompt(i: { info: VideoInfo; transcript: Transcript
 
 /**
  * 영상·대본·(레퍼런스)를 AI 편집 감독에게 보여 주고 편집 대본을 받는다. 대본은 정리(normalizeScript)해서 돌려준다.
- * 응답이 엉터리여도 던지지 않는다(제목만 있는 대본). AI 호출 자체가 실패하면(LlmError) 그대로 던진다 — 부른 쪽이 기본 방식으로 되돌아간다.
+ * JSON 객체가 아닌 응답(글만 오거나 배열)이면 쓸 게 없는 것이라 LlmError('invalid-json')로 던진다 — AI 호출 자체가 실패할 때(LlmError)와 같이
+ * 부른 쪽이 기본 방식(컷+자막+옛 제목 카드)으로 되돌아가고 카드에 안내 줄이 생긴다. 객체인데 일부 항목만 못 쓰면 그 항목만 빼고 돌려준다.
  */
 export async function directEdit(i: DirectInput, deps: { ask?: typeof askClaude; frames?: typeof extractFrames } = {}): Promise<{ script: EditScript; notes: string[] }> {
   const ask = deps.ask ?? askClaude
@@ -121,7 +124,8 @@ export async function directEdit(i: DirectInput, deps: { ask?: typeof askClaude;
     } catch {
       raw = null
     }
-    return normalizeScript(raw, { durationSec: i.info.durationSec, fallbackTitle: i.summary.genre || i.summary.topic })
+    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) throw new LlmError('invalid-json', 'AI 가 편집 대본을 읽을 수 있는 형식으로 주지 않았어요')
+    return normalizeScript(raw, { durationSec: i.info.durationSec, fallbackTitle: i.summary.hookTitle || i.summary.genre || i.summary.topic })
   } finally {
     fs.rmSync(dir, { recursive: true, force: true })
   }

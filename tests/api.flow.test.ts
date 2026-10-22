@@ -494,6 +494,16 @@ describe('other-version', () => {
     expect(read(p.id).status).toBe('confirmed') // 부모는 그대로
   })
 
+  test('레퍼런스 장면 사진(ref-frames)도 새 작업이 가져온다 — 감독이 다른 버전에서도 레퍼런스를 본다', async () => {
+    const p = parent('confirmed', 'short')
+    const pd = getContext().jobs.jobDir(p.id)
+    fs.mkdirSync(path.join(pd, 'ref-frames'))
+    fs.writeFileSync(path.join(pd, 'ref-frames', 'frame-00.jpg'), 'REFJPG')
+    const child = (await (await call(otherVersion, p.id)).json()) as JobDto
+    const cd = getContext().jobs.jobDir(child.id)
+    expect(fs.readFileSync(path.join(cd, 'ref-frames', 'frame-00.jpg'), 'utf8')).toBe('REFJPG')
+  })
+
   test('부모를 지워도 자식의 파일은 남는다', async () => {
     const p = parent('awaiting_confirm', 'post')
     const child = (await (await call(otherVersion, p.id)).json()) as JobDto

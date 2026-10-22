@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ScriptDto } from '../src/shared/types.ts'
-import { formFrom, overLimit, scriptEditsFrom } from '../src/ui/script.ts'
+import { canAddOpeningLine, formFrom, overLimit, scriptEditsFrom } from '../src/ui/script.ts'
 
 const ORIGINAL: ScriptDto = { title: '프로님의 롱아이언 꿀팁', hookSec: 3, hookQuestion: '왜 나만 안 맞을까?', openingLines: ['롱아이언 실전편', '꿀팁 공개?'], sections: ['여기서 포인트!', '체크 방법!'], questions: 2, reactions: 1, speed: 1.1 }
 
@@ -56,5 +56,19 @@ describe('overLimit — 승인을 막는 문구 문제', () => {
   })
   it('주소가 든 문구는 막는다', () => {
     expect(overLimit({ ...ok, title: 'https://a.co' }, ORIGINAL).join(' ')).toContain('제목')
+  })
+})
+
+describe('canAddOpeningLine — 소개 줄을 더 쓸 수 있는가', () => {
+  it('소개 줄이 3개 미만이고 제목만 있는 대본이 아니면 true', () => {
+    expect(canAddOpeningLine(ORIGINAL, { ...formFrom(ORIGINAL), openingLines: ['a'] })).toBe(true)
+    expect(canAddOpeningLine(ORIGINAL, formFrom(ORIGINAL))).toBe(true) // 2개
+  })
+  it('이미 3개면 false', () => {
+    expect(canAddOpeningLine(ORIGINAL, { ...formFrom(ORIGINAL), openingLines: ['a', 'b', 'c'] })).toBe(false)
+  })
+  it('제목만 있는 대본(짧은 영상)이면 false — 서버가 소개 줄을 버리므로 쓰게 하면 입력이 사라진다', () => {
+    const titleOnly: ScriptDto = { title: '제목', hookSec: 0, hookQuestion: null, openingLines: [], sections: [], questions: 0, reactions: 0, speed: 1 }
+    expect(canAddOpeningLine(titleOnly, formFrom(titleOnly))).toBe(false)
   })
 })
