@@ -195,6 +195,22 @@ describe('produceEdit — 대본대로 만들기', () => {
     expect(s.builds[0]!.script?.hook?.question).toBe('왜 나만 안 맞을까?')
   })
 
+  test('자막을 지워도(인식 단어가 빠져도) 컷은 원래 인식 결과 기준이다 — 지운 줄의 구간이 무음으로 잘려 나가지 않는다', async () => {
+    const SILENT = [{ start: 29, end: 33 }] // 팁입니다(30~30.4초)가 있던 곳이 조용하다
+    const covers = (kept: { start: number; end: number }[]) => kept.some((k) => k.start <= 30 && k.end >= 30.4)
+    const edited = (s: ReturnType<typeof setup>, p: Awaited<ReturnType<typeof prepare>>) => ({ ...p, analysis: { ...p.analysis, transcript: { ...TR, words: TR.words.slice(0, 2) } } }) // 사용자가 마지막 줄을 지웠다
+
+    const without = setup({ directEdit: undefined, detectSilences: async () => SILENT })
+    await produce(without, {}, edited(without, await prepare(without)))
+    expect(covers(without.builds[0]!.kept)).toBe(false) // (대조) 원래 기준이 아니면 그 구간이 잘린다
+
+    const withOriginal = setup({ directEdit: undefined, detectSilences: async () => SILENT })
+    await produce(withOriginal, { cutTranscript: TR }, edited(withOriginal, await prepare(withOriginal)))
+    expect(covers(withOriginal.builds[0]!.kept)).toBe(true)
+    // 자막은 고친(지운) 결과를 따른다: 지운 단어는 자막에 없다
+    expect(withOriginal.builds[0]!.cues.map((c) => c.text).join(' ')).not.toContain('팁입니다')
+  })
+
   test('훅이 영상 맨 앞(0.5~3.5초)에서 오면 같은 장면을 연달아 두 번 붙이지 않는다 — 질문은 본편 첫머리 위에 띄운다', async () => {
     const early: EditScript = { ...SCRIPT, hook: { sourceStart: 0.5, sourceEnd: 3.5, question: '왜 나만 안 맞을까?' } }
     const s = setup({ directEdit: async () => ({ script: early, notes: [] }) })

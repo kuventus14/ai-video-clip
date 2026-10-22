@@ -158,9 +158,9 @@ export function ReferencePicker({ job, onChanged, onCancel }: { job: JobDto; onC
                 ))}
               </ul>
             </section>
-          ) : (
+          ) : !hasReference ? (
             <p className="rounded-control bg-raised px-5 py-4 text-[15px] text-ink-2">추천을 불러오지 못했어요. 링크나 파일로 직접 골라 주세요.</p>
-          )}
+          ) : null}
 
           <section aria-labelledby="direct-title">
             <h3 id="direct-title" className="mb-4 text-[16px] font-semibold text-ink">

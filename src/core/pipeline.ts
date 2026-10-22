@@ -381,6 +381,11 @@ export interface ProduceInput {
   sfx?: SfxMode
   keepWork?: boolean
   onStage?: StageCallback
+  /**
+   * 컷을 계산할 때 쓰는 인식 결과. 주지 않으면 analysis.transcript. 사용자가 자막을 고치거나 지워도(analysis.transcript 가 바뀌어도)
+   * 영상은 달라지지 않게 원래 인식 결과를 준다 — 지운 줄의 구간이 무음으로 잘려 나가면 안 된다.
+   */
+  cutTranscript?: Transcript
 }
 
 /** 3단계: 컷 → (사람 추적) → 자막 → 만들기·검수·재작업 → result.mp4 와 report.json */
@@ -409,7 +414,7 @@ export async function produceEdit(i: ProduceInput, overrides: Partial<PipelineDe
     // 6) 컷
     stage('cuts')
     const silences = await d.detectSilences(src)
-    const cutPlan = planCuts({ transcript, silences, durationSec: info.durationSec, padSec: style.padSec })
+    const cutPlan = planCuts({ transcript: i.cutTranscript ?? transcript, silences, durationSec: info.durationSec, padSec: style.padSec })
     let kept: Span[] = cutPlan.kept.length ? cutPlan.kept : [{ start: 0, end: info.durationSec }]
     // 편집 감독이 "빼도 된다"고 한 약한 구간을 뺀다(다 지워 버리면 쓰지 않는다)
     if (script?.drop.length) {

@@ -242,6 +242,8 @@ describe('자막 편집 적용 (plan·produce)', () => {
     const f = fakes()
     await runOnce(jobs, f.deps)
     expect(f.calls.produce[0]!.analysis.transcript.words.map((x) => x.text)).toEqual(['이렇게', '돼서', '이게', '스윙'])
+    // 컷은 고치기 전 인식 결과로 계산한다(자막을 고치거나 지워도 영상은 그대로)
+    expect(f.calls.produce[0]!.cutTranscript!.words.map((x) => x.text)).toEqual(['이렇게', '되면서', '이게', '섀도우'])
   })
 
   test('편집이 없으면 인식 결과를 그대로 넘긴다', async () => {

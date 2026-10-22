@@ -101,9 +101,9 @@ export function CaptionReview({ review, draft, onChange, videoSrc, disabled }: {
                       {problem}
                     </p>
                   ) : deleted ? (
-                    <p className="mt-1 text-[13px] text-ink-3">이 줄은 자막에서 빠져요.</p>
+                    <p className="mt-1 text-[13px] text-ink-3">이 줄은 자막에서만 빠져요(영상은 그대로예요).</p>
                   ) : changed && shown.trim() === '' ? (
-                    <p className="mt-1 text-[13px] text-ink-3">비워 두면 이 줄은 자막에서 빠져요.</p>
+                    <p className="mt-1 text-[13px] text-ink-3">비워 두면 이 줄은 자막에서만 빠져요(영상은 그대로예요).</p>
                   ) : changed ? (
                     <p className="mt-1 break-words text-[13px] text-ink-3">원문: {p.text}</p>
                   ) : p.lowWords.length > 0 ? (
