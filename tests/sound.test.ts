@@ -294,6 +294,13 @@ describe('applySound — 고른 값으로 측정하고 섞는다', () => {
     expect(f.calls.mix!.sfx.map((s) => [s.file, s.atSec])).toEqual([['/snd/sfx/p1.mp3', 0.1], ['/snd/sfx/w1.mp3', 4.85]])
     expect(r.report).toEqual({ bgm: { id: 'calm-1', title: '잔잔한 곡', author: '작가', license: 'Pixabay License', sourceUrl: 'https://pixabay.com/music/x' }, sfxCount: 2 })
   })
+  test('속도(speed)를 주면 효과음 위치도 같은 배수로 앞당겨진다 — 4.85초 → 1.25배속에서 3.88초', async () => {
+    const f = fakes()
+    await applySound({ ...RENDERED, choice: { bgm: null, sfx: 'on' }, speed: 1.25 }, f.deps)
+    const at = f.calls.mix!.sfx.map((s) => s.atSec)
+    expect(at[0]).toBeCloseTo(0.1 / 1.25, 3) // 제목 pop
+    expect(at[1]).toBeCloseTo(4.85 / 1.25, 3) // 컷 whoosh
+  })
   test('음악만 고르면 효과음은 비어 있고 sfxCount 0', async () => {
     const f = fakes()
     const r = await applySound({ ...RENDERED, choice: { bgm: 'calm-1', sfx: 'off' } }, f.deps)

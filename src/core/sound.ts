@@ -213,6 +213,8 @@ export interface ApplySoundInput {
   hasAudio: boolean
   /** 말이 있는 영상인가(대본 분석 결과). 소리 트랙만 있고 말이 없으면 주변 소음을 목소리로 재지 않는다 */
   hasSpeech: boolean
+  /** 렌더 뒤 속도 조정 배수(기본 1). 효과음 위치를 같은 배수로 앞당긴다 — durationSec 은 속도를 적용한 뒤의 길이를 준다 */
+  speed?: number
 }
 
 /** 사용자가 고른 곡·효과음으로 렌더된 영상에 소리를 입힌다. 고른 곡이 목록에 없으면 SoundError. */
@@ -234,7 +236,7 @@ export async function applySound(
   const events = i.choice.sfx === 'on' ? planSfx({ kept: i.kept, hookTitle: i.hookTitle, sfx: catalog.sfx }) : []
   const sfx = events.map((e) => {
     const t = catalog.sfx.find((x) => x.id === e.trackId)!
-    return { file: trackPath(catalog, t), peakDb: t.peakDb, atSec: e.atSec }
+    return { file: trackPath(catalog, t), peakDb: t.peakDb, atSec: e.atSec / (i.speed ?? 1) }
   })
   const path = await mix({
     videoPath: i.renderedPath, outPath: i.outPath, durationSec: i.durationSec, hasAudio: i.hasAudio, voice,
