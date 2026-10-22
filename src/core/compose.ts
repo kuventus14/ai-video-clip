@@ -11,12 +11,15 @@ const GSAP = path.join(ROOT, 'node_modules/gsap/dist/gsap.min.js')
 const fmt = (n: number) => String(+n.toFixed(3))
 const px = (n: number) => `${+n.toFixed(2)}px`
 
-/** 원본 비율과 캔버스 비율로 리프레임 전략을 고른다. */
+/**
+ * 원본 비율과 캔버스 비율로 리프레임 전략을 고른다. **원본은 자르지 않는다**: 비율이 같으면(±0.05) 그대로, 다르면 영상 전체를
+ * 가운데에 두고 남는 곳(가로→세로는 위아래, 세로→가로는 양옆)을 같은 장면을 흐리게 채운다.
+ * 사람을 따라 자르는 'track' 은 코드에 남아 있지만 더는 고르지 않는다(2026-10-22 사용자 결정).
+ */
 export function chooseReframeMode(src: { width: number; height: number }, canvas: Canvas): ReframeMode {
   const sa = src.width / src.height
   const ta = canvas.width / canvas.height
-  if (Math.abs(sa - ta) < 0.05) return 'none'
-  return sa > ta ? 'track' : 'blur-fill'
+  return Math.abs(sa - ta) < 0.05 ? 'none' : 'blur-fill'
 }
 
 /** 편집 대본을 그림으로 옮긴 것. 시각은 모두 **출력(컷·훅 반영 후, 속도 적용 전) 기준** 초. */

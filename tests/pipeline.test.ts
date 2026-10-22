@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { beforeEach, describe, expect, test } from 'vitest'
-import { InputError, runEdit, type PipelineDeps, type Stage } from '../src/core/pipeline.ts'
+import { analyzeInput, InputError, prepareEdit, produceEdit, runEdit, type PipelineDeps, type Stage } from '../src/core/pipeline.ts'
 import { ReferenceFetchError } from '../src/core/reference.ts'
 import { interpretRequest } from '../src/core/interpret.ts'
 import { FEASIBILITY, type StyleSpec } from '../src/core/styleSpec.ts'
@@ -46,6 +46,16 @@ let work: string
 beforeEach(() => {
   work = fs.mkdtempSync(path.join(os.tmpdir(), 'pipeline-'))
 })
+
+/**
+ * 사람을 따라 자르는 'track' 경로를 직접 시험한다. 앱은 더는 이 방식을 고르지 않지만(가로→세로는 가운데 + 블러) 코드는 남아 있어서,
+ * 계획에서 정해진 reframe 을 'track' 으로 바꿔 만들기를 돌린다.
+ */
+async function runTrack(s: ReturnType<typeof setup>, o: { purpose?: 'short' | 'post' } = {}) {
+  const analysis = await analyzeInput({ videoPath: '/in/영상.mp4', workDir: work, onStage: (st) => s.rec.stages.push(st) }, s.deps)
+  const prepared = await prepareEdit({ analysis, workDir: work, purposeChoice: o.purpose ?? 'short', onStage: (st) => s.rec.stages.push(st) }, s.deps)
+  return produceEdit({ analysis, prepared: { ...prepared, reframe: 'track' }, outDir: path.join(work, 'out'), onStage: (st) => s.rec.stages.push(st) }, s.deps)
+}
 
 function setup(over: Partial<PipelineDeps> = {}, o: { qaQueue?: QaReport[]; videoInfo?: VideoInfo; transcript?: Transcript } = {}) {
   const rec: Rec = { stages: [], transcribeCalls: [], builds: [], renders: [], qas: [], trackCalls: [], cleanups: 0 }
@@ -118,13 +128,16 @@ describe('runEdit — 흐름', () => {
     expect(rec.builds[0]!.reframe).toBe('none')
   })
 
-  test('가로 원본 + 세로 용도는 사람 인식 단계(track)를 거친다', async () => {
+  test('가로 원본 + 세로 용도는 자르지 않고 가운데 + 위아래 블러로 만든다 — 사람 인식 단계(track)도 크롭도 없다', async () => {
     const { rec, run } = setup({}, { videoInfo: info({ width: 1920, height: 1080, durationSec: 30 }) })
-    await run({ purpose: 'short' })
-    expect(rec.stages).toEqual(['probe', 'transcribe', 'purpose', 'understand', 'plan', 'cuts', 'track', 'build', 'render', 'qa', 'done'])
-    expect(rec.builds[0]!.reframe).toBe('track')
-    expect(rec.trackCalls).toEqual(['/in/영상.mp4'])
-    expect(rec.builds[0]!.crop?.length).toBeGreaterThan(0)
+    const r = await run({ purpose: 'short' })
+    expect(r.planCard.join('\n')).toContain('위아래를 흐린(블러) 배경으로 채워요') // 카드가 실제 동작을 말한다
+    expect(r.planCard.join('\n')).not.toContain('사람이 가운데')
+    expect(rec.stages).toEqual(['probe', 'transcribe', 'purpose', 'understand', 'plan', 'cuts', 'build', 'render', 'qa', 'done'])
+    expect(rec.builds[0]!.reframe).toBe('blur-fill')
+    expect(rec.builds[0]!.canvas).toEqual({ width: 1080, height: 1920 })
+    expect(rec.trackCalls).toEqual([])
+    expect(rec.builds[0]!.crop).toBeUndefined()
   })
 
   test('(g) purpose 를 post 로 정하면 자동 인식이 short 여도 1920x1080', async () => {
@@ -141,11 +154,9 @@ describe('runEdit — 흐름', () => {
     expect(r.planCard.join('\n')).toContain('블러')
   })
 
-  test('(m) 사람이 없는 가로 영상을 세로로 자르면 중앙 크롭 경고가 결과에 남는다', async () => {
-    const { run } = setup({}, { videoInfo: info({ width: 1920, height: 1080, durationSec: 30 }) })
-    const r = await run({ purpose: 'short' })
+  test("(m) 사람이 없는 가로 영상을 세로로 자르는('track') 경로는 중앙 크롭 경고가 결과에 남는다", async () => {
+    const r = await runTrack(setup({}, { videoInfo: info({ width: 1920, height: 1080, durationSec: 30 }) }))
     expect(r.qa.findings.some((f) => f.id === 'crop-no-person')).toBe(true)
-    expect(r.planCard.join('\n')).toMatch(/확대/)
   })
 
   test('onPlan 은 렌더 전에 "이렇게 이해했어요" 카드와 용도를 알려 준다', async () => {
@@ -206,8 +217,7 @@ describe('runEdit — 흐름', () => {
 
   test('(I1) 장면 전환 감지는 원본 전체 길이를 본다 (기본 180초 한계에 걸리지 않게)', async () => {
     const calls: { maxSec?: number }[] = []
-    const { run } = setup({ detectSceneCuts: async (_p, o) => (calls.push(o ?? {}), []) }, { videoInfo: info({ width: 1920, height: 1080, durationSec: 400 }) })
-    await run({ purpose: 'short' })
+    await runTrack(setup({ detectSceneCuts: async (_p, o) => (calls.push(o ?? {}), []) }, { videoInfo: info({ width: 1920, height: 1080, durationSec: 400 }) }))
     expect(calls[0]!.maxSec).toBeGreaterThanOrEqual(400)
   })
 
@@ -228,8 +238,7 @@ describe('runEdit — 흐름', () => {
       height: 1080,
       samples: Array.from({ length: 60 }, (_, i) => ({ t: i * 0.25, boxes: [{ x: i % 2 ? 0.7 : 0.1, y: 0.2, w: 0.1, h: 0.5, confidence: 0.9, kind: 'human' as const }] })),
     }
-    const { run } = setup({ trackPeople: async () => flip }, { videoInfo: info({ width: 1920, height: 1080, durationSec: 15 }) })
-    const r = await run({ purpose: 'short' })
+    const r = await runTrack(setup({ trackPeople: async () => flip }, { videoInfo: info({ width: 1920, height: 1080, durationSec: 15 }) }))
     expect(r.qa.findings.some((f) => f.id === 'crop-jitter')).toBe(true)
   })
 
@@ -482,8 +491,9 @@ describe('runEdit — 재작업', () => {
 
   test('recrop 이면 평활을 강하게 해 크롭을 다시 계산한다 (키프레임이 달라진다)', async () => {
     const wobble: PersonTrack = { width: 1920, height: 1080, samples: Array.from({ length: 40 }, (_, i) => ({ t: i * 0.25, boxes: [{ x: i < 20 ? 0.2 : 0.6, y: 0.2, w: 0.1, h: 0.5, confidence: 0.9, kind: 'human' as const }] })) }
-    const { rec, run } = setup({ trackPeople: async () => wobble }, { videoInfo: info({ width: 1920, height: 1080, durationSec: 10 }), qaQueue: [failing(high('framing', 'recrop')), PASS] })
-    await run({ purpose: 'short' })
+    const s = setup({ trackPeople: async () => wobble }, { videoInfo: info({ width: 1920, height: 1080, durationSec: 10 }), qaQueue: [failing(high('framing', 'recrop')), PASS] })
+    const { rec } = s
+    await runTrack(s)
     expect(rec.builds).toHaveLength(2)
     expect(JSON.stringify(rec.builds[1]!.crop)).not.toBe(JSON.stringify(rec.builds[0]!.crop))
   })

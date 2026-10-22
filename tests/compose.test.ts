@@ -39,11 +39,12 @@ const count = (s: string, re: RegExp) => (s.match(re) ?? []).length
 
 describe('chooseReframeMode', () => {
   const cases: [string, { width: number; height: number }, { width: number; height: number }, string][] = [
-    ['16:9 → 9:16', { width: 1920, height: 1080 }, SHORT, 'track'],
+    ['16:9 → 9:16 (자르지 않고 가운데 + 위아래 블러)', { width: 1920, height: 1080 }, SHORT, 'blur-fill'],
     ['9:16 → 16:9', { width: 1080, height: 1920 }, POST, 'blur-fill'],
-    ['1:1 → 9:16', { width: 1080, height: 1080 }, SHORT, 'track'],
+    ['1:1 → 9:16', { width: 1080, height: 1080 }, SHORT, 'blur-fill'],
     ['1:1 → 16:9', { width: 1080, height: 1080 }, POST, 'blur-fill'],
-    ['4:5 → 9:16', { width: 1080, height: 1350 }, SHORT, 'track'],
+    ['4:5 → 9:16', { width: 1080, height: 1350 }, SHORT, 'blur-fill'],
+    ['21:9 → 16:9 (위아래 띠)', { width: 2520, height: 1080 }, POST, 'blur-fill'],
     ['16:9 → 16:9', { width: 1920, height: 1080 }, POST, 'none'],
     ['9:16 → 9:16', { width: 1080, height: 1920 }, SHORT, 'none'],
     ['거의 같은 비율(1920x1088 → 16:9)', { width: 1920, height: 1088 }, POST, 'none'],

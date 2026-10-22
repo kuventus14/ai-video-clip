@@ -182,8 +182,8 @@ describe('produceEdit', () => {
     const report = JSON.parse(fs.readFileSync(path.join(outDir, 'report.json'), 'utf8'))
     expect(report.purpose).toMatchObject({ resolved: 'short', userChoice: 'short' })
     expect(report.planCard).toEqual(prepared.planCard)
-    expect(s.stages).toEqual(['cuts', 'track', 'build', 'render', 'qa', 'done']) // 가로 원본 → 세로: track 단계 포함
-    expect(s.builds[0]).toMatchObject({ sourcePath: '/in/영상.mp4', canvas: { width: 1080, height: 1920 }, reframe: 'track' })
+    expect(s.stages).toEqual(['cuts', 'build', 'render', 'qa', 'done']) // 가로 원본 → 세로: 자르지 않으니 사람 인식(track) 단계가 없다
+    expect(s.builds[0]).toMatchObject({ sourcePath: '/in/영상.mp4', canvas: { width: 1080, height: 1920 }, reframe: 'blur-fill' })
   })
 
   describe('소리 설정(audio)', () => {
@@ -197,7 +197,7 @@ describe('produceEdit', () => {
       const s = setup()
       const { analysis, prepared } = await prepare(s)
       await produceEdit({ analysis, prepared, outDir: path.join(work, 'v1'), audio: 'voice', onStage: s.onStage }, s.deps)
-      expect(s.stages).toEqual(['cuts', 'track', 'voice', 'build', 'render', 'qa', 'done'])
+      expect(s.stages).toEqual(['cuts', 'voice', 'build', 'render', 'qa', 'done'])
       expect(s.voices).toHaveLength(1)
       expect(s.voices[0]).toMatchObject({ sourcePath: '/in/영상.mp4', durationSec: 45 })
       expect(s.builds[0]!.sourcePath).toBe(s.voices[0]!.outPath)
@@ -256,7 +256,7 @@ describe('produceEdit', () => {
       const { analysis, prepared } = await prepare(s)
       const outDir = path.join(work, 'bgm')
       await produceEdit({ analysis, prepared, outDir, bgm: 'calm-1', onStage: s.onStage }, s.deps)
-      expect(s.stages).toEqual(['cuts', 'track', 'build', 'render', 'mix', 'qa', 'done'])
+      expect(s.stages).toEqual(['cuts', 'build', 'render', 'mix', 'qa', 'done'])
       expect(s.sounds).toHaveLength(1)
       expect(qaPaths).toEqual([s.sounds[0]!.outPath])
       expect(fs.readFileSync(path.join(outDir, 'result.mp4'), 'utf8')).toBe('mixed')
@@ -382,7 +382,7 @@ describe('runEdit 는 세 단계의 합성', () => {
     const s = setup()
     const cards: string[][] = []
     await runEdit({ videoPath: '/in/영상.mp4', outDir: path.join(work, 'out3'), reference: '/ref.mp4', onStage: s.onStage, onPlan: (c) => cards.push(c) }, s.deps)
-    expect(s.stages).toEqual(['probe', 'transcribe', 'reference', 'purpose', 'understand', 'plan', 'cuts', 'track', 'build', 'render', 'qa', 'done'])
+    expect(s.stages).toEqual(['probe', 'transcribe', 'reference', 'purpose', 'understand', 'plan', 'cuts', 'build', 'render', 'qa', 'done'])
     expect(cards).toHaveLength(1)
     expect(cards[0]![0]).toContain('레퍼런스의 편집 스타일')
   })

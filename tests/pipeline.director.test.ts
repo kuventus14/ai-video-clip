@@ -286,7 +286,7 @@ describe('produceEdit — 대본대로 만들기', () => {
   test('speed 1.1 이면 렌더 다음·검수(소리) 앞에 tempo 단계가 있고 applyTempo 가 렌더 결과를 입력으로 받는다 (Review Focus 5)', async () => {
     const s = setup()
     await produce(s, { bgm: 'calm-1' })
-    expect(s.stages.slice(s.stages.indexOf('cuts'))).toEqual(['cuts', 'track', 'build', 'render', 'tempo', 'mix', 'qa', 'done']) // 가로 원본 → 세로: track 포함
+    expect(s.stages.slice(s.stages.indexOf('cuts'))).toEqual(['cuts', 'build', 'render', 'tempo', 'mix', 'qa', 'done']) // 가로 원본 → 세로: 자르지 않으니 track 없음
     expect(s.tempos[0]).toMatchObject({ speed: 1.1, hasAudio: true })
     expect(path.basename(s.tempos[0]!.inputPath)).toBe('render-1.mp4')
   })

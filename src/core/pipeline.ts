@@ -147,7 +147,14 @@ function reframeCardLines(reframe: ReturnType<typeof chooseReframeMode>, info: V
   const lines: string[] = []
   const target = canvas.height > canvas.width ? '세로' : '가로'
   if (reframe === 'track') lines.push(`• 화면 구성: 원본을 ${target} 화면으로 자르면서 사람이 가운데 오도록 따라가요`)
-  if (reframe === 'blur-fill') lines.push(`• 화면 구성: 원본이 ${info.height > info.width ? '세로' : '정사각'}라서 ${target} 화면 가운데에 두고 양옆을 흐린(블러) 배경으로 채워요`)
+  if (reframe === 'blur-fill') {
+    const wider = info.width / info.height > canvas.width / canvas.height
+    lines.push(
+      wider
+        ? `• 화면 구성: 원본을 자르지 않고 ${target} 화면 가운데에 두고 위아래를 흐린(블러) 배경으로 채워요`
+        : `• 화면 구성: 원본이 ${info.height > info.width ? '세로' : '정사각'}라서 ${target} 화면 가운데에 두고 양옆을 흐린(블러) 배경으로 채워요`,
+    )
+  }
   const f = upscaleFactor(info, canvas, reframe)
   if (f > 1.5) lines.push(`• 주의: 원본 해상도가 낮아 화면이 ${f.toFixed(1)}배로 확대돼요. 선명도가 떨어질 수 있어요`)
   return lines
