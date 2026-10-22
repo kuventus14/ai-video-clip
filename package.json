@@ -15,7 +15,8 @@
     "worker": "tsx src/worker/main.ts",
     "app": "node scripts/app.mjs",
     "app:dev": "node scripts/app.mjs --dev",
-    "seed:demo": "VAE_DATA_DIR=data-demo tsx scripts/seed-demo.ts"
+    "seed:demo": "VAE_DATA_DIR=data-demo tsx scripts/seed-demo.ts",
+    "sound:measure": "tsx scripts/sound-measure.ts"
   },
   "type": "module",
   "private": "true",
