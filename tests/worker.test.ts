@@ -39,6 +39,7 @@ const PREPARED: Prepared = {
   planCard: ['이렇게 이해했어요: …'],
   reframe: 'none',
   referenceSource: 'https://youtu.be/abc',
+  captionPosition: 'top',
   spec: SPEC,
 }
 const REC: Recommendation = { id: 'abc', url: 'https://www.youtube.com/watch?v=abc', title: '추천 영상', viewCount: 1000, durationSec: 59, thumbnail: 'https://i.ytimg.com/vi/abc/hqdefault.jpg' }
@@ -161,7 +162,7 @@ describe('analysis 단계', () => {
     expect(JSON.parse(fs.readFileSync(path.join(jobs.jobDir(j.id), 'analysis.json'), 'utf8')).version).toBe(1)
     expect(f.calls.analyze[0]).toMatchObject({ videoPath: j.sourcePath, workDir: jobs.jobDir(j.id), description: '골프 레슨 영상입니다' })
     expect(f.calls.analyze[0]!.reference).toBeUndefined() // 레퍼런스는 분석에서 받지 않는다
-    expect(f.calls.search[0]).toEqual({ queries: ['q1', 'q2', 'q3'], purpose: 'short' })
+    expect(f.calls.search[0]).toEqual({ queries: ['골프 레슨'], purpose: 'short' }) // 세부 검색어(q1~q3)가 아니라 장르로 넓게
   })
 
   test('사용자가 고른 용도로 검색한다 (자동 인식과 달라도)', async () => {
@@ -206,6 +207,7 @@ describe('plan 단계', () => {
     const after = jobs.get(j.id)!
     expect(after).toMatchObject({ status: 'awaiting_plan', purpose: 'short', planCard: ['이렇게 이해했어요: …'] })
     expect(after.plan).toEqual(PREPARED.plan)
+    expect(after.captionPosition).toBe('top') // 계획이 정한 자막 위치가 승인 화면의 기본값으로 저장된다
     expect(fs.existsSync(path.join(jobs.jobDir(j.id), 'prepared.json'))).toBe(true)
     expect(f.calls.prepare[0]).toMatchObject({ request: '컷을 더 빠르게', purposeChoice: 'short', reference: 'https://youtu.be/abc' })
     expect(f.calls.prepare[0]!.analysis.summary.topic).toBe('롱아이언')
@@ -254,6 +256,17 @@ describe('produce 단계', () => {
     expect(fs.existsSync(after.thumbPath!)).toBe(true)
     expect(f.calls.produce[0]).toMatchObject({ quality: 'delivery', captions: 'off', outDir: path.join(jobs.jobDir(j.id), 'out') })
     expect(after.log.some((l) => l.message.includes('렌더링'))).toBe(true)
+  })
+
+  test('승인 화면에서 고른 자막 위치(captionPosition)를 엔진에 넘긴다 — 고르지 않았으면 넘기지 않는다', async () => {
+    for (const [captionPosition, expected] of [['middle', 'middle'], [null, undefined]] as const) {
+      const j = job('queued_produce', { captionPosition })
+      writeAnalysis(j.id)
+      fs.writeFileSync(path.join(jobs.jobDir(j.id), 'prepared.json'), JSON.stringify(PREPARED))
+      const f = fakes()
+      await runOnce(jobs, f.deps)
+      expect(f.calls.produce[0]!.captionPosition).toBe(expected)
+    }
   })
 
   test('소리 설정(audioMode)을 엔진에 넘긴다 — 기본은 original', async () => {

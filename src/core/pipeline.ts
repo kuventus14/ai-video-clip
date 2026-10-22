@@ -16,6 +16,7 @@ import { transcribe } from './transcribe.ts'
 import { applySound, type SoundReport } from './sound.ts'
 import { enhanceVoice } from './voice.ts'
 import type { SfxMode } from '../shared/sound.ts'
+import type { CaptionPosition } from '../shared/types.ts'
 import type { AudioMode } from '../shared/voice.ts'
 import { describeVideo, type VideoSummary } from './understand.ts'
 import type { CaptionCue, Purpose, ReframeMode, Span, Transcript, VideoInfo } from './types.ts'
@@ -174,6 +175,8 @@ export interface Prepared {
   planCard: string[]
   reframe: ReframeMode
   referenceSource?: string
+  /** 이 계획으로 만들면 자막이 놓일 위치(레퍼런스를 따르거나 기본 하단). 승인 화면의 기본값으로 쓰고 사용자가 바꿀 수 있다 */
+  captionPosition: CaptionPosition
   spec?: StyleSpec
 }
 
@@ -288,7 +291,8 @@ export async function prepareEdit(i: PrepareInput, overrides: Partial<PipelineDe
       ]
     : planCardLines(plan, specUsed)
   const planCard = [...baseCard, ...reframeCardLines(reframe, a.info, canvas)]
-  return { purpose, purposeChoice: i.purposeChoice, purposeGuess, plan, planCard, reframe, referenceSource: i.reference, spec }
+  const captionPosition = deriveAppliedStyle(plan, specUsed, a.summary, purpose).captions.position
+  return { purpose, purposeChoice: i.purposeChoice, purposeGuess, plan, planCard, reframe, referenceSource: i.reference, captionPosition, spec }
 }
 
 export interface ProduceInput {
@@ -299,6 +303,8 @@ export interface ProduceInput {
   workDir?: string
   quality?: Quality
   captions?: 'auto' | 'off'
+  /** 주면 계획이 정한 위치 대신 이 위치에 자막을 둔다 */
+  captionPosition?: CaptionPosition
   audio?: AudioMode
   bgm?: string | null
   sfx?: SfxMode
@@ -323,6 +329,7 @@ export async function produceEdit(i: ProduceInput, overrides: Partial<PipelineDe
   const guess = prepared.purposeGuess
   const canvas = canvasFor(purpose)
   const style = deriveAppliedStyle(plan, prepared.spec ?? defaultStyleSpec(purpose), summary, purpose)
+  if (i.captionPosition) style.captions.position = i.captionPosition
 
   try {
     // 6) 컷

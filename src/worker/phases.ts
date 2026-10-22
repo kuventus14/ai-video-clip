@@ -7,7 +7,7 @@ import { ReferenceFetchError } from '../core/reference.ts'
 import { VoiceError } from '../core/voice.ts'
 import { SoundError } from '../shared/sound.ts'
 import { resolvePurpose } from '../core/purpose.ts'
-import { SearchError } from '../core/search.ts'
+import { broadQueries, SearchError } from '../core/search.ts'
 import type { Job, Jobs } from '../db/jobs.ts'
 import type { WorkerDeps } from './worker.ts'
 
@@ -103,7 +103,7 @@ export async function analysisPhase({ jobs, d, job, dir, onStage }: PhaseContext
   let recommendations: Job['recommendations'] = []
   try {
     onStage('understand', '비슷한 인기 영상을 찾는 중')
-    recommendations = await d.searchReferences({ queries: analysis.summary.searchQueries, purpose })
+    recommendations = await d.searchReferences({ queries: broadQueries(analysis.summary), purpose })
     jobs.log(job.id, 'search', `추천 영상 ${recommendations.length}개를 찾았어요`)
   } catch (e) {
     jobs.log(job.id, 'search', `추천 영상을 찾지 못했어요. 링크나 파일로 직접 골라 주세요. (${describeError(e).message})`)
@@ -123,7 +123,7 @@ export async function planPhase({ jobs, d, job, dir, onStage }: PhaseContext): P
 
   const prepared = await d.prepareEdit({ analysis, workDir: dir, reference, knownSpec, request: job.requestText, purposeChoice: job.purposeChoice, onStage })
   writeJson(path.join(dir, 'prepared.json'), prepared)
-  jobs.transition(job.id, ['planning'], 'awaiting_plan', { plan: prepared.plan, planCard: prepared.planCard, purpose: prepared.purpose, errorMessage: null, stage: null })
+  jobs.transition(job.id, ['planning'], 'awaiting_plan', { plan: prepared.plan, planCard: prepared.planCard, purpose: prepared.purpose, captionPosition: prepared.captionPosition, errorMessage: null, stage: null })
 }
 
 /** 편집·렌더링·검수를 해서 결과 영상과 리포트를 만든다. */
@@ -133,7 +133,7 @@ export async function producePhase({ jobs, d, job, dir, onStage }: PhaseContext)
   if (!analysis || !prepared) throw new Error('분석·계획 결과를 찾을 수 없어요')
 
   const outDir = path.join(dir, 'out')
-  const result = await d.produceEdit({ analysis, prepared, outDir, quality: job.quality, captions: job.captionsMode, audio: job.audioMode, bgm: job.bgmId, sfx: job.sfxMode, onStage })
+  const result = await d.produceEdit({ analysis, prepared, outDir, quality: job.quality, captions: job.captionsMode, captionPosition: job.captionPosition ?? undefined, audio: job.audioMode, bgm: job.bgmId, sfx: job.sfxMode, onStage })
 
   let thumbPath: string | null = null
   try {

@@ -3,7 +3,7 @@
 import { ArrowLeftRight, Captions, Check, Crop, Music, Scissors, TriangleAlert, Type } from 'lucide-react'
 import { useEffect, useState, type ComponentType } from 'react'
 import type { SfxMode } from '../../src/shared/sound.ts'
-import type { JobDto, SoundListDto } from '../../src/shared/types.ts'
+import type { CaptionPosition, JobDto, SoundListDto } from '../../src/shared/types.ts'
 import { approve, getSound, plan } from '../../src/ui/api.ts'
 import { sourceFrame } from '../../src/ui/format.ts'
 import type { AudioMode } from '../../src/shared/voice.ts'
@@ -38,6 +38,7 @@ export function PlanApproval({ job, onChanged, onEditReference }: { job: JobDto;
   const card = parsePlanCard(job.planCard ?? [])
   const [choice, setChoice] = useState<PurposeChoice>(job.purposeChoice)
   const [captionsOn, setCaptionsOn] = useState(job.captionsMode !== 'off')
+  const [captionPosition, setCaptionPosition] = useState<CaptionPosition>(job.captionPosition ?? 'bottom')
   const [audio, setAudio] = useState<AudioMode>(job.audioMode)
   const [bgm, setBgm] = useState<string | null>(job.bgmId)
   const [sfx, setSfx] = useState<SfxMode>(job.sfxMode)
@@ -125,6 +126,25 @@ export function PlanApproval({ job, onChanged, onEditReference }: { job: JobDto;
 
           <Switch checked={captionsOn} onChange={setCaptionsOn} label="자막 넣기" description="영상에 이미 자막이 들어 있다면 끄세요. 두 줄로 겹쳐 보일 수 있어요." />
 
+          {captionsOn ? (
+            <div className="flex flex-col gap-3">
+              <Segmented<CaptionPosition>
+                legend="자막 위치"
+                value={captionPosition}
+                onChange={setCaptionPosition}
+                disabled={busy !== null}
+                options={[
+                  { value: 'top', label: '상단', hint: '화면 위쪽' },
+                  { value: 'middle', label: '중앙', hint: '화면 가운데' },
+                  { value: 'bottom', label: '하단', hint: '화면 아래쪽' },
+                ]}
+              />
+              <p className="text-[13px] text-ink-3">
+                {captionPosition === 'top' ? '자막을 화면 위쪽에 놓아요. 시작 제목 카드와 겹치지 않는지 결과에서 확인해 주세요.' : captionPosition === 'middle' ? '자막을 화면 가운데에 놓아요. 인물이 가운데 있으면 얼굴을 가릴 수 있어요.' : '자막을 화면 아래쪽에 놓아요(가장 흔한 위치).'}
+              </p>
+            </div>
+          ) : null}
+
           <div className="flex flex-col gap-3">
             <Segmented<AudioMode>
               legend="소리"
@@ -191,7 +211,7 @@ export function PlanApproval({ job, onChanged, onEditReference }: { job: JobDto;
             레퍼런스 바꾸기
           </Button>
         ) : null}
-        <Button variant="primary" loading={busy === 'approve'} disabled={purposeChanged || busy === 'replan'} onClick={() => run('approve', () => approve(job.id, { captions: captionsOn ? 'auto' : 'off', audio, bgm, sfx, quality }))}>
+        <Button variant="primary" loading={busy === 'approve'} disabled={purposeChanged || busy === 'replan'} onClick={() => run('approve', () => approve(job.id, { captions: captionsOn ? 'auto' : 'off', ...(captionsOn ? { captionPosition } : {}), audio, bgm, sfx, quality }))}>
           승인하고 만들기
         </Button>
       </ActionBar>

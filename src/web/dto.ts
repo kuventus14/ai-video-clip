@@ -80,6 +80,7 @@ export function toJobDto(job: Job): JobDto {
     audioMode: job.audioMode,
     bgmId: job.bgmId,
     sfxMode: job.sfxMode,
+    captionPosition: job.captionPosition,
     quality: job.quality,
     summary: summary.success ? summary.data : null,
     recommendations: job.recommendations,

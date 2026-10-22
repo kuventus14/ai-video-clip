@@ -31,7 +31,7 @@ function setup(over: Partial<PipelineDeps> = {}, videoInfo: VideoInfo = info()) 
   const stages: Stage[] = []
   const fetches: string[] = []
   let cleanups = 0
-  const builds: { sourcePath: string; canvas: { width: number; height: number }; reframe: string }[] = []
+  const builds: { sourcePath: string; canvas: { width: number; height: number }; reframe: string; captionPosition: string }[] = []
   const voices: { sourcePath: string; outPath: string; durationSec: number }[] = []
   const sounds: Parameters<PipelineDeps['applySound']>[0][] = []
   const deps: PipelineDeps = {
@@ -50,7 +50,7 @@ function setup(over: Partial<PipelineDeps> = {}, videoInfo: VideoInfo = info()) 
     trackPeople: async () => ({ width: 1920, height: 1080, samples: [] }),
     proofreadCues: async () => [],
     buildProject: async (b) => {
-      builds.push({ sourcePath: b.sourcePath, canvas: b.canvas, reframe: b.reframe })
+      builds.push({ sourcePath: b.sourcePath, canvas: b.canvas, reframe: b.reframe, captionPosition: b.style.captions.position })
       return { projectDir: path.join(b.workDir, 'project'), durationSec: 1 }
     },
     renderProject: async (_d, r) => {
@@ -335,6 +335,30 @@ describe('produceEdit', () => {
       await expect(produceEdit({ analysis, prepared, outDir, bgm: 'x', onStage: s.onStage }, s.deps)).rejects.toThrow(SoundError)
       expect(fs.readdirSync(outDir).filter((f) => f.startsWith('.vae-work-'))).toEqual([])
       expect(fs.existsSync(path.join(outDir, 'result.mp4'))).toBe(false)
+    })
+  })
+
+  describe('자막 위치(captionPosition)', () => {
+    test('계획이 정한 기본 위치를 돌려준다: 레퍼런스가 없으면 하단', async () => {
+      const s = setup()
+      const analysis = await analyzeInput({ videoPath: '/in/영상.mp4', workDir: work }, s.deps)
+      const prepared = await prepareEdit({ analysis, workDir: work, purposeChoice: 'short' }, s.deps)
+      expect(prepared.captionPosition).toBe('bottom')
+    })
+    test('레퍼런스의 자막이 위쪽이면 기본 위치도 상단(자막 스타일을 따라 하는 계획일 때)', async () => {
+      const s = setup({ analyzeReference: async () => ({ ...SPEC, captions: { ...SPEC.captions, position: 'top' as const } }) })
+      const analysis = await analyzeInput({ videoPath: '/in/영상.mp4', workDir: work }, s.deps)
+      const prepared = await prepareEdit({ analysis, workDir: work, reference: 'https://youtu.be/ref', purposeChoice: 'short' }, s.deps)
+      expect(prepared.captionPosition).toBe('top')
+    })
+    test('제작에 captionPosition 을 주면 레퍼런스·계획과 상관없이 그 위치로 만든다', async () => {
+      const s = setup()
+      const analysis = await analyzeInput({ videoPath: '/in/영상.mp4', workDir: work }, s.deps)
+      const prepared = await prepareEdit({ analysis, workDir: work, purposeChoice: 'short' }, s.deps)
+      await produceEdit({ analysis, prepared, outDir: path.join(work, 'pos-mid'), captionPosition: 'middle', onStage: s.onStage }, s.deps)
+      await produceEdit({ analysis, prepared, outDir: path.join(work, 'pos-top'), captionPosition: 'top', onStage: s.onStage }, s.deps)
+      await produceEdit({ analysis, prepared, outDir: path.join(work, 'pos-none'), onStage: s.onStage }, s.deps)
+      expect(s.builds.map((b) => b.captionPosition)).toEqual(['middle', 'top', 'bottom'])
     })
   })
 

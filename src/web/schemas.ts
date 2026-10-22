@@ -18,6 +18,7 @@ export const PlanBody = z.object({
 
 export const ApproveBody = z.object({
   captions: z.enum(['auto', 'off']).optional(),
+  captionPosition: z.enum(['top', 'middle', 'bottom']).optional(),
   audio: z.enum(['original', 'voice']).optional(),
   bgm: z.string().min(1).max(80).nullable().optional(),
   sfx: z.enum(['off', 'on']).optional(),

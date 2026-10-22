@@ -191,6 +191,27 @@ describe('approve (Review Focus 2)', () => {
     })
   })
 
+  describe('자막 위치(captionPosition)', () => {
+    test.each(['top', 'middle', 'bottom'] as const)('%s 를 기록하고 응답 DTO 에 captionPosition 이 있다', async (position) => {
+      const j = job('awaiting_plan')
+      const res = await call(approve, j.id, { captionPosition: position })
+      expect(res.status).toBe(200)
+      expect(((await res.json()) as JobDto).captionPosition).toBe(position)
+      expect(read(j.id)).toMatchObject({ status: 'queued_produce', captionPosition: position })
+    })
+    test('보내지 않으면 계획이 정해 둔 값을 그대로 둔다', async () => {
+      const j = job('awaiting_plan', { captionPosition: 'top' })
+      await call(approve, j.id, {})
+      expect(read(j.id).captionPosition).toBe('top')
+    })
+    test('잘못된 값(center, 빈 문자열)은 400 이고 승인되지 않는다', async () => {
+      const j = job('awaiting_plan')
+      expect((await call(approve, j.id, { captionPosition: 'center' })).status).toBe(400)
+      expect((await call(approve, j.id, { captionPosition: '' })).status).toBe(400)
+      expect(read(j.id).status).toBe('awaiting_plan')
+    })
+  })
+
   describe('배경음악·효과음(bgm / sfx)', () => {
     const savedSound = process.env.VAE_SOUND_DIR
     let sound: string

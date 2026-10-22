@@ -68,6 +68,8 @@ export interface JobDto {
   /** 배경음악 곡 id (없으면 null) / 효과음 켜기·끄기 */
   bgmId: string | null
   sfxMode: SfxMode
+  /** 자막 위치(상·중·하). 계획이 정한 값이 들어 있고 승인 화면에서 바꾼다. 아직 계획 전이면 null */
+  captionPosition: CaptionPosition | null
   quality: 'draft' | 'looks' | 'delivery'
   summary: { topic: string; genre: string; oneLine: string; hookTitle: string; searchQueries: string[] } | null
   recommendations: Recommendation[]
@@ -108,9 +110,13 @@ export interface PlanInput {
   purposeChoice?: 'auto' | PurposeValue
 }
 
+/** 자막을 화면 위·가운데·아래 중 어디에 둘지 */
+export type CaptionPosition = 'top' | 'middle' | 'bottom'
+
 /** 계획을 승인하고 제작을 시작할 때 보내는 값(POST /api/jobs/<id>/approve) */
 export interface ApproveInput {
   captions?: 'auto' | 'off'
+  captionPosition?: CaptionPosition
   audio?: AudioMode
   /** 배경음악 곡 id. null 이면 고른 곡을 지운다. 보내지 않으면 그대로 */
   bgm?: string | null

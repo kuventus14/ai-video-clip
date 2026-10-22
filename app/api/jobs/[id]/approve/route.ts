@@ -38,6 +38,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   if (body.data.bgm !== undefined) patch.bgmId = body.data.bgm
   if (body.data.sfx) patch.sfxMode = body.data.sfx
   if (body.data.captions) patch.captionsMode = body.data.captions
+  if (body.data.captionPosition) patch.captionPosition = body.data.captionPosition
   if (body.data.quality) patch.quality = body.data.quality
   const next = found.jobs.transition(found.job.id, ['awaiting_plan'], 'queued_produce', patch)
   return next ? Response.json(toJobDto(next)) : jsonError(409, '이미 승인했거나 지금은 승인할 수 없는 상태예요')
