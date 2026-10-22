@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, test } from 'vitest'
 import { analyzeInput, prepareEdit, produceEdit, runEdit, type Analysis, type PipelineDeps, type Prepared, type Stage } from '../src/core/pipeline.ts'
 import { interpretRequest } from '../src/core/interpret.ts'
 import { ReferenceFetchError } from '../src/core/reference.ts'
+import { SoundError } from '../src/shared/sound.ts'
 import { FEASIBILITY, type StyleSpec } from '../src/core/styleSpec.ts'
 import type { QaReport } from '../src/core/qa.ts'
 import type { Transcript, VideoInfo, Word } from '../src/core/types.ts'
@@ -32,6 +33,7 @@ function setup(over: Partial<PipelineDeps> = {}, videoInfo: VideoInfo = info()) 
   let cleanups = 0
   const builds: { sourcePath: string; canvas: { width: number; height: number }; reframe: string }[] = []
   const voices: { sourcePath: string; outPath: string; durationSec: number }[] = []
+  const sounds: Parameters<PipelineDeps['applySound']>[0][] = []
   const deps: PipelineDeps = {
     probeVideo: async () => videoInfo,
     ensureH264: async (p, i) => ({ path: p, info: i, converted: false }),
@@ -61,10 +63,17 @@ function setup(over: Partial<PipelineDeps> = {}, videoInfo: VideoInfo = info()) 
       voices.push({ sourcePath: v.sourcePath, outPath: v.outPath, durationSec: v.durationSec })
       return v.outPath
     },
+    applySound: async (a) => {
+      sounds.push(a)
+      fs.mkdirSync(path.dirname(a.outPath), { recursive: true })
+      fs.writeFileSync(a.outPath, 'mixed')
+      const bgm = a.choice.bgm ? { id: a.choice.bgm, title: '잔잔한 곡', author: '작가', license: 'CC0', sourceUrl: 'https://pixabay.com/x' } : undefined
+      return { path: a.outPath, report: { ...(bgm ? { bgm } : {}), sfxCount: a.choice.sfx === 'on' ? 2 : 0 } }
+    },
     ...over,
   }
   const onStage = (s: Stage) => stages.push(s)
-  return { deps, stages, fetches, builds, voices, cleanups: () => cleanups, onStage }
+  return { deps, stages, fetches, builds, voices, sounds, cleanups: () => cleanups, onStage }
 }
 
 const roundTrip = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T
@@ -216,6 +225,88 @@ describe('produceEdit', () => {
       expect(r.attempts).toBe(2)
       expect(s.voices).toHaveLength(1)
       expect(s.builds.map((b) => b.sourcePath)).toEqual([s.voices[0]!.outPath, s.voices[0]!.outPath])
+    })
+  })
+
+  describe('배경음악·효과음(bgm / sfx)', () => {
+    async function prepare(s: ReturnType<typeof setup>, reference?: string) {
+      const analysis = await analyzeInput({ videoPath: '/in/영상.mp4', workDir: work }, s.deps)
+      const prepared = await prepareEdit({ analysis, workDir: work, purposeChoice: 'short', reference }, s.deps)
+      return { analysis, prepared }
+    }
+
+    test('아무것도 고르지 않으면 소리 입히기를 부르지 않고 mix 단계도 없다', async () => {
+      const s = setup()
+      const { analysis, prepared } = await prepare(s)
+      await produceEdit({ analysis, prepared, outDir: path.join(work, 'none'), onStage: s.onStage }, s.deps)
+      expect(s.sounds).toHaveLength(0)
+      expect(s.stages).not.toContain('mix')
+      await produceEdit({ analysis, prepared, outDir: path.join(work, 'none2'), bgm: null, sfx: 'off', onStage: s.onStage }, s.deps)
+      expect(s.sounds).toHaveLength(0)
+    })
+
+    test('배경음악을 고르면 렌더 다음·검수 앞에 mix 단계가 있고, 검수와 결과 영상이 섞은 파일을 쓴다', async () => {
+      const qaPaths: string[] = []
+      const s = setup({ runQa: async (q) => (qaPaths.push(q.outputPath), PASS) })
+      const { analysis, prepared } = await prepare(s)
+      const outDir = path.join(work, 'bgm')
+      await produceEdit({ analysis, prepared, outDir, bgm: 'calm-1', onStage: s.onStage }, s.deps)
+      expect(s.stages).toEqual(['cuts', 'track', 'build', 'render', 'mix', 'qa', 'done'])
+      expect(s.sounds).toHaveLength(1)
+      expect(qaPaths).toEqual([s.sounds[0]!.outPath])
+      expect(fs.readFileSync(path.join(outDir, 'result.mp4'), 'utf8')).toBe('mixed')
+    })
+
+    test('입력: 고른 값·남은 구간·제목 카드 여부·영상 길이·소리 유무를 넘긴다', async () => {
+      const s = setup()
+      const { analysis, prepared } = await prepare(s, 'https://youtu.be/ref') // 레퍼런스에 제목 카드가 있다
+      await produceEdit({ analysis, prepared, outDir: path.join(work, 'args'), bgm: 'calm-1', sfx: 'on', onStage: s.onStage }, s.deps)
+      expect(s.sounds[0]).toMatchObject({ choice: { bgm: 'calm-1', sfx: 'on' }, hookTitle: true, durationSec: 1, hasAudio: true, kept: [{ start: 0, end: 45 }] })
+      expect(path.basename(s.sounds[0]!.renderedPath)).toBe('render-1.mp4')
+    })
+
+    test('효과음만 켜도 섞는다(제목 카드가 없으면 hookTitle=false)', async () => {
+      const s = setup({}, info({ hasAudio: false }))
+      const { analysis, prepared } = await prepare(s)
+      await produceEdit({ analysis, prepared, outDir: path.join(work, 'sfx'), sfx: 'on', onStage: s.onStage }, s.deps)
+      expect(s.sounds[0]).toMatchObject({ choice: { bgm: null, sfx: 'on' }, hookTitle: false, hasAudio: false })
+    })
+
+    test('검수 재작업으로 다시 렌더하면 다시 섞는다(시도마다 다른 파일)', async () => {
+      const queue: QaReport[] = [{ passed: false, findings: [{ id: 'low-bitrate', severity: 'high', message: '화질', fixHint: 'rerender-quality' }], corrections: [], checkedAt: 'x' }, PASS]
+      const s = setup({ runQa: async () => queue.shift()! })
+      const { analysis, prepared } = await prepare(s)
+      const r = await produceEdit({ analysis, prepared, outDir: path.join(work, 'rework2'), bgm: 'calm-1', onStage: s.onStage }, s.deps)
+      expect(r.attempts).toBe(2)
+      expect(s.sounds.map((x) => path.basename(x.renderedPath))).toEqual(['render-1.mp4', 'render-2.mp4'])
+      expect(new Set(s.sounds.map((x) => x.outPath)).size).toBe(2)
+    })
+
+    test('report.json 에 sound 가 남고, 확인하지 않은 항목에 귀로 듣는 확인이 들어간다', async () => {
+      const s = setup()
+      const { analysis, prepared } = await prepare(s)
+      const outDir = path.join(work, 'report')
+      await produceEdit({ analysis, prepared, outDir, bgm: 'calm-1', sfx: 'on', onStage: s.onStage }, s.deps)
+      const report = JSON.parse(fs.readFileSync(path.join(outDir, 'report.json'), 'utf8'))
+      expect(report.sound).toMatchObject({ bgm: { id: 'calm-1', title: '잔잔한 곡', license: 'CC0' }, sfxCount: 2 })
+      expect(report.unchecked.join(' ')).toContain('배경음악')
+    })
+
+    test('고르지 않았다면 report.json 에 sound 가 없다', async () => {
+      const s = setup()
+      const { analysis, prepared } = await prepare(s)
+      const outDir = path.join(work, 'report2')
+      await produceEdit({ analysis, prepared, outDir, onStage: s.onStage }, s.deps)
+      expect(JSON.parse(fs.readFileSync(path.join(outDir, 'report.json'), 'utf8')).sound).toBeUndefined()
+    })
+
+    test('소리 입히기가 SoundError 로 실패하면 같은 오류로 멈추고 작업 폴더를 지운다', async () => {
+      const s = setup({ applySound: async () => { throw new SoundError('고른 배경음악(x)을 찾을 수 없어요') } })
+      const { analysis, prepared } = await prepare(s)
+      const outDir = path.join(work, 'fail')
+      await expect(produceEdit({ analysis, prepared, outDir, bgm: 'x', onStage: s.onStage }, s.deps)).rejects.toThrow(SoundError)
+      expect(fs.readdirSync(outDir).filter((f) => f.startsWith('.vae-work-'))).toEqual([])
+      expect(fs.existsSync(path.join(outDir, 'result.mp4'))).toBe(false)
     })
   })
 

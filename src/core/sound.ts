@@ -1,4 +1,4 @@
-import { SoundError, type SfxRole, type SfxTrack } from '../shared/sound.ts'
+import { loadCatalog, SoundError, trackPath, type Catalog, type SfxMode, type SfxRole, type SfxTrack } from '../shared/sound.ts'
 import { run as realRun, ToolError } from './exec.ts'
 import type { Span } from './types.ts'
 
@@ -185,4 +185,74 @@ export async function mixSound(i: MixInput, deps: { run?: typeof realRun } = {})
     throw new SoundError(`배경음악·효과음을 입히지 못했어요. 같은 일이 반복되면 진행 기록을 알려 주세요. (${detail})`)
   }
   return i.outPath
+}
+
+export interface SoundChoice {
+  /** 배경음악 곡 id (없으면 null) */
+  bgm: string | null
+  sfx: SfxMode
+}
+
+/** report.json 에 남기는 사용한 음원 정보 */
+export interface SoundReport {
+  bgm?: { id: string; title: string; author: string; license: string; sourceUrl: string }
+  sfxCount: number
+}
+
+export interface ApplySoundInput {
+  /** 렌더된 영상 */
+  renderedPath: string
+  /** 소리를 입힌 새 영상을 둘 곳 */
+  outPath: string
+  choice: SoundChoice
+  /** 원본 시간 기준 남은 구간(효과음 위치 계산용) */
+  kept: Span[]
+  hookTitle: boolean
+  durationSec: number
+  hasAudio: boolean
+}
+
+/** 사용자가 고른 곡·효과음으로 렌더된 영상에 소리를 입힌다. 고른 곡이 목록에 없으면 SoundError. */
+export async function applySound(
+  i: ApplySoundInput,
+  deps: { catalog?: Catalog; measure?: typeof measureAudio; mix?: typeof mixSound } = {},
+): Promise<{ path: string; report: SoundReport }> {
+  const catalog = deps.catalog ?? loadCatalog()
+  const measure = deps.measure ?? measureAudio
+  const mix = deps.mix ?? mixSound
+
+  const bgm = i.choice.bgm ? catalog.bgm.find((t) => t.id === i.choice.bgm) : undefined
+  if (i.choice.bgm && !bgm) throw new SoundError(`고른 배경음악(${i.choice.bgm})을 음원 목록에서 찾을 수 없어요. 다른 곡을 골라 주세요.`)
+  if (i.choice.sfx === 'on' && !catalog.sfx.length) throw new SoundError('효과음 파일이 아직 없어서 효과음을 켤 수 없어요. 효과음을 끄고 다시 해 주세요.')
+
+  const voice = i.hasAudio ? await measure(i.renderedPath) : NO_AUDIO
+  const events = i.choice.sfx === 'on' ? planSfx({ kept: i.kept, hookTitle: i.hookTitle, sfx: catalog.sfx }) : []
+  const sfx = events.map((e) => {
+    const t = catalog.sfx.find((x) => x.id === e.trackId)!
+    return { file: trackPath(catalog, t), peakDb: t.peakDb, atSec: e.atSec }
+  })
+  const path = await mix({
+    videoPath: i.renderedPath, outPath: i.outPath, durationSec: i.durationSec, hasAudio: i.hasAudio, voice,
+    bgm: bgm ? { file: trackPath(catalog, bgm), lufs: bgm.lufs } : undefined,
+    sfx,
+  })
+  return {
+    path,
+    report: {
+      ...(bgm ? { bgm: { id: bgm.id, title: bgm.title, author: bgm.author, license: bgm.license, sourceUrl: bgm.sourceUrl } } : {}),
+      sfxCount: sfx.length,
+    },
+  }
+}
+
+/** CLI 의 --bgm / --sfx 값을 점검한다. 없는 곡이면 쓸 수 있는 id 를 알려 준다. */
+export function checkSoundFlags(v: { bgm?: string; sfx?: string }, catalog: Catalog): { ok: true; bgm: string | null; sfx: SfxMode } | { ok: false; message: string } {
+  if (v.sfx !== undefined && v.sfx !== 'on' && v.sfx !== 'off') return { ok: false, message: '--sfx 는 on 또는 off 예요' }
+  if (v.sfx === 'on' && !catalog.sfx.length) return { ok: false, message: '효과음 파일이 아직 없어서 --sfx on 을 쓸 수 없어요' }
+  const bgm = v.bgm === undefined || v.bgm === 'none' ? null : v.bgm
+  if (bgm && !catalog.bgm.some((t) => t.id === bgm)) {
+    const ids = catalog.bgm.map((t) => t.id)
+    return { ok: false, message: `--bgm 곡을 찾을 수 없어요: ${bgm}. ${ids.length ? `쓸 수 있는 곡: ${ids.join(', ')}` : '음원 목록이 비어 있어요'}` }
+  }
+  return { ok: true, bgm, sfx: v.sfx === 'on' ? 'on' : 'off' }
 }

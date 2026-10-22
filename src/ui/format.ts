@@ -201,7 +201,7 @@ export function stageVisual(status: JobStatus, stage: string | null): StageVisua
   if (isQueued(status)) return 'wait'
   if (status === 'probing') return 'probe'
   const s = stage ?? ''
-  if (s.startsWith('음성 인식') || s.startsWith('목소리 보정')) return 'listen'
+  if (s.startsWith('음성 인식') || s.startsWith('목소리 보정') || s.startsWith('배경음악')) return 'listen'
   if (s.startsWith('영상 이해') || s.startsWith('사람 위치') || s.startsWith('용도 판단')) return 'watch'
   if (s.startsWith('레퍼런스')) return 'reference'
   if (s.startsWith('편집 계획') || s.startsWith('컷 계산')) return 'plan'
@@ -241,7 +241,7 @@ export function phaseStages(status: JobStatus): PhaseStage[] {
       return [
         { visual: 'plan', label: '컷 계산', match: ['컷 계산'] },
         { visual: 'watch', label: '편집 구성', match: ['사람 위치', '목소리 보정', '편집 프로젝트'] },
-        { visual: 'render', label: '렌더링', match: ['렌더링'] },
+        { visual: 'render', label: '렌더링', match: ['렌더링', '배경음악'] },
         { visual: 'qa', label: '검수', match: ['검수'] },
       ]
     default:

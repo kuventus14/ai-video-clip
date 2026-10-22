@@ -4,8 +4,8 @@ import path from 'node:path'
 import { afterAll, beforeAll, describe, expect, test } from 'vitest'
 import { run } from '../src/core/exec.ts'
 import { probeVideo } from '../src/core/media.ts'
-import { buildMixArgs, measureAudio, mixSound, planSfx, type MixInput } from '../src/core/sound.ts'
-import { SoundError, type SfxRole, type SfxTrack } from '../src/shared/sound.ts'
+import { applySound, buildMixArgs, checkSoundFlags, measureAudio, mixSound, planSfx, type MixInput } from '../src/core/sound.ts'
+import { SoundError, type BgmTrack, type Catalog, type SfxRole, type SfxTrack } from '../src/shared/sound.ts'
 import { ensureFixtures, type Fixtures } from './helpers/fixtures.ts'
 
 const sfx = (id: string, role: SfxRole): SfxTrack => ({
@@ -228,5 +228,91 @@ describe('측정과 섞기 — 실제 ffmpeg (합성 소리)', () => {
     const p = mixSound({ videoPath: fx.landscape, outPath: f('mix-fail.mp4'), durationSec: 5, hasAudio: true, voice: { lufs: -20, peakDb: -3 }, bgm: { file: f('nope.wav'), lufs: -14 }, sfx: [] })
     await expect(p).rejects.toThrow(SoundError)
     await expect(p).rejects.toThrow(/배경음악·효과음/)
+  })
+})
+
+const BGM: BgmTrack = { kind: 'bgm', id: 'calm-1', file: 'bgm/calm-1.mp3', title: '잔잔한 곡', author: '작가', sourceUrl: 'https://pixabay.com/music/x', license: 'Pixabay License', durationSec: 90, lufs: -14, peakDb: -1, mood: 'calm' }
+const CATALOG: Catalog = { dir: '/snd', bgm: [BGM], sfx: [WHOOSH, POP] }
+const RENDERED = { renderedPath: '/w/render-1.mp4', outPath: '/w/mix-1.mp4', kept: [span(0, 5), span(8, 12)], hookTitle: true, durationSec: 9, hasAudio: true }
+
+describe('applySound — 고른 값으로 측정하고 섞는다', () => {
+  const fakes = () => {
+    const calls: { mix?: MixInput; measured: string[] } = { measured: [] }
+    return {
+      calls,
+      deps: {
+        catalog: CATALOG,
+        measure: async (f: string) => (calls.measured.push(f), { lufs: -18, peakDb: -2 }),
+        mix: async (m: MixInput) => ((calls.mix = m), m.outPath),
+      },
+    }
+  }
+
+  test('곡 id 가 목록에 없으면 SoundError(그 id 를 말한다)', async () => {
+    const f = fakes()
+    await expect(applySound({ ...RENDERED, choice: { bgm: 'nope', sfx: 'off' } }, f.deps)).rejects.toThrow(/nope/)
+    await expect(applySound({ ...RENDERED, choice: { bgm: 'nope', sfx: 'off' } }, f.deps)).rejects.toThrow(SoundError)
+  })
+  test('효과음 id 를 배경음악으로 고르면 SoundError', async () => {
+    await expect(applySound({ ...RENDERED, choice: { bgm: 'w1', sfx: 'off' } }, fakes().deps)).rejects.toThrow(SoundError)
+  })
+  test('효과음을 켰는데 효과음 파일이 없으면 SoundError', async () => {
+    const f = fakes()
+    await expect(applySound({ ...RENDERED, choice: { bgm: null, sfx: 'on' } }, { ...f.deps, catalog: { ...CATALOG, sfx: [] } })).rejects.toThrow(/효과음/)
+  })
+  test('곡·효과음 위치·목소리 측정값을 섞기에 넘기고, 곡 파일은 음원 폴더 기준 경로', async () => {
+    const f = fakes()
+    const r = await applySound({ ...RENDERED, choice: { bgm: 'calm-1', sfx: 'on' } }, f.deps)
+    expect(r.path).toBe('/w/mix-1.mp4')
+    expect(f.calls.measured).toEqual(['/w/render-1.mp4'])
+    expect(f.calls.mix).toMatchObject({
+      videoPath: '/w/render-1.mp4', outPath: '/w/mix-1.mp4', durationSec: 9, hasAudio: true, voice: { lufs: -18, peakDb: -2 },
+      bgm: { file: '/snd/bgm/calm-1.mp3', lufs: -14 },
+    })
+    // 제목 pop 0.1초, 경계(출력 5초) whoosh 4.85초
+    expect(f.calls.mix!.sfx.map((s) => [s.file, s.atSec])).toEqual([['/snd/sfx/p1.mp3', 0.1], ['/snd/sfx/w1.mp3', 4.85]])
+    expect(r.report).toEqual({ bgm: { id: 'calm-1', title: '잔잔한 곡', author: '작가', license: 'Pixabay License', sourceUrl: 'https://pixabay.com/music/x' }, sfxCount: 2 })
+  })
+  test('음악만 고르면 효과음은 비어 있고 sfxCount 0', async () => {
+    const f = fakes()
+    const r = await applySound({ ...RENDERED, choice: { bgm: 'calm-1', sfx: 'off' } }, f.deps)
+    expect(f.calls.mix!.sfx).toEqual([])
+    expect(r.report.sfxCount).toBe(0)
+  })
+  test('효과음만 켜면 bgm 은 없고 report 에도 bgm 이 없다', async () => {
+    const f = fakes()
+    const r = await applySound({ ...RENDERED, choice: { bgm: null, sfx: 'on' } }, f.deps)
+    expect(f.calls.mix!.bgm).toBeUndefined()
+    expect(r.report.bgm).toBeUndefined()
+  })
+  test('소리가 없는 영상은 측정하지 않고 hasAudio=false, 목소리 측정값 없음으로 넘긴다', async () => {
+    const f = fakes()
+    await applySound({ ...RENDERED, hasAudio: false, choice: { bgm: 'calm-1', sfx: 'off' } }, f.deps)
+    expect(f.calls.measured).toEqual([])
+    expect(f.calls.mix).toMatchObject({ hasAudio: false, voice: { lufs: null, peakDb: null } })
+  })
+})
+
+describe('checkSoundFlags — CLI 의 --bgm / --sfx 점검', () => {
+  const cat = CATALOG
+  test('아무것도 안 주면 없음·끄기', () => {
+    expect(checkSoundFlags({}, cat)).toEqual({ ok: true, bgm: null, sfx: 'off' })
+  })
+  test('목록에 있는 곡과 on/off 를 받는다', () => {
+    expect(checkSoundFlags({ bgm: 'calm-1', sfx: 'on' }, cat)).toEqual({ ok: true, bgm: 'calm-1', sfx: 'on' })
+  })
+  test('--bgm none 은 곡 없음', () => {
+    expect(checkSoundFlags({ bgm: 'none' }, cat)).toMatchObject({ ok: true, bgm: null })
+  })
+  test('없는 곡이면 쓸 수 있는 id 목록을 알려 준다', () => {
+    const r = checkSoundFlags({ bgm: 'nope' }, cat)
+    expect(r.ok).toBe(false)
+    expect(!r.ok && r.message).toContain('calm-1')
+  })
+  test('--sfx 는 on 또는 off 만', () => {
+    expect(checkSoundFlags({ sfx: 'loud' }, cat).ok).toBe(false)
+  })
+  test('효과음 파일이 없는데 --sfx on 이면 거절', () => {
+    expect(checkSoundFlags({ sfx: 'on' }, { ...cat, sfx: [] }).ok).toBe(false)
   })
 })

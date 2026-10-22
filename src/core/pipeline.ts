@@ -13,7 +13,9 @@ import { analyzeReference, detectSceneCuts, FEASIBILITY, type StyleSpec } from '
 import { fetchReference } from './reference.ts'
 import { groupWordsIntoCues, remapKeyframes, remapWords } from './timeline.ts'
 import { transcribe } from './transcribe.ts'
+import { applySound, type SoundReport } from './sound.ts'
 import { enhanceVoice } from './voice.ts'
+import type { SfxMode } from '../shared/sound.ts'
 import type { AudioMode } from '../shared/voice.ts'
 import { describeVideo, type VideoSummary } from './understand.ts'
 import type { CaptionCue, Purpose, ReframeMode, Span, Transcript, VideoInfo } from './types.ts'
@@ -27,7 +29,7 @@ export class InputError extends Error {
   }
 }
 
-export type Stage = 'probe' | 'normalize' | 'transcribe' | 'reference' | 'purpose' | 'understand' | 'plan' | 'cuts' | 'track' | 'voice' | 'build' | 'render' | 'qa' | 'rework' | 'done'
+export type Stage = 'probe' | 'normalize' | 'transcribe' | 'reference' | 'purpose' | 'understand' | 'plan' | 'cuts' | 'track' | 'voice' | 'build' | 'render' | 'mix' | 'qa' | 'rework' | 'done'
 export type Quality = 'draft' | 'looks' | 'delivery'
 
 export interface EditOptions {
@@ -41,6 +43,9 @@ export interface EditOptions {
   captions?: 'auto' | 'off'
   /** 소리: 'original' 은 원본 그대로(기본), 'voice' 는 소음을 줄이고 목소리 크기를 맞춘다 */
   audio?: AudioMode
+  /** 배경음악 곡 id (없거나 null 이면 넣지 않는다) / 효과음 켜기·끄기(기본 끄기) */
+  bgm?: string | null
+  sfx?: SfxMode
   /** 작업 폴더(<outDir>/.vae-work-…)를 끝난 뒤에도 남긴다 */
   keepWork?: boolean
   onStage?: (s: Stage, detail?: string) => void
@@ -81,11 +86,12 @@ export interface PipelineDeps {
   renderProject: typeof renderProject
   runQa: typeof runQa
   enhanceVoice: typeof enhanceVoice
+  applySound: typeof applySound
 }
 
 const DEFAULTS: PipelineDeps = {
   probeVideo, ensureH264, transcribe, detectSilences, detectSceneCuts, describeVideo, fetchReference, analyzeReference,
-  interpretRequest, trackPeople, proofreadCues, buildProject, renderProject, runQa, enhanceVoice,
+  interpretRequest, trackPeople, proofreadCues, buildProject, renderProject, runQa, enhanceVoice, applySound,
 }
 
 const MIN_SEC = 1
@@ -104,6 +110,7 @@ const UNCHECKED = [
   '자막과 음성의 싱크',
   '자막이 화면 밖으로 잘리거나 제목 카드와 겹치는지',
   '원본 대비 비트레이트 하락',
+  '배경음악·효과음이 영상과 어울리는지(귀로 들어 보는 확인)',
 ]
 
 /** 레퍼런스가 없을 때 쓰는 무난한 기본 스타일 */
@@ -293,6 +300,8 @@ export interface ProduceInput {
   quality?: Quality
   captions?: 'auto' | 'off'
   audio?: AudioMode
+  bgm?: string | null
+  sfx?: SfxMode
   keepWork?: boolean
   onStage?: StageCallback
 }
@@ -370,6 +379,8 @@ export async function produceEdit(i: ProduceInput, overrides: Partial<PipelineDe
     let correctionsApplied = false // 검수 교정 때문에 도는 재작업은 1회로 제한한다(모델이 매번 다른 답을 내도 계속 렌더하지 않게)
     let qa: QaReport
     let renderedPath: string
+    let soundReport: SoundReport | undefined
+    const wantsSound = Boolean(i.bgm) || i.sfx === 'on'
     for (;;) {
       stage('build')
       const built = await d.buildProject({
@@ -386,6 +397,22 @@ export async function produceEdit(i: ProduceInput, overrides: Partial<PipelineDe
       stage('render', `${quality} 화질`)
       const rendered = await d.renderProject(built.projectDir, { outPath: path.join(work, `render-${attempt}.mp4`), quality })
       renderedPath = rendered.outPath
+
+      // 배경음악·효과음: 렌더가 끝난 영상에 입히고, 검수는 입힌 결과를 본다(재작업으로 다시 렌더할 때마다 다시 입힌다)
+      if (wantsSound) {
+        stage('mix')
+        const mixed = await d.applySound({
+          renderedPath,
+          outPath: path.join(work, `mix-${attempt}.mp4`),
+          choice: { bgm: i.bgm ?? null, sfx: i.sfx ?? 'off' },
+          kept,
+          hookTitle: style.hookTitle !== undefined,
+          durationSec: built.durationSec,
+          hasAudio: info.hasAudio,
+        })
+        renderedPath = mixed.path
+        soundReport = mixed.report
+      }
 
       stage('qa')
       qa = await d.runQa({
@@ -488,6 +515,7 @@ export async function produceEdit(i: ProduceInput, overrides: Partial<PipelineDe
           appliedCorrections: applied,
           suggestions,
           unchecked: UNCHECKED,
+          ...(soundReport ? { sound: soundReport } : {}),
           qa: finalQa,
         },
         null,
@@ -512,7 +540,7 @@ export async function runEdit(o: EditOptions, overrides: Partial<PipelineDeps> =
     const analysis = await analyzeInput({ videoPath: o.videoPath, workDir: work, description: o.description, reference: o.reference, onStage: o.onStage }, overrides)
     const prepared = await prepareEdit({ analysis, workDir: work, request: o.request, purposeChoice: o.purpose ?? 'auto', onStage: o.onStage }, overrides)
     o.onPlan?.(prepared.planCard, prepared.purpose)
-    return await produceEdit({ analysis, prepared, outDir, workDir: work, quality: o.quality, captions: o.captions, audio: o.audio, onStage: o.onStage }, overrides)
+    return await produceEdit({ analysis, prepared, outDir, workDir: work, quality: o.quality, captions: o.captions, audio: o.audio, bgm: o.bgm, sfx: o.sfx, onStage: o.onStage }, overrides)
   } finally {
     if (!o.keepWork) fs.rmSync(work, { recursive: true, force: true })
   }

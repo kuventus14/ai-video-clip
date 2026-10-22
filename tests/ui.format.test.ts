@@ -258,6 +258,13 @@ describe('목소리 보정 단계 표시', () => {
   })
 })
 
+describe('배경음악·효과음 입히기 단계 표시', () => {
+  it('소리 그림(listen)이고, 단계 표시줄은 뒤로 가지 않도록 "렌더링" 칸에 머문다', () => {
+    expect(stageVisual('producing', '배경음악·효과음 입히기')).toBe('listen')
+    expect(currentStageIndex('producing', '배경음악·효과음 입히기')).toBe(phaseStages('producing').findIndex((s) => s.label === '렌더링'))
+  })
+})
+
 describe('phaseStages — 지금 하는 일이 속한 묶음의 단계들', () => {
   it('분석·계획·제작 단계마다 차례대로', () => {
     expect(phaseStages('analyzing').map((s) => s.label)).toEqual(['음성 인식', '영상 이해'])

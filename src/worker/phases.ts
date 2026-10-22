@@ -5,6 +5,7 @@ import { ToolError } from '../core/exec.ts'
 import { assertDurationOk, InputError, type Analysis, type Prepared, type Stage } from '../core/pipeline.ts'
 import { ReferenceFetchError } from '../core/reference.ts'
 import { VoiceError } from '../core/voice.ts'
+import { SoundError } from '../shared/sound.ts'
 import { resolvePurpose } from '../core/purpose.ts'
 import { SearchError } from '../core/search.ts'
 import type { Job, Jobs } from '../db/jobs.ts'
@@ -23,6 +24,7 @@ const STAGE_LABEL: Record<Stage, string> = {
   voice: '목소리 보정',
   build: '편집 프로젝트 만들기',
   render: '렌더링',
+  mix: '배경음악·효과음 입히기',
   qa: '검수',
   rework: '검수 결과로 다시 작업',
   done: '완료',
@@ -46,7 +48,7 @@ export function stageText(s: Stage, detail?: string): string {
 
 /** 사용자에게 그대로 보여 줄 수 있는 오류는 메시지를, 그 밖의 오류는 일반 안내를 돌려준다. */
 export function describeError(e: unknown): { message: string; detail?: string } {
-  if (e instanceof InputError || e instanceof ReferenceFetchError || e instanceof LlmError || e instanceof SearchError || e instanceof VoiceError) {
+  if (e instanceof InputError || e instanceof ReferenceFetchError || e instanceof LlmError || e instanceof SearchError || e instanceof VoiceError || e instanceof SoundError) {
     return { message: e.message }
   }
   // 도구(ffprobe·ffmpeg 등)의 원문에는 이 컴퓨터의 파일 경로와 영어 오류가 섞여 있다 — 화면에는 안내만, 원문은 진행 기록에 남긴다
@@ -131,7 +133,7 @@ export async function producePhase({ jobs, d, job, dir, onStage }: PhaseContext)
   if (!analysis || !prepared) throw new Error('분석·계획 결과를 찾을 수 없어요')
 
   const outDir = path.join(dir, 'out')
-  const result = await d.produceEdit({ analysis, prepared, outDir, quality: job.quality, captions: job.captionsMode, audio: job.audioMode, onStage })
+  const result = await d.produceEdit({ analysis, prepared, outDir, quality: job.quality, captions: job.captionsMode, audio: job.audioMode, bgm: job.bgmId, sfx: job.sfxMode, onStage })
 
   let thumbPath: string | null = null
   try {

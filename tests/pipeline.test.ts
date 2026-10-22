@@ -87,6 +87,7 @@ function setup(over: Partial<PipelineDeps> = {}, o: { qaQueue?: QaReport[]; vide
       return { outPath: r.outPath, wallSec: 0.1 }
     },
     enhanceVoice: async (v) => v.outPath,
+    applySound: async (a) => ({ path: a.renderedPath, report: { sfxCount: 0 } }),
     runQa: async (q) => {
       rec.qas.push(q)
       return qaQueue.shift() ?? PASS

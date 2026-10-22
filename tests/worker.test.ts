@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, test } from 'vitest'
 import { ToolError } from '../src/core/exec.ts'
 import { ReferenceFetchError } from '../src/core/reference.ts'
 import { VoiceError } from '../src/core/voice.ts'
+import { SoundError } from '../src/shared/sound.ts'
 import { VOICE_TOOL_MISSING } from '../src/shared/voice.ts'
 import type { Analysis, Prepared } from '../src/core/pipeline.ts'
 import { openDb } from '../src/db/db.ts'
@@ -264,6 +265,29 @@ describe('produce 단계', () => {
       await runOnce(jobs, f.deps)
       expect(f.calls.produce[0]).toMatchObject({ audio: audioMode })
     }
+  })
+
+  test('배경음악·효과음 선택(bgmId·sfxMode)을 엔진에 넘긴다 — 기본은 없음·끄기', async () => {
+    for (const [patch, expected] of [
+      [{ bgmId: 'calm-1', sfxMode: 'on' as const }, { bgm: 'calm-1', sfx: 'on' }],
+      [{}, { bgm: null, sfx: 'off' }],
+    ] as const) {
+      const j = job('queued_produce', patch)
+      writeAnalysis(j.id)
+      fs.writeFileSync(path.join(jobs.jobDir(j.id), 'prepared.json'), JSON.stringify(PREPARED))
+      const f = fakes()
+      await runOnce(jobs, f.deps)
+      expect(f.calls.produce[0]).toMatchObject(expected)
+    }
+  })
+
+  test('음원 오류(SoundError)는 한국어 안내를 그대로 보여 주고 failed(produce) 로 둔다', async () => {
+    const j = job('queued_produce', { bgmId: 'gone' })
+    writeAnalysis(j.id)
+    fs.writeFileSync(path.join(jobs.jobDir(j.id), 'prepared.json'), JSON.stringify(PREPARED))
+    await runOnce(jobs, fakes({ produceEdit: async () => { throw new SoundError('음원 파일이 없어요: gone (bgm/gone.mp3)') } }).deps)
+    const after = jobs.get(j.id)!
+    expect(after).toMatchObject({ status: 'failed', failedPhase: 'produce', errorMessage: '음원 파일이 없어요: gone (bgm/gone.mp3)' })
   })
 
   test('목소리 보정 도구가 없어서 실패하면 설치 안내를 그대로 보여 주고 failed(produce) 로 둔다', async () => {
