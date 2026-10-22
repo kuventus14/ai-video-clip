@@ -91,6 +91,8 @@ function setup(over: Partial<PipelineDeps> = {}, o: { qaQueue?: QaReport[]; vide
     directEdit: undefined, // 이 시험들은 지금 방식(컷+자막)을 확인한다 — 편집 감독은 tests/pipeline.director.test.ts
     extractReferenceFrames: undefined,
     applyTempo: undefined,
+    detectContentRect: undefined, // 검은 띠 제거는 아래 '검은 띠' 시험에서만 켠다
+    cropToContent: undefined,
     runQa: async (q) => {
       rec.qas.push(q)
       return qaQueue.shift() ?? PASS
@@ -236,6 +238,73 @@ describe('runEdit — 흐름', () => {
     await run()
     expect(rec.stages.slice(0, 3)).toEqual(['probe', 'normalize', 'transcribe'])
     expect(rec.builds[0]!.sourcePath).toBe('/work/source-h264.mp4')
+  })
+})
+
+describe('runEdit — 검은 띠 자동 제거', () => {
+  const RECT = { x: 0, y: 140, width: 1920, height: 800 }
+  const boxedProbe = async (p: string) => (p.endsWith('source-cropped.mp4') ? info({ path: p, width: 1920, height: 800 }) : info({ width: 1920, height: 1080 }))
+
+  test('띠가 있으면 잘라낸 파일·크기로 작업하고 normalize 단계로 알린다', async () => {
+    const crops: { inputPath: string; outPath: string; rect: unknown; hasAudio: boolean }[] = []
+    const { rec, run } = setup({
+      probeVideo: boxedProbe,
+      detectContentRect: async () => RECT,
+      cropToContent: async (c) => {
+        crops.push(c)
+        return c.outPath
+      },
+    })
+    const stages: [Stage, string | undefined][] = []
+    await run({ onStage: (s, d) => stages.push([s, d]) })
+    expect(crops).toHaveLength(1)
+    expect(crops[0]).toMatchObject({ inputPath: '/in/영상.mp4', rect: RECT, hasAudio: true })
+    expect(crops[0]!.outPath.endsWith('source-cropped.mp4')).toBe(true)
+    expect(stages).toContainEqual(['normalize', '검은 띠를 잘라냈어요 (1920x800)'])
+    expect(rec.builds[0]!.sourcePath).toBe(crops[0]!.outPath)
+    expect([rec.builds[0]!.info.width, rec.builds[0]!.info.height]).toEqual([1920, 800])
+  })
+
+  test('띠가 없으면(null) 자르지 않는다', async () => {
+    let cropped = 0
+    const { rec, run } = setup({
+      detectContentRect: async () => null,
+      cropToContent: async (c) => {
+        cropped++
+        return c.outPath
+      },
+    })
+    await run()
+    expect(cropped).toBe(0)
+    expect(rec.builds[0]!.sourcePath).toBe('/in/영상.mp4')
+    expect(rec.stages).not.toContain('normalize')
+  })
+
+  test('띠를 찾다가 실패해도 원본으로 계속한다', async () => {
+    const { rec, run } = setup({
+      detectContentRect: async () => {
+        throw new Error('ffmpeg 실패')
+      },
+      cropToContent: async (c) => c.outPath,
+    })
+    const r = await run()
+    expect(r.delivered).toBe(true)
+    expect(rec.builds[0]!.sourcePath).toBe('/in/영상.mp4')
+  })
+
+  test('자르다가 실패해도 원본으로 계속한다(크기도 원본 그대로)', async () => {
+    const { rec, run } = setup({
+      probeVideo: boxedProbe,
+      detectContentRect: async () => RECT,
+      cropToContent: async () => {
+        throw new Error('인코딩 실패')
+      },
+    })
+    const r = await run()
+    expect(r.delivered).toBe(true)
+    expect(rec.builds[0]!.sourcePath).toBe('/in/영상.mp4')
+    expect([rec.builds[0]!.info.width, rec.builds[0]!.info.height]).toEqual([1920, 1080])
+    expect(rec.stages).not.toContain('normalize')
   })
 })
 

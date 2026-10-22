@@ -78,6 +78,8 @@ function setup(over: Partial<PipelineDeps> = {}, videoInfo: VideoInfo = info()) 
       return [path.join(outDir, 'frame-00.jpg')]
     },
     applyTempo: async (t) => (tempos.push(t), fs.writeFileSync(t.outPath, 'fast'), t.outPath),
+    detectContentRect: undefined, // 검은 띠 제거는 tests/pipeline.test.ts 에서 확인한다
+    cropToContent: undefined,
     ...over,
   }
   return { deps, stages, builds, qas, tempos, sounds, directs, extracts, onStage: (s: Stage) => stages.push(s) }

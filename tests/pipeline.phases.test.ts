@@ -66,6 +66,8 @@ function setup(over: Partial<PipelineDeps> = {}, videoInfo: VideoInfo = info()) 
     directEdit: undefined, // 이 시험들은 지금 방식(컷+자막)을 확인한다 — 편집 감독은 tests/pipeline.director.test.ts
     extractReferenceFrames: undefined,
     applyTempo: undefined,
+    detectContentRect: undefined,
+    cropToContent: undefined,
     applySound: async (a) => {
       sounds.push(a)
       fs.mkdirSync(path.dirname(a.outPath), { recursive: true })

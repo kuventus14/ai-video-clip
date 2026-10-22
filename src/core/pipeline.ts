@@ -15,6 +15,7 @@ import { buildTimeline, groupWordsIntoCues, remapKeyframes, remapWords, shiftCue
 import { transcribe } from './transcribe.ts'
 import { applySound, type SoundReport } from './sound.ts'
 import { directEdit, extractReferenceFrames } from './director.ts'
+import { cropToContent, detectContentRect } from './letterbox.ts'
 import { emptyScript, normalizeScript, scriptCardLines, toRenderScript, type EditScript } from './script.ts'
 import { applyTempo, scaleSec } from './tempo.ts'
 import { enhanceVoice } from './voice.ts'
@@ -97,11 +98,14 @@ export interface PipelineDeps {
   extractReferenceFrames?: typeof extractReferenceFrames
   /** 렌더 뒤 속도 조정. 대본의 speed > 1 일 때만 쓴다 */
   applyTempo?: typeof applyTempo
+  /** 가로 영상의 검은 띠 찾기·자르기. 둘 다 있어야 하고, 없으면 띠를 그대로 둔다 */
+  detectContentRect?: typeof detectContentRect
+  cropToContent?: typeof cropToContent
 }
 
 const DEFAULTS: PipelineDeps = {
   probeVideo, ensureH264, transcribe, detectSilences, detectSceneCuts, describeVideo, fetchReference, analyzeReference,
-  interpretRequest, trackPeople, proofreadCues, buildProject, renderProject, runQa, enhanceVoice, applySound, directEdit, extractReferenceFrames, applyTempo,
+  interpretRequest, trackPeople, proofreadCues, buildProject, renderProject, runQa, enhanceVoice, applySound, directEdit, extractReferenceFrames, applyTempo, detectContentRect, cropToContent,
 }
 
 const MIN_SEC = 1
@@ -248,8 +252,23 @@ export async function analyzeInput(i: AnalyzeInput, overrides: Partial<PipelineD
 
   const norm = await d.ensureH264(i.videoPath, info, i.workDir)
   if (norm.converted) stage('normalize', 'H.264 mp4 로 변환했어요')
-  const src = norm.path
+  let src = norm.path
   info = norm.info
+
+  // 위아래·양옆의 검은 띠(와 그 안의 글자)는 잘라내고 화면 부분만 쓴다. 못 찾거나 자르지 못하면 원본 그대로 진행한다.
+  if (d.detectContentRect && d.cropToContent) {
+    try {
+      const rect = await d.detectContentRect(src, info)
+      if (rect) {
+        const cropped = await d.cropToContent({ inputPath: src, outPath: path.join(i.workDir, 'source-cropped.mp4'), rect, hasAudio: info.hasAudio })
+        info = await d.probeVideo(cropped)
+        src = cropped
+        stage('normalize', `검은 띠를 잘라냈어요 (${info.width}x${info.height})`)
+      }
+    } catch {
+      /* 띠 제거는 덤이다 — 실패해도 원본으로 계속한다 */
+    }
+  }
 
   // 음성 인식 (설명이 있으면 처음부터 용어 힌트로)
   const description = (i.description ?? '').trim()
