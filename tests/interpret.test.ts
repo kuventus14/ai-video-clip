@@ -233,6 +233,23 @@ describe('deriveAppliedStyle', () => {
     expect(s.captions.highlightColor).toBeUndefined()
   })
 
+  describe('읽을 수 있는 자막 색 (검은 테두리에 묻히지 않게)', () => {
+    const dark = (color: string, highlightColor?: string) => spec({ captions: { ...spec().captions, color, highlightColor } })
+
+    test('어두운 글자색(#333333)은 흰색으로 바꾼다', () => {
+      expect(deriveAppliedStyle(plan(), dark('#333333'), summary, 'short').captions.color).toBe('#FFFFFF')
+    })
+    test('어두운 강조색(#222244)은 노란색으로 바꾸고, 밝거나 선명한 색(빨강·분홍)은 그대로 둔다', () => {
+      expect(deriveAppliedStyle(plan(), dark('#FFFFFF', '#222244'), summary, 'short').captions.highlightColor).toBe('#FFD400')
+      expect(deriveAppliedStyle(plan(), dark('#FFFFFF', '#FF0000'), summary, 'short').captions.highlightColor).toBe('#FF0000')
+    })
+    test('계획 카드도 실제로 쓰는 색을 말한다', () => {
+      const lines = planCardLines(plan(), dark('#333333')).join('\n')
+      expect(lines).toContain('#FFFFFF 색')
+      expect(lines).not.toContain('#333333')
+    })
+  })
+
   describe('조정(adjust) 반영', () => {
     const adj = (field: 'pacing' | 'captions', instruction: string) => plan({ adjust: [{ field, instruction }] })
 

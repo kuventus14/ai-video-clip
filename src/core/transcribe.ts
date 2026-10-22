@@ -43,12 +43,16 @@ export function parseWhisperJson(json: unknown, durationSec: number): Transcript
     }
   }
 
-  const words: Word[] = acc.map((w) => ({
-    text: w.text,
-    start: w.start,
-    end: w.end,
-    confidence: w.pCount ? w.pSum / w.pCount : 0.5,
-  }))
+  // 큰따옴표는 인식 찌꺼기다(`"이렇게`가 그대로 자막에 찍힌다). 따옴표뿐이던 조각은 단어로 세지 않는다.
+  const words: Word[] = acc
+    .map((w) => ({ ...w, text: w.text.replace(/["“”]/g, '') }))
+    .filter((w) => w.text)
+    .map((w) => ({
+      text: w.text,
+      start: w.start,
+      end: w.end,
+      confidence: w.pCount ? w.pSum / w.pCount : 0.5,
+    }))
 
   const segments: Transcript['segments'] = []
   let cur: { words: Word[] } | null = null

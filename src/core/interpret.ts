@@ -98,7 +98,7 @@ function detail(f: StyleField, spec: StyleSpec): string {
     case 'pacing':
       return `분당 ${Math.round(spec.pacing.cutsPerMinute)}컷 정도의 빠르기에 맞춰요`
     case 'captions':
-      return `${POSITION_KO[spec.captions.position]} ${SIZE_KO[spec.captions.size]} 글씨, ${spec.captions.color} 색으로 넣어요`
+      return `${POSITION_KO[spec.captions.position]} ${SIZE_KO[spec.captions.size]} 글씨, ${legibleColor(spec.captions.color, '#FFFFFF')} 색으로 넣어요`
     case 'hookTitle':
       return spec.hookTitle.present ? '영상 첫머리에 제목 카드를 넣어요' : '레퍼런스에 제목 카드가 없어서 넣지 않아요'
     case 'transitions':
@@ -159,6 +159,20 @@ const SIZE_PX: Record<Purpose, Record<'small' | 'medium' | 'large', number>> = {
 const DEFAULT_MAX_CHARS: Record<Purpose, number> = { short: 14, post: 22 }
 const HEX = /^#[0-9a-f]{6}$/i
 
+/** 자막 글자는 검은 테두리를 두르므로, 이보다 어두운 색(상대 휘도)은 테두리에 묻혀 읽을 수 없다. 빨강(0.21)·분홍은 통과한다. */
+const MIN_CAPTION_LUMINANCE = 0.15
+
+function luminance(hex: string): number {
+  const [r, g, b] = [1, 3, 5].map((k) => {
+    const c = parseInt(hex.slice(k, k + 2), 16) / 255
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
+  }) as [number, number, number]
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b
+}
+
+/** 너무 어두운 자막 색이면 fallback 으로 바꾼다(레퍼런스의 어두운 글자색을 그대로 따르면 영상 위에서 안 보인다). */
+export const legibleColor = (hex: string, fallback: string): string => (luminance(hex) < MIN_CAPTION_LUMINANCE ? fallback : hex)
+
 const FASTER = /빠르|빨리|짧게|타이트|촘촘|faster|tight/i
 const SLOWER = /느리|느긋|여유|길게|천천|slow/i
 const BIGGER = /크게|키워|bigger|larger/i
@@ -194,8 +208,8 @@ export function deriveAppliedStyle(plan: EditPlan, spec: StyleSpec, summary: Vid
     captions = {
       position: c.position,
       sizePx: SIZE_PX[purpose][sizeKey],
-      color: HEX.test(c.color) ? c.color : '#FFFFFF',
-      ...(c.highlightColor && HEX.test(c.highlightColor) ? { highlightColor: c.highlightColor } : {}),
+      color: HEX.test(c.color) ? legibleColor(c.color, '#FFFFFF') : '#FFFFFF',
+      ...(c.highlightColor && HEX.test(c.highlightColor) ? { highlightColor: legibleColor(c.highlightColor, '#FFD400') } : {}),
       maxChars: Math.min(30, Math.max(6, c.maxCharsPerLine)),
     }
   }

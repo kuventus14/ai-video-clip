@@ -43,6 +43,11 @@ describe('parseWhisperJson', () => {
     expect(t.words[0]).toMatchObject({ start: 0, end: 0.5 })
   })
 
+  test('큰따옴표는 자막에 쓸모없는 인식 찌꺼기라 단어에서 뺀다(따옴표만 있는 조각은 단어로 세지 않는다)', () => {
+    const t = parseWhisperJson({ transcription: [entry(0, 300, ' "이렇게'), entry(300, 600, ' 갖지"'), entry(600, 700, ' "'), entry(700, 1000, ' \u201c섀도우\u201d')] }, 2)
+    expect(t.words.map((w) => w.text)).toEqual(['이렇게', '갖지', '섀도우'])
+  })
+
   test('0.8초 넘게 쉬거나 문장부호로 끝나면 세그먼트를 나눈다', () => {
     const t = parseWhisperJson({ transcription: [entry(0, 500, ' 가'), entry(1500, 2000, ' 나'), entry(2100, 2600, ' 다?'), entry(2700, 3000, ' 라')] }, 4)
     expect(t.segments.map((s) => s.text)).toEqual(['가', '나 다?', '라'])
