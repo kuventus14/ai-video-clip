@@ -49,6 +49,18 @@ describe('화면 쪽과 편집 엔진의 경계', () => {
     expect(offenders).toEqual([])
   })
 
+  // shared/sound.ts·voice.ts 는 node:fs 를 쓴다. 브라우저에서 도는 코드가 값(함수·상수)을 가져오면 Turbopack 빌드가 터진다(시험·타입검사는 통과한다).
+  test.each(['components', 'src/ui'])('%s 는 shared/sound·voice 에서 타입만 가져온다', (dir) => {
+    const offenders = filesUnder(dir).flatMap((f) =>
+      fs
+        .readFileSync(path.join(ROOT, f), 'utf8')
+        .split('\n')
+        .filter((l) => /^\s*import\b(?!\s+type\b).*from\s+['"][^'"]*shared\/(sound|voice)\.ts['"]/.test(l))
+        .map((l) => `${f}: ${l.trim()}`),
+    )
+    expect(offenders).toEqual([])
+  })
+
   test('edit 엔진(core)·워커는 화면 쪽(app·components)을 가져오지 않는다', () => {
     const offenders = [...filesUnder('src/core'), ...filesUnder('src/worker')].flatMap((f) =>
       specifiersOf(f)

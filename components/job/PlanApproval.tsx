@@ -1,9 +1,10 @@
 'use client'
 
 import { ArrowLeftRight, Captions, Check, Crop, Music, Scissors, TriangleAlert, Type } from 'lucide-react'
-import { useState, type ComponentType } from 'react'
-import type { JobDto } from '../../src/shared/types.ts'
-import { approve, plan } from '../../src/ui/api.ts'
+import { useEffect, useState, type ComponentType } from 'react'
+import type { SfxMode } from '../../src/shared/sound.ts'
+import type { JobDto, SoundListDto } from '../../src/shared/types.ts'
+import { approve, getSound, plan } from '../../src/ui/api.ts'
 import { sourceFrame } from '../../src/ui/format.ts'
 import type { AudioMode } from '../../src/shared/voice.ts'
 import { parsePlanCard, planItemKind, type PlanItemKind } from '../../src/ui/plan.ts'
@@ -14,6 +15,7 @@ import { Field, Textarea } from '../ui/Field.tsx'
 import { Segmented } from '../ui/Segmented.tsx'
 import { Switch } from '../ui/Switch.tsx'
 import { PurposeChooser, type PurposeChoice } from './PurposeChooser.tsx'
+import { SoundPicker } from './SoundPicker.tsx'
 
 type Quality = JobDto['quality']
 
@@ -36,11 +38,30 @@ export function PlanApproval({ job, onChanged, onEditReference }: { job: JobDto;
   const [choice, setChoice] = useState<PurposeChoice>(job.purposeChoice)
   const [captionsOn, setCaptionsOn] = useState(job.captionsMode !== 'off')
   const [audio, setAudio] = useState<AudioMode>(job.audioMode)
+  const [bgm, setBgm] = useState<string | null>(job.bgmId)
+  const [sfx, setSfx] = useState<SfxMode>(job.sfxMode)
+  const [sound, setSound] = useState<SoundListDto | null>(null)
+  const [soundError, setSoundError] = useState<string | null>(null)
   const [quality, setQuality] = useState<Quality>(job.quality)
   const [editingRequest, setEditingRequest] = useState(false)
   const [request, setRequest] = useState(job.requestText)
   const [busy, setBusy] = useState<'approve' | 'replan' | null>(null)
   const [error, setError] = useState<string | null>(null)
+
+  // 음원 목록은 화면이 열릴 때 한 번 불러온다. 이전에 골라 둔 곡이 목록에서 사라졌다면 선택을 푼다.
+  useEffect(() => {
+    const ac = new AbortController()
+    getSound(ac.signal)
+      .then((list) => {
+        setSound(list)
+        setBgm((cur) => (cur && !list.bgm.some((t) => t.id === cur) ? null : cur))
+        if (list.sfxCount === 0) setSfx('off')
+      })
+      .catch((e: unknown) => {
+        if (!ac.signal.aborted) setSoundError(e instanceof Error ? e.message : String(e))
+      })
+    return () => ac.abort()
+  }, [])
 
   // 용도를 바꾸면 계획이 달라지므로, 바꾼 채로는 승인할 수 없고 계획을 다시 만들어야 한다
   const purposeChanged = choice !== job.purposeChoice
@@ -115,6 +136,8 @@ export function PlanApproval({ job, onChanged, onEditReference }: { job: JobDto;
             </p>
           </div>
 
+          <SoundPicker list={sound} error={soundError} bgm={bgm} onBgm={setBgm} sfx={sfx} onSfx={setSfx} disabled={busy !== null} />
+
           <details className="group">
             <summary className="cursor-pointer rounded-chip py-1 text-[15px] font-semibold text-ink-2 hover:text-ink">고급 설정</summary>
             <div className="mt-4 flex flex-col gap-3">
@@ -163,7 +186,7 @@ export function PlanApproval({ job, onChanged, onEditReference }: { job: JobDto;
             레퍼런스 바꾸기
           </Button>
         ) : null}
-        <Button variant="primary" loading={busy === 'approve'} disabled={purposeChanged || busy === 'replan'} onClick={() => run('approve', () => approve(job.id, { captions: captionsOn ? 'auto' : 'off', audio, quality }))}>
+        <Button variant="primary" loading={busy === 'approve'} disabled={purposeChanged || busy === 'replan'} onClick={() => run('approve', () => approve(job.id, { captions: captionsOn ? 'auto' : 'off', audio, bgm, sfx, quality }))}>
           승인하고 만들기
         </Button>
       </ActionBar>
