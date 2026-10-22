@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ApiError, approve, confirm, createJob, getJob, listJobs, otherVersion, plan, removeJob, retry, start } from '../src/ui/api.ts'
+import { ApiError, approve, confirm, createJob, getJob, getSound, listJobs, otherVersion, plan, removeJob, retry, start } from '../src/ui/api.ts'
 
 const jsonResponse = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
 
@@ -50,6 +50,15 @@ describe('ui api client', () => {
     expect(init?.method).toBe('POST')
     expect(init?.body).toBeUndefined()
     expect(new Headers(init?.headers).get('content-type')).toBeNull()
+  })
+
+  it('getSound 는 GET /api/sound 의 목록을 돌려주고, 실패하면 ApiError(서버가 준 한국어 메시지)', async () => {
+    const fetch = stubFetch(jsonResponse({ bgm: [{ id: 'calm-1' }], sfxCount: 3 }))
+    const list = await getSound()
+    expect(list.sfxCount).toBe(3)
+    expect(callOf(fetch, 0)[0]).toBe('/api/sound')
+    stubFetch(jsonResponse({ error: '음원 목록(manifest.json)을 읽을 수 없어요' }, 500))
+    await expect(getSound()).rejects.toMatchObject({ status: 500, message: '음원 목록(manifest.json)을 읽을 수 없어요' })
   })
 
   it('각 동작의 주소', async () => {

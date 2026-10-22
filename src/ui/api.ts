@@ -1,4 +1,4 @@
-import type { ApproveInput, JobDto, PlanInput, StartInput } from '../shared/types.ts'
+import type { ApproveInput, JobDto, PlanInput, SoundListDto, StartInput } from '../shared/types.ts'
 
 /** 서버가 거절했거나(status 4xx/5xx) 서버에 닿지 못했을 때(status 0). message 는 사용자에게 그대로 보여 줘도 되는 한국어. */
 export class ApiError extends Error {
@@ -50,6 +50,9 @@ export const confirm = (id: string) => request<JobDto>('POST', jobUrl(id, '/conf
 export const retry = (id: string) => request<JobDto>('POST', jobUrl(id, '/retry'))
 export const otherVersion = (id: string) => request<JobDto>('POST', jobUrl(id, '/other-version'))
 export const removeJob = (id: string) => request<{ ok: true }>('DELETE', jobUrl(id))
+
+/** 계획 승인 화면의 배경음악 목록 */
+export const getSound = (signal?: AbortSignal) => request<SoundListDto>('GET', '/api/sound', { signal })
 
 /**
  * 파일을 본문 그대로 PUT 한다. fetch 는 올리는 진행률을 알려 주지 않아 XMLHttpRequest 를 쓴다.

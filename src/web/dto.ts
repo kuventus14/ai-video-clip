@@ -2,7 +2,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { z } from 'zod'
 import type { Job } from '../db/jobs.ts'
-import type { JobDto, ReportDto } from '../shared/types.ts'
+import type { Catalog } from '../shared/sound.ts'
+import type { JobDto, ReportDto, SoundListDto } from '../shared/types.ts'
 
 const SummarySchema = z.object({
   topic: z.string(),
@@ -91,5 +92,13 @@ export function toJobDto(job: Job): JobDto {
     failedPhase: job.failedPhase,
     parentJobId: job.parentJobId,
     confirmedAt: job.confirmedAt,
+  }
+}
+
+/** 음원 목록을 화면용으로: 배경음악은 곡마다, 효과음은 개수만 */
+export function toSoundListDto(c: Catalog): SoundListDto {
+  return {
+    bgm: c.bgm.map((t) => ({ id: t.id, title: t.title, author: t.author, mood: t.mood, durationSec: t.durationSec, license: t.license })),
+    sfxCount: c.sfx.length,
   }
 }

@@ -1,4 +1,4 @@
-import type { SfxMode } from './sound.ts'
+import type { BgmMood, SfxMode } from './sound.ts'
 import type { AudioMode } from './voice.ts'
 
 /** 작업(영상 하나를 편집하는 한 번의 흐름)의 상태. 화면·API·워커가 같은 값을 쓴다. */
@@ -116,4 +116,20 @@ export interface ApproveInput {
   bgm?: string | null
   sfx?: SfxMode
   quality?: 'draft' | 'looks' | 'delivery'
+}
+
+/** 계획 승인 화면의 배경음악 목록에 보여 주는 곡 하나(파일 경로·출처 주소는 내보내지 않는다) */
+export interface SoundTrackDto {
+  id: string
+  title: string
+  author: string
+  mood: BgmMood
+  durationSec: number
+  license: string
+}
+
+/** GET /api/sound — 배경음악 목록과 쓸 수 있는 효과음 개수 */
+export interface SoundListDto {
+  bgm: SoundTrackDto[]
+  sfxCount: number
 }

@@ -11,6 +11,10 @@ const CONTENT_TYPES: Record<string, string> = {
   '.mkv': 'video/x-matroska',
   '.avi': 'video/x-msvideo',
   '.jpg': 'image/jpeg',
+  '.mp3': 'audio/mpeg',
+  '.m4a': 'audio/mp4',
+  '.wav': 'audio/wav',
+  '.ogg': 'audio/ogg',
 }
 
 export const contentTypeOf = (file: string) => CONTENT_TYPES[path.extname(file).toLowerCase()] ?? 'application/octet-stream'
