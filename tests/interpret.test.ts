@@ -47,7 +47,7 @@ describe('interpretRequest', () => {
     expect(f.calls).toHaveLength(0)
     expect(p.mode).toBe('full-reference')
     expect(p.take).toEqual(expect.arrayContaining(['pacing', 'captions', 'hookTitle', 'transitions']))
-    expect(p.take).not.toContain('music')
+    expect(p.take).toContain('music') // 곡은 사용자가 직접 고르는 방식으로 지원한다
     expect(p.take).not.toContain('structure')
     expect(p.skip).toEqual([])
     expect(EditPlan.safeParse(p).success).toBe(true)
@@ -81,6 +81,14 @@ describe('interpretRequest', () => {
     expect(p.unsupported[0]!.reason).toMatch(/지원/)
   })
 
+  test('요청 해석 안내문은 더는 음악·효과음 추가를 지원 불가로 안내하지 않고, 승인 화면에서 고른다고 알려 준다', async () => {
+    const f = fakeAsk(plan())
+    await interpretRequest({ spec: spec(), userText: '신나는 음악 넣어줘', summary }, { ask: f.ask })
+    const prompt = f.calls[0]!.prompt
+    expect(prompt).not.toMatch(/못 하는 것\([^)]*음악/)
+    expect(prompt).toContain('승인 화면')
+  })
+
   test('LLM 이 이미 지원 불가로 적었으면 중복해서 더하지 않는다', async () => {
     const f = fakeAsk(plan({ unsupported: [{ request: 'VFX 합성', reason: '지원하지 않아요' }] }))
     const p = await interpretRequest({ spec: spec(), userText: 'VFX 합성도 해줘', summary }, { ask: f.ask })
@@ -89,10 +97,27 @@ describe('interpretRequest', () => {
 })
 
 describe('planCardLines', () => {
-  test('지원하지 않는 항목(음악)은 정직하게 알린다', () => {
+  test('지원하지 않는 항목(영상 구성)은 정직하게 알린다', () => {
     const lines = planCardLines(plan(), spec()).join('\n')
     expect(lines).toContain('이렇게 이해했어요')
-    expect(lines).toMatch(/음악.*지원하지 않아요/)
+    expect(lines).toMatch(/영상 구성.*지원하지 않아요/)
+    expect(lines).not.toMatch(/음악.*지원하지 않아요/)
+  })
+
+  test('음악: 레퍼런스에 음악이 있어 보이면 같은 곡은 못 쓰고 곡을 직접 고르라고 안내하며, 비슷하게만 가능하다고 표시한다', () => {
+    const lines = planCardLines(plan({ take: ['pacing', 'music'] }), spec()).join('\n')
+    expect(lines).toMatch(/음악.*레퍼런스에 음악이 있는 것 같아요.*배경음악.*직접.*비슷하게만 가능해요/)
+  })
+
+  test('음악: 레퍼런스에 음악이 없어 보이면 그렇게 말하고, 필요하면 직접 고르라고 한다', () => {
+    const noMusic = spec({ music: { present: false, energy: 'low' } })
+    const lines = planCardLines(plan({ take: ['music'] }), noMusic).join('\n')
+    expect(lines).toMatch(/음악.*레퍼런스에 음악이 없어 보여요.*배경음악/)
+  })
+
+  test('음악·효과음을 요청란으로 조정하려 하면 반영하지 못한다고 하고 승인 화면에서 고르라고 안내한다', () => {
+    const lines = planCardLines(plan({ mode: 'targeted', take: [], adjust: [{ field: 'music', instruction: '신나는 음악 넣어줘' }] }), spec()).join('\n')
+    expect(lines).toMatch(/"신나는 음악 넣어줘".*반영하지 못해요.*직접 골라/)
   })
 
   test('근사만 가능한 항목은 그렇다고 표시한다', () => {

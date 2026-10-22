@@ -19,7 +19,7 @@ export const FEASIBILITY: Record<StyleField, Feasibility> = {
   captions: 'approximate',
   hookTitle: 'approximate',
   transitions: 'approximate',
-  music: 'unsupported',
+  music: 'approximate', // 레퍼런스의 음악은 쓰지 않고, 앱에 내장한 무료 곡을 사용자가 직접 고른다
   structure: 'unsupported',
   orientation: 'exact',
 }

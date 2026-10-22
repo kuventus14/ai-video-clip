@@ -31,7 +31,8 @@ const PROMPT_RULES = [
   '당신은 영상 자동 편집 프로그램의 요청 해석기입니다. 사용자가 레퍼런스 영상에서 무엇을 참고하길 원하는지 JSON 으로 정리하세요.',
   `항목 이름은 ${STYLE_FIELDS.join(', ')} 중에서만 씁니다. (pacing=컷 속도, captions=자막 스타일, hookTitle=시작 제목 카드, transitions=전환 효과, music=음악, structure=영상 구성, orientation=화면 비율)`,
   '- 사용자가 말한 항목은 take, 따라 하지 말라고 한 항목은 skip, "더 빠르게" 같은 조정은 adjust(field, instruction)에 넣습니다. 말하지 않은 항목은 mode 가 targeted 이면 take 에 넣지 않습니다.',
-  '- 이번 버전에서 못 하는 것(카메라 워크, 실사 합성 VFX, 음악·효과음 추가, 하단바·콜아웃 오버레이)을 요청하면 unsupported 에 request·reason(한국어)·alternative(가능한 비슷한 대안)를 적습니다.',
+  '- 이번 버전에서 못 하는 것(카메라 워크, 실사 합성 VFX, 하단바·콜아웃 오버레이)을 요청하면 unsupported 에 request·reason(한국어)·alternative(가능한 비슷한 대안)를 적습니다.',
+  '- 배경음악·효과음은 사용자가 계획 승인 화면에서 직접 고르므로 unsupported 에 넣지 마세요. 요청에 음악·효과음 얘기가 있으면 adjust(field: "music", instruction)로만 적습니다.',
   '- 출력은 JSON 한 개: {"mode": "targeted", "take": [], "skip": [], "adjust": [], "unsupported": []} (다른 글 금지)',
 ].join('\n')
 
@@ -104,6 +105,10 @@ function detail(f: StyleField, spec: StyleSpec): string {
       return TRANSITION_KO[spec.transitions.dominant]
     case 'orientation':
       return '선택한 용도(가로/세로)에 맞춰요'
+    case 'music':
+      return spec.music.present
+        ? '레퍼런스에 음악이 있는 것 같아요. 같은 곡은 쓸 수 없고, 아래 "배경음악"에서 곡을 직접 골라 넣을 수 있어요'
+        : '레퍼런스에 음악이 없어 보여요. 필요하면 아래 "배경음악"에서 곡을 골라 넣을 수 있어요'
     default:
       return ''
   }
@@ -128,7 +133,9 @@ export function planCardLines(plan: EditPlan, spec: StyleSpec): string[] {
     lines.push(
       isAdjustApplied(a)
         ? `• ${LABEL[a.field]}: ${a.instruction}`
-        : `• ${LABEL[a.field]}: "${a.instruction}" 는 이번 버전에서 반영하지 못했어요`,
+        : a.field === 'music'
+          ? `• ${LABEL[a.field]}: "${a.instruction}" 는 요청란으로는 반영하지 못해요 — 배경음악·효과음은 아래에서 직접 골라 주세요`
+          : `• ${LABEL[a.field]}: "${a.instruction}" 는 이번 버전에서 반영하지 못했어요`,
     )
   }
   for (const f of STYLE_FIELDS) if (FEASIBILITY[f] === 'unsupported') lines.push(`• ${LABEL[f]}: 이번 버전에서는 지원하지 않아요`)

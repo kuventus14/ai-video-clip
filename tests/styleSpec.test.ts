@@ -72,7 +72,7 @@ describe('FEASIBILITY', () => {
       captions: 'approximate',
       hookTitle: 'approximate',
       transitions: 'approximate',
-      music: 'unsupported',
+      music: 'approximate',
       structure: 'unsupported',
       orientation: 'exact',
     })
@@ -99,7 +99,7 @@ describe('analyzeReference', () => {
     expect(spec.pacing.shotCount).toBe(3)
     expect(spec.pacing.cutsPerMinute).toBeCloseTo(20, 0)
     expect(spec.captions.position).toBe('bottom')
-    expect(spec.feasibility.music).toBe('unsupported')
+    expect(spec.feasibility.music).toBe('approximate')
     expect(calls).toHaveLength(1)
     expect(calls[0]!.images).toHaveLength(8)
   })
