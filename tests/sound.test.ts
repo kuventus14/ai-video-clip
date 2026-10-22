@@ -1,6 +1,12 @@
-import { describe, expect, test } from 'vitest'
-import type { SfxRole, SfxTrack } from '../src/shared/sound.ts'
-import { planSfx } from '../src/core/sound.ts'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { afterAll, beforeAll, describe, expect, test } from 'vitest'
+import { run } from '../src/core/exec.ts'
+import { probeVideo } from '../src/core/media.ts'
+import { buildMixArgs, measureAudio, mixSound, planSfx, type MixInput } from '../src/core/sound.ts'
+import { SoundError, type SfxRole, type SfxTrack } from '../src/shared/sound.ts'
+import { ensureFixtures, type Fixtures } from './helpers/fixtures.ts'
 
 const sfx = (id: string, role: SfxRole): SfxTrack => ({
   kind: 'sfx', id, file: `sfx/${id}.mp3`, title: id, author: '작가', sourceUrl: 'https://mixkit.co/x',
@@ -72,5 +78,155 @@ describe('planSfx — 효과음을 어디에 넣을까', () => {
   })
   test('남은 구간이 없어도 던지지 않는다', () => {
     expect(planSfx({ kept: [], hookTitle: true, sfx: [WHOOSH, POP] })).toEqual([])
+  })
+})
+
+const VOICE = { lufs: -20, peakDb: -3 }
+const base = (extra: Partial<MixInput> = {}): MixInput => ({
+  videoPath: '/v/in.mp4', outPath: '/v/out.mp4', durationSec: 10, hasAudio: true, voice: VOICE, sfx: [], ...extra,
+})
+/** 필터 그래프 문자열(-filter_complex 다음 인자) */
+const graphOf = (args: string[]) => args[args.indexOf('-filter_complex') + 1]!
+
+describe('buildMixArgs — ffmpeg 인자 (순수 함수)', () => {
+  test('소리 없는 영상 + 배경음악: 무음 바탕(anullsrc)을 쓰고 목소리 줄임(sidechaincompress)은 없다', () => {
+    const a = buildMixArgs(base({ hasAudio: false, voice: { lufs: null, peakDb: null }, bgm: { file: '/b.mp3', lufs: -14 } }))
+    expect(a).toContain('-stream_loop')
+    expect(a.join(' ')).toContain('anullsrc')
+    expect(graphOf(a)).not.toContain('sidechaincompress')
+  })
+  test('목소리가 있으면 sidechaincompress 로 말할 때 음악을 줄인다', () => {
+    const g = graphOf(buildMixArgs(base({ bgm: { file: '/b.mp3', lufs: -14 } })))
+    expect(g).toContain('sidechaincompress')
+  })
+  test('소리는 있는데 거의 무음(측정값 없음)이면 줄임 없이 절대 음량(-22 LUFS)에 맞춘다', () => {
+    const g = graphOf(buildMixArgs(base({ voice: { lufs: null, peakDb: null }, bgm: { file: '/b.mp3', lufs: -14 } })))
+    expect(g).not.toContain('sidechaincompress')
+    expect(g).toContain('volume=-8.00dB') // -22 - (-14)
+  })
+  test('배경음악 크기: 목소리 LUFS - 14 에 맞춘다', () => {
+    const g = graphOf(buildMixArgs(base({ bgm: { file: '/b.mp3', lufs: -14 } }))) // 목소리 -20 → 목표 -34 → 곡이 -14 라서 -20dB
+    expect(g).toContain('volume=-20.00dB')
+  })
+  test('효과음 3개 → adelay 3개, 밀리초로 반올림', () => {
+    const a = buildMixArgs(base({ sfx: [{ file: '/s1.mp3', peakDb: -3, atSec: 1.2344 }, { file: '/s2.mp3', peakDb: -3, atSec: 3 }, { file: '/s3.mp3', peakDb: -3, atSec: 7.5 }] }))
+    const g = graphOf(a)
+    expect(g.match(/adelay=/g)).toHaveLength(3)
+    expect(g).toContain('adelay=1234:all=1')
+    expect(g).toContain('adelay=3000:all=1')
+    expect(a).not.toContain('-stream_loop') // 음악이 없으면 반복 입력도 없다
+  })
+  test('효과음 크기: 목소리 최대치 -8dB(최대 -6dBFS)에 맞춘다', () => {
+    const g = graphOf(buildMixArgs(base({ sfx: [{ file: '/s.mp3', peakDb: -3, atSec: 1 }] }))) // 목표 min(-6, -3-8=-11) = -11 → -11 - (-3) = -8
+    expect(g).toContain('volume=-8.00dB')
+  })
+  test('alimiter 가 마지막 필터이고 출력 이름은 [aout]', () => {
+    const g = graphOf(buildMixArgs(base({ bgm: { file: '/b.mp3', lufs: -14 } })))
+    expect(g).toMatch(/alimiter=limit=0\.8:level=disabled\[aout\]$/)
+  })
+  test('화면은 다시 인코딩하지 않고(-c:v copy) 길이는 영상 길이로 자른다', () => {
+    const a = buildMixArgs(base({ bgm: { file: '/b.mp3', lufs: -14 }, durationSec: 12.5 }))
+    expect(a.slice(a.indexOf('-c:v'), a.indexOf('-c:v') + 2)).toEqual(['-c:v', 'copy'])
+    expect(a.slice(a.indexOf('-t'), a.indexOf('-t') + 2)).toEqual(['-t', '12.5'])
+  })
+  test('영상이 1.5초면 페이드가 길이의 1/4 로 줄고 NaN·음수가 없다', () => {
+    const g = graphOf(buildMixArgs(base({ durationSec: 1.5, bgm: { file: '/b.mp3', lufs: -14 } })))
+    expect(g).toContain('afade=t=in:st=0:d=0.375')
+    expect(g).toContain('afade=t=out:st=1.125:d=0.375')
+    expect(g).not.toMatch(/NaN|Infinity|st=-|d=-/)
+  })
+  test('영상이 길면 페이드는 앞 1초·뒤 2.5초가 상한', () => {
+    const g = graphOf(buildMixArgs(base({ durationSec: 60, bgm: { file: '/b.mp3', lufs: -14 } })))
+    expect(g).toContain('afade=t=in:st=0:d=1')
+    expect(g).toContain('afade=t=out:st=57.5:d=2.5')
+  })
+})
+
+describe('측정과 섞기 — 실제 ffmpeg (합성 소리)', () => {
+  let fx: Fixtures
+  let tmp: string
+  const f = (name: string) => path.join(tmp, name)
+  const ff = (args: string[]) => run('ffmpeg', ['-v', 'error', '-nostdin', '-y', ...args])
+  /** out 의 [from, from+len) 구간만 잘라 측정한다 */
+  const levelOf = async (file: string, from: number, len: number) => {
+    const win = f(`win-${from}-${len}.wav`)
+    await ff(['-ss', String(from), '-t', String(len), '-i', file, '-vn', '-c:a', 'pcm_s16le', win])
+    return measureAudio(win)
+  }
+
+  beforeAll(async () => {
+    fx = await ensureFixtures()
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'vae-sound-mix-'))
+    await ff(['-f', 'lavfi', '-i', 'anoisesrc=color=pink:amplitude=0.3:duration=2:sample_rate=48000', '-ac', '2', f('bgm.wav')]) // 2초짜리 음악
+    await ff(['-f', 'lavfi', '-i', 'anoisesrc=color=white:amplitude=0.5:duration=0.3:sample_rate=48000', '-ac', '2', f('hit.wav')]) // 0.3초 효과음
+    // 앞 1.5초만 목소리(사인파)가 있고 4초까지 이어지는 영상
+    await ff(['-f', 'lavfi', '-i', 'testsrc2=size=320x240:rate=30:duration=4', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=1.5',
+      '-filter_complex', '[1:a]apad=whole_dur=4[a]', '-map', '0:v', '-map', '[a]', '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-t', '4', f('talk-gap.mp4')])
+  })
+  afterAll(() => fs.rmSync(tmp, { recursive: true, force: true }))
+
+  test('measureAudio: 사인파는 LUFS·peak 가 숫자', async () => {
+    const m = await measureAudio(fx.landscape)
+    expect(m.lufs).toBeGreaterThan(-40)
+    expect(m.lufs).toBeLessThan(-5)
+    expect(m.peakDb).toBeLessThan(0)
+  })
+  test('measureAudio: 소리 트랙이 없는 영상 → null, null', async () => {
+    expect(await measureAudio(fx.silent)).toEqual({ lufs: null, peakDb: null })
+  })
+  test('measureAudio: 0.4초보다 짧은 소리는 음량(lufs)은 null, 최대치(peakDb)는 숫자', async () => {
+    await ff(['-f', 'lavfi', '-i', 'sine=frequency=1000:duration=0.2', '-ac', '2', '-ar', '48000', f('blip.wav')])
+    const m = await measureAudio(f('blip.wav'))
+    expect(m.lufs).toBeNull()
+    expect(m.peakDb).toBeLessThan(0)
+  })
+  test('measureAudio: 완전한 무음 → null, null', async () => {
+    await ff(['-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=stereo', '-t', '1', f('mute.wav')])
+    expect(await measureAudio(f('mute.wav'))).toEqual({ lufs: null, peakDb: null })
+  })
+
+  test('음악(2초)이 영상(5초)보다 짧아도 반복해서 영상 길이(5±0.1초)로 끝나고 소리가 있다', async () => {
+    const voice = await measureAudio(fx.landscape)
+    const bgm = { file: f('bgm.wav'), lufs: (await measureAudio(f('bgm.wav'))).lufs! }
+    const out = await mixSound({ videoPath: fx.landscape, outPath: f('mix-a.mp4'), durationSec: 5, hasAudio: true, voice, bgm, sfx: [] })
+    const info = await probeVideo(out)
+    expect(info.durationSec).toBeGreaterThan(4.9)
+    expect(info.durationSec).toBeLessThan(5.1)
+    expect(info.hasAudio).toBe(true)
+    expect(info.width).toBe(1920) // 화면은 그대로
+  })
+  test('소리가 없는 영상(2초)에 음악을 넣으면 소리가 생기고 길이는 그대로', async () => {
+    const bgm = { file: f('bgm.wav'), lufs: (await measureAudio(f('bgm.wav'))).lufs! }
+    const out = await mixSound({ videoPath: fx.silent, outPath: f('mix-b.mp4'), durationSec: 2, hasAudio: false, voice: { lufs: null, peakDb: null }, bgm, sfx: [] })
+    const info = await probeVideo(out)
+    expect(info.hasAudio).toBe(true)
+    expect(info.durationSec).toBeGreaterThan(1.9)
+    expect(info.durationSec).toBeLessThan(2.1)
+    expect((await measureAudio(out)).lufs).not.toBeNull()
+  })
+  test('음악이 너무 커도 한계(limiter)가 걸려 최대 음량이 -0.9 dBFS 를 넘지 않는다', async () => {
+    const voice = await measureAudio(fx.landscape)
+    // 곡의 LUFS 를 일부러 -60 이라 속여 +40dB 가까이 키우게 한다
+    const out = await mixSound({ videoPath: fx.landscape, outPath: f('mix-hot.mp4'), durationSec: 5, hasAudio: true, voice, bgm: { file: f('bgm.wav'), lufs: -60 }, sfx: [] })
+    expect((await measureAudio(out)).peakDb!).toBeLessThanOrEqual(-0.9)
+  })
+  test('목소리가 없는 구간의 음악 크기는 목소리 LUFS - 14 (±3 LU)', async () => {
+    const voice = await measureAudio(f('talk-gap.mp4'))
+    const bgm = { file: f('bgm.wav'), lufs: (await measureAudio(f('bgm.wav'))).lufs! }
+    const out = await mixSound({ videoPath: f('talk-gap.mp4'), outPath: f('mix-gap.mp4'), durationSec: 4, hasAudio: true, voice, bgm, sfx: [] })
+    const gap = await levelOf(out, 2.4, 0.6) // 목소리는 1.5초에 끝남 — 줄임이 풀리고 끝 페이드(3~4초) 전
+    expect(gap.lufs).not.toBeNull()
+    expect(Math.abs(gap.lufs! - (voice.lufs! - 14))).toBeLessThanOrEqual(3)
+  })
+  test('효과음은 정한 시각(1.0초)부터 들린다', async () => {
+    const hit = { file: f('hit.wav'), peakDb: (await measureAudio(f('hit.wav'))).peakDb! }
+    const out = await mixSound({ videoPath: fx.silent, outPath: f('mix-sfx.mp4'), durationSec: 2, hasAudio: false, voice: { lufs: null, peakDb: null }, sfx: [{ ...hit, atSec: 1 }] })
+    expect((await levelOf(out, 0, 0.8)).peakDb ?? -120).toBeLessThan(-60) // 그 전은 조용하다
+    expect((await levelOf(out, 1.05, 0.2)).peakDb ?? -120).toBeGreaterThan(-30)
+  })
+  test('ffmpeg 가 실패하면(음악 파일이 없음) 한국어 SoundError', async () => {
+    const p = mixSound({ videoPath: fx.landscape, outPath: f('mix-fail.mp4'), durationSec: 5, hasAudio: true, voice: { lufs: -20, peakDb: -3 }, bgm: { file: f('nope.wav'), lufs: -14 }, sfx: [] })
+    await expect(p).rejects.toThrow(SoundError)
+    await expect(p).rejects.toThrow(/배경음악·효과음/)
   })
 })
