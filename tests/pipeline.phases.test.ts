@@ -265,6 +265,18 @@ describe('produceEdit', () => {
       expect(path.basename(s.sounds[0]!.renderedPath)).toBe('render-1.mp4')
     })
 
+    test('대본에 말이 있는지(transcript.hasSpeech)도 소리 입히기에 넘긴다 — 말이 없는 영상은 음악을 소음 크기에 맞추지 않게', async () => {
+      const talk = setup()
+      const a = await prepare(talk)
+      await produceEdit({ analysis: a.analysis, prepared: a.prepared, outDir: path.join(work, 'speech'), bgm: 'calm-1', onStage: talk.onStage }, talk.deps)
+      expect(talk.sounds[0]!.hasSpeech).toBe(true)
+
+      const quiet = setup({ transcribe: async () => ({ ...TR, words: [], segments: [], hasSpeech: false }) })
+      const b = await prepare(quiet)
+      await produceEdit({ analysis: b.analysis, prepared: b.prepared, outDir: path.join(work, 'nospeech'), bgm: 'calm-1', onStage: quiet.onStage }, quiet.deps)
+      expect(quiet.sounds[0]!.hasSpeech).toBe(false)
+    })
+
     test('효과음만 켜도 섞는다(제목 카드가 없으면 hookTitle=false)', async () => {
       const s = setup({}, info({ hasAudio: false }))
       const { analysis, prepared } = await prepare(s)

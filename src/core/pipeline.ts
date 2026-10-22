@@ -409,6 +409,7 @@ export async function produceEdit(i: ProduceInput, overrides: Partial<PipelineDe
           hookTitle: style.hookTitle !== undefined,
           durationSec: built.durationSec,
           hasAudio: info.hasAudio,
+          hasSpeech: transcript.hasSpeech,
         })
         renderedPath = mixed.path
         soundReport = mixed.report

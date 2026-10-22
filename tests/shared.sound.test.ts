@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { beforeEach, describe, expect, test } from 'vitest'
-import { findTrack, loadCatalog, SFX_MODES, SoundError, soundDir } from '../src/shared/sound.ts'
+import { findTrack, loadCatalog, SFX_MODES, SoundError, soundChoiceProblem, soundDir } from '../src/shared/sound.ts'
 
 let dir: string
 beforeEach(() => {
@@ -93,5 +93,27 @@ describe('soundDir', () => {
   })
   test('없으면 실행 위치의 assets/sound', () => {
     expect(soundDir({})).toBe(path.join(process.cwd(), 'assets/sound'))
+  })
+})
+
+describe('soundChoiceProblem — 고른 곡·효과음을 지금 쓸 수 있나', () => {
+  const catalog = () => {
+    write([bgm('a'), sfx('s1')])
+    return loadCatalog(dir)
+  }
+  test('아무것도 고르지 않았거나 목록에 있으면 null', () => {
+    const c = catalog()
+    expect(soundChoiceProblem(c, null, 'off')).toBeNull()
+    expect(soundChoiceProblem(c, 'a', 'on')).toBeNull()
+  })
+  test('목록에 없는 곡이면 그 id 를 말하는 한국어 안내', () => {
+    expect(soundChoiceProblem(catalog(), 'gone', 'off')).toMatch(/gone.*찾을 수 없어요/)
+  })
+  test('효과음 id 를 배경음악으로 고르면 안내', () => {
+    expect(soundChoiceProblem(catalog(), 's1', 'off')).not.toBeNull()
+  })
+  test('효과음을 켰는데 효과음 파일이 없으면 안내', () => {
+    write([bgm('a')])
+    expect(soundChoiceProblem(loadCatalog(dir), null, 'on')).toMatch(/효과음/)
   })
 })

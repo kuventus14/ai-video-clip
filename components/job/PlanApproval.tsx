@@ -8,6 +8,7 @@ import { approve, getSound, plan } from '../../src/ui/api.ts'
 import { sourceFrame } from '../../src/ui/format.ts'
 import type { AudioMode } from '../../src/shared/voice.ts'
 import { parsePlanCard, planItemKind, type PlanItemKind } from '../../src/ui/plan.ts'
+import { reconcileSoundChoice } from '../../src/ui/sound.ts'
 import { ActionBar } from '../ui/ActionBar.tsx'
 import { Button } from '../ui/Button.tsx'
 import { Card } from '../ui/Card.tsx'
@@ -48,20 +49,24 @@ export function PlanApproval({ job, onChanged, onEditReference }: { job: JobDto;
   const [busy, setBusy] = useState<'approve' | 'replan' | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  // 음원 목록은 화면이 열릴 때 한 번 불러온다. 이전에 골라 둔 곡이 목록에서 사라졌다면 선택을 푼다.
+  // 음원 목록은 화면이 열릴 때 한 번 불러온다.
   useEffect(() => {
     const ac = new AbortController()
     getSound(ac.signal)
-      .then((list) => {
-        setSound(list)
-        setBgm((cur) => (cur && !list.bgm.some((t) => t.id === cur) ? null : cur))
-        if (list.sfxCount === 0) setSfx('off')
-      })
+      .then(setSound)
       .catch((e: unknown) => {
         if (!ac.signal.aborted) setSoundError(e instanceof Error ? e.message : String(e))
       })
     return () => ac.abort()
   }, [])
+  // 불러온 결과(또는 실패)에 맞춰 이전에 골라 둔 선택을 정리한다. 목록이 사라진 곡을 가리키거나 목록을 못 불러왔는데 선택이 남아 있으면 서버가 승인을 거절한다.
+  useEffect(() => {
+    const r = reconcileSoundChoice({ list: sound, error: soundError, bgm, sfx })
+    if (r.bgm !== bgm) setBgm(r.bgm)
+    if (r.sfx !== sfx) setSfx(r.sfx)
+    // bgm·sfx 는 목록이 도착한 순간의 값만 읽으면 된다(사용자가 고르는 동안 다시 돌릴 필요 없음)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sound, soundError])
 
   // 용도를 바꾸면 계획이 달라지므로, 바꾼 채로는 승인할 수 없고 계획을 다시 만들어야 한다
   const purposeChanged = choice !== job.purposeChoice

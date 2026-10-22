@@ -1,6 +1,6 @@
 import type { Job } from '../../../../../src/db/jobs.ts'
 import { findDeepFilter, VOICE_TOOL_MISSING } from '../../../../../src/shared/voice.ts'
-import { loadCatalog, SoundError } from '../../../../../src/shared/sound.ts'
+import { loadCatalog, SoundError, soundChoiceProblem } from '../../../../../src/shared/sound.ts'
 import { toJobDto } from '../../../../../src/web/dto.ts'
 import { assertSameOrigin, jsonError, loadJob, readBody } from '../../../../../src/web/http.ts'
 import { ApproveBody } from '../../../../../src/web/schemas.ts'
@@ -25,9 +25,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const sfx = body.data.sfx ?? found.job.sfxMode
   if (bgm || sfx === 'on') {
     try {
-      const catalog = loadCatalog()
-      if (bgm && !catalog.bgm.some((t) => t.id === bgm)) return jsonError(400, `고른 배경음악(${bgm})을 음원 목록에서 찾을 수 없어요. 다른 곡을 골라 주세요.`)
-      if (sfx === 'on' && !catalog.sfx.length) return jsonError(400, '효과음 파일이 아직 없어서 효과음을 켤 수 없어요. 효과음을 끄고 진행해 주세요.')
+      const problem = soundChoiceProblem(loadCatalog(), bgm, sfx)
+      if (problem) return jsonError(400, problem)
     } catch (e) {
       if (e instanceof SoundError) return jsonError(400, e.message)
       throw e

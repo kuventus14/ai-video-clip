@@ -129,6 +129,12 @@ describe('buildMixArgs — ffmpeg 인자 (순수 함수)', () => {
     expect(a.slice(a.indexOf('-c:v'), a.indexOf('-c:v') + 2)).toEqual(['-c:v', 'copy'])
     expect(a.slice(a.indexOf('-t'), a.indexOf('-t') + 2)).toEqual(['-t', '12.5'])
   })
+  test('결과 파일 앞쪽에 색인(faststart)을 둔다 — 인스타 업로드 규격과 브라우저 미리보기가 요구한다', () => {
+    const a = buildMixArgs(base({ bgm: { file: '/b.mp3', lufs: -14 } }))
+    const k = a.indexOf('-movflags')
+    expect(a.slice(k, k + 2)).toEqual(['-movflags', '+faststart'])
+    expect(k).toBeLessThan(a.indexOf('/v/out.mp4'))
+  })
   test('영상이 1.5초면 페이드가 길이의 1/4 로 줄고 NaN·음수가 없다', () => {
     const g = graphOf(buildMixArgs(base({ durationSec: 1.5, bgm: { file: '/b.mp3', lufs: -14 } })))
     expect(g).toContain('afade=t=in:st=0:d=0.375')
@@ -195,6 +201,21 @@ describe('측정과 섞기 — 실제 ffmpeg (합성 소리)', () => {
     expect(info.hasAudio).toBe(true)
     expect(info.width).toBe(1920) // 화면은 그대로
   })
+  test('섞은 결과 파일은 색인(moov)이 데이터(mdat)보다 앞에 있다', async () => {
+    const voice = await measureAudio(fx.landscape)
+    const out = await mixSound({ videoPath: fx.landscape, outPath: f('mix-fast.mp4'), durationSec: 5, hasAudio: true, voice, bgm: { file: f('bgm.wav'), lufs: (await measureAudio(f('bgm.wav'))).lufs! }, sfx: [] })
+    const buf = fs.readFileSync(out)
+    expect(buf.indexOf('moov')).toBeGreaterThan(-1)
+    expect(buf.indexOf('moov')).toBeLessThan(buf.indexOf('mdat'))
+  })
+  test('소리 트랙은 있지만 말이 없는 영상(작은 주변 소음뿐)에 음악을 넣으면 음악이 들린다(약 -22 LUFS)', async () => {
+    await ff(['-f', 'lavfi', '-i', 'testsrc2=size=320x240:rate=30:duration=3', '-f', 'lavfi', '-i', 'anoisesrc=color=pink:amplitude=0.002:duration=3:sample_rate=48000', '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', f('ambient.mp4')])
+    const bgm = { file: f('bgm.wav'), lufs: (await measureAudio(f('bgm.wav'))).lufs! }
+    const out = await mixSound({ videoPath: f('ambient.mp4'), outPath: f('mix-ambient.mp4'), durationSec: 3, hasAudio: true, voice: { lufs: null, peakDb: null }, bgm, sfx: [] })
+    const lufs = (await measureAudio(out)).lufs
+    expect(lufs).not.toBeNull()
+    expect(Math.abs(lufs! - -22)).toBeLessThanOrEqual(3)
+  })
   test('소리가 없는 영상(2초)에 음악을 넣으면 소리가 생기고 길이는 그대로', async () => {
     const bgm = { file: f('bgm.wav'), lufs: (await measureAudio(f('bgm.wav'))).lufs! }
     const out = await mixSound({ videoPath: fx.silent, outPath: f('mix-b.mp4'), durationSec: 2, hasAudio: false, voice: { lufs: null, peakDb: null }, bgm, sfx: [] })
@@ -233,7 +254,7 @@ describe('측정과 섞기 — 실제 ffmpeg (합성 소리)', () => {
 
 const BGM: BgmTrack = { kind: 'bgm', id: 'calm-1', file: 'bgm/calm-1.mp3', title: '잔잔한 곡', author: '작가', sourceUrl: 'https://pixabay.com/music/x', license: 'Pixabay License', durationSec: 90, lufs: -14, peakDb: -1, mood: 'calm' }
 const CATALOG: Catalog = { dir: '/snd', bgm: [BGM], sfx: [WHOOSH, POP] }
-const RENDERED = { renderedPath: '/w/render-1.mp4', outPath: '/w/mix-1.mp4', kept: [span(0, 5), span(8, 12)], hookTitle: true, durationSec: 9, hasAudio: true }
+const RENDERED = { renderedPath: '/w/render-1.mp4', outPath: '/w/mix-1.mp4', kept: [span(0, 5), span(8, 12)], hookTitle: true, durationSec: 9, hasAudio: true, hasSpeech: true }
 
 describe('applySound — 고른 값으로 측정하고 섞는다', () => {
   const fakes = () => {
@@ -285,9 +306,15 @@ describe('applySound — 고른 값으로 측정하고 섞는다', () => {
     expect(f.calls.mix!.bgm).toBeUndefined()
     expect(r.report.bgm).toBeUndefined()
   })
+  test('소리 트랙은 있지만 말이 없는 영상(주변 소음만)은 목소리로 재지 않는다 — 음악이 소음 크기에 맞춰져 안 들리는 일이 없게, 소음은 그대로 두고 음악은 절대 크기로', async () => {
+    const f = fakes()
+    await applySound({ ...RENDERED, hasSpeech: false, choice: { bgm: 'calm-1', sfx: 'on' } }, f.deps)
+    expect(f.calls.measured).toEqual([])
+    expect(f.calls.mix).toMatchObject({ hasAudio: true, voice: { lufs: null, peakDb: null } })
+  })
   test('소리가 없는 영상은 측정하지 않고 hasAudio=false, 목소리 측정값 없음으로 넘긴다', async () => {
     const f = fakes()
-    await applySound({ ...RENDERED, hasAudio: false, choice: { bgm: 'calm-1', sfx: 'off' } }, f.deps)
+    await applySound({ ...RENDERED, hasAudio: false, hasSpeech: false, choice: { bgm: 'calm-1', sfx: 'off' } }, f.deps)
     expect(f.calls.measured).toEqual([])
     expect(f.calls.mix).toMatchObject({ hasAudio: false, voice: { lufs: null, peakDb: null } })
   })

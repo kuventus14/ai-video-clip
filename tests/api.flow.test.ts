@@ -319,6 +319,64 @@ describe('retry', () => {
   test('실패한 작업이 아니면 409', async () => {
     expect((await call(retry, job('ready').id)).status).toBe(409)
   })
+
+  describe('배경음악·효과음을 못 쓰게 돼서 제작이 실패한 작업', () => {
+    const savedSound = process.env.VAE_SOUND_DIR
+    let sound: string
+    const writeCatalog = (ids: string[]) => {
+      const tracks = ids.map((id) => ({ kind: 'bgm', id, file: `bgm/${id}.mp3`, title: id, author: '작가', sourceUrl: 'https://mixkit.co/x', license: 'Mixkit Free License', durationSec: 60, lufs: -14, peakDb: -1, mood: 'calm' }))
+      for (const t of tracks) {
+        fs.mkdirSync(path.join(sound, 'bgm'), { recursive: true })
+        fs.writeFileSync(path.join(sound, t.file), 'x')
+      }
+      fs.writeFileSync(path.join(sound, 'manifest.json'), JSON.stringify({ version: 1, tracks }))
+    }
+    beforeEach(() => {
+      sound = path.join(dir, 'sound')
+      fs.mkdirSync(sound)
+      process.env.VAE_SOUND_DIR = sound
+    })
+    afterEach(() => {
+      if (savedSound === undefined) delete process.env.VAE_SOUND_DIR
+      else process.env.VAE_SOUND_DIR = savedSound
+    })
+
+    test('저장된 곡이 목록에서 사라졌으면 다시 시도가 제작이 아니라 계획 단계로 돌려보낸다(곡을 다시 고를 수 있게)', async () => {
+      writeCatalog(['other'])
+      const j = job('failed', { failedPhase: 'produce', errorMessage: '고른 배경음악(gone)을 찾을 수 없어요', bgmId: 'gone' })
+      expect((await call(retry, j.id)).status).toBe(200)
+      expect(read(j.id)).toMatchObject({ status: 'queued_plan', errorMessage: null, failedPhase: null })
+      expect(read(j.id).log.map((l) => l.message).join(' ')).toContain('배경음악')
+    })
+    test('음원 목록이 깨졌어도 같다(계획 단계로)', async () => {
+      fs.writeFileSync(path.join(sound, 'manifest.json'), '{ broken')
+      const j = job('failed', { failedPhase: 'produce', bgmId: 'x' })
+      await call(retry, j.id)
+      expect(read(j.id).status).toBe('queued_plan')
+    })
+    test('효과음을 켜 뒀는데 효과음 파일이 없어도 계획 단계로', async () => {
+      writeCatalog(['a'])
+      const j = job('failed', { failedPhase: 'produce', sfxMode: 'on' })
+      await call(retry, j.id)
+      expect(read(j.id).status).toBe('queued_plan')
+    })
+    test('저장된 곡이 목록에 있으면 그대로 제작을 다시 시도한다', async () => {
+      writeCatalog(['calm-1'])
+      const j = job('failed', { failedPhase: 'produce', bgmId: 'calm-1' })
+      await call(retry, j.id)
+      expect(read(j.id).status).toBe('queued_produce')
+    })
+    test('소리를 고르지 않았다면 음원 폴더가 없어도 제작을 다시 시도한다', async () => {
+      const j = job('failed', { failedPhase: 'produce' })
+      await call(retry, j.id)
+      expect(read(j.id).status).toBe('queued_produce')
+    })
+    test('다른 단계(plan)의 실패는 곡 상태와 상관없이 그 단계부터', async () => {
+      const j = job('failed', { failedPhase: 'plan', bgmId: 'gone' })
+      await call(retry, j.id)
+      expect(read(j.id).status).toBe('queued_plan')
+    })
+  })
 })
 
 describe('other-version', () => {

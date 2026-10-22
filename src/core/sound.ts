@@ -1,4 +1,4 @@
-import { loadCatalog, SoundError, trackPath, type Catalog, type SfxMode, type SfxRole, type SfxTrack } from '../shared/sound.ts'
+import { loadCatalog, SoundError, soundChoiceProblem, trackPath, type Catalog, type SfxMode, type SfxRole, type SfxTrack } from '../shared/sound.ts'
 import { run as realRun, ToolError } from './exec.ts'
 import type { Span } from './types.ts'
 
@@ -120,6 +120,7 @@ export interface MixInput {
  * 렌더된 영상에 배경음악·효과음을 섞는 ffmpeg 인자. 화면은 복사하고 소리만 다시 만든다.
  * 음악은 반복해 영상 길이에 맞추고 앞뒤를 페이드, 목소리가 있으면 말할 때 자동으로 줄인다(sidechaincompress).
  * 마지막에 alimiter 로 찌그러짐을 막는다(level=disabled — 켜 두면 전체 소리가 1dB 커진다).
+ * 결과는 색인(moov)을 앞에 둔다(faststart) — 인스타 릴스 업로드 규격이고 브라우저 미리보기도 빨라진다.
  */
 export function buildMixArgs(i: MixInput): string[] {
   const dur = i.durationSec
@@ -171,7 +172,7 @@ export function buildMixArgs(i: MixInput): string[] {
   })
 
   graph.push(`${mixed.join('')}amix=inputs=${mixed.length}:normalize=0:duration=first:dropout_transition=0,alimiter=limit=${LIMIT}:level=disabled[aout]`)
-  args.push('-filter_complex', graph.join(';'), '-map', '0:v:0', '-map', '[aout]', '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k', '-t', fmt(dur), i.outPath)
+  args.push('-filter_complex', graph.join(';'), '-map', '0:v:0', '-map', '[aout]', '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k', '-t', fmt(dur), '-movflags', '+faststart', i.outPath)
   return args
 }
 
@@ -210,6 +211,8 @@ export interface ApplySoundInput {
   hookTitle: boolean
   durationSec: number
   hasAudio: boolean
+  /** 말이 있는 영상인가(대본 분석 결과). 소리 트랙만 있고 말이 없으면 주변 소음을 목소리로 재지 않는다 */
+  hasSpeech: boolean
 }
 
 /** 사용자가 고른 곡·효과음으로 렌더된 영상에 소리를 입힌다. 고른 곡이 목록에 없으면 SoundError. */
@@ -222,10 +225,12 @@ export async function applySound(
   const mix = deps.mix ?? mixSound
 
   const bgm = i.choice.bgm ? catalog.bgm.find((t) => t.id === i.choice.bgm) : undefined
-  if (i.choice.bgm && !bgm) throw new SoundError(`고른 배경음악(${i.choice.bgm})을 음원 목록에서 찾을 수 없어요. 다른 곡을 골라 주세요.`)
-  if (i.choice.sfx === 'on' && !catalog.sfx.length) throw new SoundError('효과음 파일이 아직 없어서 효과음을 켤 수 없어요. 효과음을 끄고 다시 해 주세요.')
+  const problem = soundChoiceProblem(catalog, i.choice.bgm, i.choice.sfx)
+  if (problem) throw new SoundError(problem)
 
-  const voice = i.hasAudio ? await measure(i.renderedPath) : NO_AUDIO
+  // 말이 없는 영상의 소리는 주변 소음이다 — 그것을 "목소리"로 재면 음악이 소음보다 14 LU 작게(거의 안 들리게) 깔린다.
+  // 소음은 그대로 섞고, 음악은 절대 크기(-22 LUFS)로 깐다.
+  const voice = i.hasAudio && i.hasSpeech ? await measure(i.renderedPath) : NO_AUDIO
   const events = i.choice.sfx === 'on' ? planSfx({ kept: i.kept, hookTitle: i.hookTitle, sfx: catalog.sfx }) : []
   const sfx = events.map((e) => {
     const t = catalog.sfx.find((x) => x.id === e.trackId)!

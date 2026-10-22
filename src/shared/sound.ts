@@ -88,6 +88,16 @@ export function loadCatalog(dir: string = soundDir()): Catalog {
   }
 }
 
+/**
+ * 고른 배경음악·효과음을 지금 음원 목록으로 쓸 수 있는지. 쓸 수 없으면 사용자에게 보여 줄 한국어 안내, 괜찮으면 null.
+ * 승인(approve)·다시 시도(retry)·제작(applySound)이 같은 기준을 쓴다.
+ */
+export function soundChoiceProblem(c: Catalog, bgm: string | null, sfx: SfxMode): string | null {
+  if (bgm && !c.bgm.some((t) => t.id === bgm)) return `고른 배경음악(${bgm})을 음원 목록에서 찾을 수 없어요. 다른 곡을 골라 주세요.`
+  if (sfx === 'on' && !c.sfx.length) return '효과음 파일이 아직 없어서 효과음을 켤 수 없어요. 효과음을 끄고 진행해 주세요.'
+  return null
+}
+
 export function findTrack(c: Catalog, id: string): BgmTrack | SfxTrack | undefined {
   return c.bgm.find((t) => t.id === id) ?? c.sfx.find((t) => t.id === id)
 }
