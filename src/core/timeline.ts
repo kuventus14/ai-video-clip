@@ -62,6 +62,39 @@ export function remapSpans(spans: Span[], kept: Span[]): Span[] {
   return out.sort((x, y) => x.start - y.start)
 }
 
+/** 훅 장면을 맨 앞에 붙인 출력 타임라인. segments 는 출력 순서(훅이 있으면 첫째)대로의 원본 구간이다. */
+export interface OutputTimeline {
+  segments: Span[]
+  /** 훅 길이(초). 훅이 없으면 0 */
+  hookSec: number
+  totalSec: number
+}
+
+export function buildTimeline(kept: Span[], hook?: Span): OutputTimeline {
+  const hookSec = hook ? hook.end - hook.start : 0
+  const segments = hook ? [hook, ...kept] : kept
+  const totalSec = segments.reduce((sum, k) => sum + (k.end - k.start), 0)
+  return { segments, hookSec: round6(hookSec), totalSec: round6(totalSec) }
+}
+
+/**
+ * 원본 시각 t 를 출력 시각으로(훅 길이만큼 밀린다). 잘려 나간 자리면 그 뒤 첫 남은 구간의 시작에 붙인다
+ * (오버레이가 "그 무렵"에 나오게). 영상 밖(음수, 마지막 남은 구간 뒤)이면 null.
+ */
+export function srcToOut(t: number, kept: Span[], hookSec: number): number | null {
+  if (t < 0) return null
+  const direct = remapTime(t, kept)
+  if (direct !== null) return round6(direct + hookSec)
+  const off = offsets(kept)
+  const next = kept.findIndex((k) => k.start > t)
+  return next < 0 ? null : round6(off[next]! + hookSec)
+}
+
+/** 자막 큐의 start·end 를 같이 민다. */
+export function shiftCues<T extends { start: number; end: number }>(cues: T[], dt: number): T[] {
+  return cues.map((c) => ({ ...c, start: round6(c.start + dt), end: round6(c.end + dt) }))
+}
+
 function interpolate(kf: CropKeyframe[], t: number): number {
   const first = kf[0]!
   const lastKf = kf.at(-1)!

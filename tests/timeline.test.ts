@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { groupWordsIntoCues, remapKeyframes, remapSpans, remapTime, remapWords } from '../src/core/timeline.ts'
+import { buildTimeline, groupWordsIntoCues, remapKeyframes, remapSpans, remapTime, remapWords, shiftCues, srcToOut } from '../src/core/timeline.ts'
 import type { Word } from '../src/core/types.ts'
 
 const w = (text: string, start: number, end: number): Word => ({ text, start, end, confidence: 0.9 })
@@ -112,5 +112,68 @@ describe('groupWordsIntoCues', () => {
   })
   test('단어가 없으면 큐도 없다', () => {
     expect(groupWordsIntoCues([], { maxChars: 14 })).toEqual([])
+  })
+})
+
+describe('buildTimeline — 훅을 앞에 붙인 출력 타임라인', () => {
+  const kept = [{ start: 0, end: 10 }, { start: 20, end: 30 }]
+  test('훅 {54,57} + 남은 구간 2개 → [훅, 0-10, 20-30], hookSec 3, totalSec 23', () => {
+    expect(buildTimeline(kept, { start: 54, end: 57 })).toEqual({ segments: [{ start: 54, end: 57 }, ...kept], hookSec: 3, totalSec: 23 })
+  })
+  test('훅이 없으면 segments = kept, hookSec 0 (기존과 같음)', () => {
+    expect(buildTimeline(kept)).toEqual({ segments: kept, hookSec: 0, totalSec: 20 })
+  })
+  test('훅 구간이 본편과 겹쳐도(원본 54~57 이 본편에도 있음) 그대로 앞에 붙는다', () => {
+    const t = buildTimeline([{ start: 0, end: 60 }], { start: 54, end: 57 })
+    expect(t.segments[0]).toEqual({ start: 54, end: 57 })
+    expect(t.totalSec).toBe(63)
+  })
+})
+
+describe('srcToOut — 원본 시각을 출력 시각으로', () => {
+  const kept = [{ start: 0, end: 10 }, { start: 20, end: 30 }]
+  test('훅 길이만큼 밀린다', () => {
+    expect(srcToOut(5, kept, 3)).toBe(8)
+    expect(srcToOut(25, kept, 3)).toBe(18)
+  })
+  test('훅이 없으면(0) 기존 remapTime 과 같다', () => {
+    expect(srcToOut(25, kept, 0)).toBe(remapTime(25, kept))
+  })
+  test('잘려 나간 자리(15초)는 그 뒤 첫 남은 구간의 시작(출력 10+3=13)에 붙는다', () => {
+    expect(srcToOut(15, kept, 3)).toBe(13)
+  })
+  test('첫 구간보다 앞(앞부분이 잘림)은 첫 구간 시작(훅 길이)에 붙는다', () => {
+    expect(srcToOut(1, [{ start: 2, end: 8 }], 3)).toBe(3)
+  })
+  test('영상 밖(음수·마지막 구간 뒤)은 null', () => {
+    expect(srcToOut(-1, kept, 3)).toBeNull()
+    expect(srcToOut(31, kept, 3)).toBeNull()
+  })
+})
+
+describe('shiftCues', () => {
+  test('start·end 를 같이 밀고 다른 필드는 그대로', () => {
+    expect(shiftCues([{ text: 'a', start: 1, end: 2 }], 3)).toEqual([{ text: 'a', start: 4, end: 5 }])
+  })
+})
+
+describe('훅이 본편과 겹칠 때 자막과 크롭 (Review Focus 1)', () => {
+  test('본편 kept 로만 만든 단어 자막은 훅 구간에 들어가지 않고, 같은 단어가 두 번 나오지 않는다', () => {
+    const words = [w('가', 1, 1.5), w('스윙', 55, 55.6)] // '스윙'(55초)은 훅(54~57)에도, 본편 kept [0,60]에도 있다
+    const kept = [{ start: 0, end: 60 }]
+    const tl = buildTimeline(kept, { start: 54, end: 57 })
+    const cues = shiftCues(groupWordsIntoCues(remapWords(words, kept), { maxChars: 20 }), tl.hookSec)
+    expect(cues.map((c) => c.text)).toEqual(['가', '스윙']) // 1초 넘게 떨어진 단어라 큐가 따로 만들어진다
+    for (const c of cues) expect(c.start).toBeGreaterThanOrEqual(tl.hookSec) // 훅 구간(0~3초)에는 자막이 없다
+    expect(remapWords(words, kept)).toHaveLength(2) // 단어가 중복되지 않는다
+  })
+  test('크롭 키프레임: 훅 구간 키프레임이 맨 앞에 생기고 본편은 훅 길이만큼 뒤에서 시작한다', () => {
+    const kf = [{ t: 0, centerX: 0.3 }, { t: 54, centerX: 0.8 }, { t: 60, centerX: 0.8 }]
+    const tl = buildTimeline([{ start: 0, end: 10 }], { start: 54, end: 57 })
+    const out = remapKeyframes(kf, tl.segments)
+    expect(out[0]).toEqual({ t: 0, centerX: 0.8 }) // 훅 구간(원본 54~57)의 시선 위치
+    const bodyStart = out.find((k) => k.t >= tl.hookSec)!
+    expect(bodyStart.t).toBeCloseTo(3, 3)
+    expect(bodyStart.centerX).toBeCloseTo(0.3, 3) // 본편(원본 0초)의 위치로 돌아온다
   })
 })
