@@ -122,6 +122,23 @@ export interface CaptionEdit {
   text: string | null
 }
 
+/** 자막 확인 화면의 한 줄(원문). 줄마다 이 칸만 내보낸다 — 단어별 시각은 보내지 않는다 */
+export interface CaptionPartDto {
+  i: number
+  start: number
+  end: number
+  text: string
+  /** 인식기가 확신하지 못한 단어 */
+  lowWords: string[]
+}
+
+/** GET /api/jobs/<id>/captions: 인식한 줄(원문)과 이미 저장된 편집 */
+export interface CaptionReviewDto {
+  parts: CaptionPartDto[]
+  edits: CaptionEdit[]
+  hasSpeech: boolean
+}
+
 /** 승인 화면에서 사용자가 고칠 수 있는 대본 문구(고친 칸만 보낸다) */
 export interface ScriptEdits {
   title?: string

@@ -1,6 +1,22 @@
-import type { CaptionEdit } from '../shared/types.ts'
-import { segmentWords } from './transcribe.ts'
-import type { Transcript, Word } from './types.ts'
+import type { CaptionEdit } from './types.ts'
+
+/**
+ * 자막 확인에 필요한 만큼만 아는 단어·인식 결과 모양(편집 엔진의 Word·Transcript 가 이 모양을 만족한다).
+ * 화면 쪽(shared·web)은 core 를 가져오지 못하므로 여기서 구조만 정의한다.
+ */
+export interface ReviewWord {
+  text: string
+  start: number
+  end: number
+  /** 0..1 */
+  confidence: number
+}
+export interface ReviewTranscript {
+  words: ReviewWord[]
+  segments: { text: string; start: number; end: number }[]
+  hasSpeech: boolean
+}
+type Word = ReviewWord
 
 /** 자막 확인 화면의 한 줄: 인식한 단어 words[from..to) 를 묶은 것 */
 export interface ReviewPart {
@@ -17,6 +33,7 @@ export interface ReviewPart {
 export const REVIEW_LIMITS = { maxChars: 18, maxGapSec: 0.7, lowConfidence: 0.5, maxTextChars: 160 } as const
 
 const SENTENCE_END = /[.?!…。？！]$/
+const SEGMENT_GAP_SEC = 0.8
 const chars = (s: string) => Array.from(s.replace(/\s/g, '')).length
 const norm = (s: string) => s.trim().replace(/\s+/g, ' ')
 const round3 = (n: number) => Math.round(n * 1000) / 1000
@@ -25,7 +42,7 @@ const round3 = (n: number) => Math.round(n * 1000) / 1000
  * 인식한 단어를 사람이 확인하기 좋은 줄로 묶는다(결정적: 같은 transcript 는 늘 같은 줄 번호).
  * 새 줄은 글자 수(공백 뺀)가 18자를 넘기게 될 때, 앞 단어와 0.7초 넘게 떨어졌을 때, 앞 단어가 문장부호로 끝났을 때 연다.
  */
-export function reviewParts(t: Transcript): ReviewPart[] {
+export function reviewParts(t: Pick<ReviewTranscript, 'words'>): ReviewPart[] {
   const parts: ReviewPart[] = []
   let from = 0
   let count = 0
@@ -73,7 +90,7 @@ function spreadWords(text: string, start: number, end: number): Word[] {
  * 글자가 비었거나 null 이면 그 줄의 단어를 뺀다. 범위 밖 번호·글자가 아닌 text 는 무시하고, 같은 번호는 마지막 것이 이긴다.
  * 원문과 같은 글자는 고친 것으로 치지 않는다. 고친 게 하나도 없으면 입력을 그대로 돌려준다.
  */
-export function applyTranscriptEdits(t: Transcript, edits: CaptionEdit[] | null | undefined): Transcript {
+export function applyTranscriptEdits<T extends ReviewTranscript>(t: T, edits: CaptionEdit[] | null | undefined): T {
   if (!edits?.length) return t
   const parts = reviewParts(t)
   const byPart = new Map<number, string | null>()
@@ -97,4 +114,24 @@ export function applyTranscriptEdits(t: Transcript, edits: CaptionEdit[] | null 
   }
   if (!changed) return t
   return { ...t, words, segments: segmentWords(words), hasSpeech: words.length > 0 }
+}
+
+function toSegment(ws: Word[]) {
+  return { text: ws.map((w) => w.text).join(' '), start: ws[0]!.start, end: ws[ws.length - 1]!.end }
+}
+
+/** 단어를 문장 단위(0.8초 넘게 쉬거나 문장부호로 끝나면 새 문장)로 묶는다. 순수 함수. */
+export function segmentWords(words: Word[]): ReviewTranscript['segments'] {
+  const segments: ReviewTranscript['segments'] = []
+  let cur: { words: Word[] } | null = null
+  for (const w of words) {
+    const prev: Word | undefined = cur?.words[cur.words.length - 1]
+    if (!cur || !prev || w.start - prev.end > SEGMENT_GAP_SEC || SENTENCE_END.test(prev.text)) {
+      if (cur) segments.push(toSegment(cur.words))
+      cur = { words: [] }
+    }
+    cur.words.push(w)
+  }
+  if (cur && cur.words.length) segments.push(toSegment(cur.words))
+  return segments
 }

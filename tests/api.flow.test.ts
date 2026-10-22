@@ -3,13 +3,14 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { POST as approve } from '../app/api/jobs/[id]/approve/route.ts'
+import { GET as captions } from '../app/api/jobs/[id]/captions/route.ts'
 import { POST as confirm } from '../app/api/jobs/[id]/confirm/route.ts'
 import { POST as otherVersion } from '../app/api/jobs/[id]/other-version/route.ts'
 import { POST as plan } from '../app/api/jobs/[id]/plan/route.ts'
 import { POST as retry } from '../app/api/jobs/[id]/retry/route.ts'
 import { POST as start } from '../app/api/jobs/[id]/start/route.ts'
 import type { Job } from '../src/db/jobs.ts'
-import type { JobDto, JobStatus } from '../src/shared/types.ts'
+import type { CaptionReviewDto, JobDto, JobStatus } from '../src/shared/types.ts'
 import { getContext, resetContextForTests } from '../src/web/context.ts'
 
 const HOST = 'localhost:4848'
@@ -80,6 +81,71 @@ describe('start', () => {
   test('ready 가 아니면 409', async () => {
     const j = job('analyzing')
     expect((await call(start, j.id, { purposeChoice: 'auto' })).status).toBe(409)
+  })
+})
+
+describe('GET /captions — 자막 확인용 인식 결과', () => {
+  const w = (text: string, start: number, end: number, confidence = 0.9) => ({ text, start, end, confidence })
+  const WORDS = [w('이렇게', 0, 0.5, 0.2), w('되면서', 0.5, 1.0, 0.9), w('올라오고,', 1.0, 1.8, 0.9), w('이게', 3.0, 3.4, 0.1), w('섀도우', 3.4, 4.0, 0.9)]
+  const writeAnalysis = (id: string, words: ReturnType<typeof w>[]) =>
+    fs.writeFileSync(path.join(getContext().jobs.jobDir(id), 'analysis.json'), JSON.stringify({ version: 1, sourcePath: 'x', info: {}, transcript: { language: 'ko', durationSec: 10, words, segments: [], hasSpeech: words.length > 0 } }))
+  const get = (id: string, headers: Record<string, string> = {}) => captions(new Request(`http://${HOST}/api/jobs/${id}/captions`, { headers }), { params: Promise.resolve({ id }) })
+
+  test('분석 뒤 줄 목록(원문)과 의심 단어가 온다', async () => {
+    const j = job('awaiting_reference')
+    writeAnalysis(j.id, WORDS)
+    const res = await get(j.id)
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as CaptionReviewDto
+    expect(body.hasSpeech).toBe(true)
+    expect(body.parts).toEqual([
+      { i: 0, start: 0, end: 1.8, text: '이렇게 되면서 올라오고,', lowWords: ['이렇게'] },
+      { i: 1, start: 3, end: 4, text: '이게 섀도우', lowWords: ['이게'] },
+    ])
+    expect(body.edits).toEqual([])
+  })
+
+  test('저장된 편집은 edits 로 따로 오고 원문은 그대로다', async () => {
+    const j = job('awaiting_plan', { transcriptEdits: [{ i: 1, text: '이게 섀도우 스윙' }] })
+    writeAnalysis(j.id, WORDS)
+    const body = (await (await get(j.id)).json()) as CaptionReviewDto
+    expect(body.parts[1]!.text).toBe('이게 섀도우')
+    expect(body.edits).toEqual([{ i: 1, text: '이게 섀도우 스윙' }])
+  })
+
+  test('말이 없는 영상은 parts 가 비고 hasSpeech=false', async () => {
+    const j = job('awaiting_reference')
+    writeAnalysis(j.id, [])
+    expect(await (await get(j.id)).json()).toEqual({ parts: [], edits: [], hasSpeech: false })
+  })
+
+  test('분석 파일이 없으면 404, 진행 중·확정·분석 단계 실패는 409', async () => {
+    expect((await get(job('awaiting_reference').id)).status).toBe(404)
+    for (const [status, patch] of [['producing', {}], ['confirmed', {}], ['queued_plan', {}], ['failed', { failedPhase: 'analysis' as const }]] as const) {
+      const j = job(status, patch)
+      writeAnalysis(j.id, WORDS)
+      expect((await get(j.id)).status, status).toBe(409)
+    }
+    const planFailed = job('failed', { failedPhase: 'plan' })
+    writeAnalysis(planFailed.id, WORDS)
+    expect((await get(planFailed.id)).status).toBe(200)
+  })
+
+  test('로컬이 아닌 호스트는 403', async () => {
+    const j = job('awaiting_reference')
+    writeAnalysis(j.id, WORDS)
+    expect((await get(j.id, { host: 'evil.example' })).status).toBe(403)
+  })
+
+  test('줄이 250개여도 응답이 작다 — 줄마다 정해진 칸만 있고 단어별 시각은 없다 (Review Focus 5)', async () => {
+    const j = job('awaiting_reference')
+    const many = Array.from({ length: 2600 }, (_, k) => w('단어', k * 0.4, k * 0.4 + 0.3, 0.9))
+    writeAnalysis(j.id, many)
+    const text = await (await get(j.id)).text()
+    const body = JSON.parse(text) as CaptionReviewDto
+    expect(body.parts.length).toBeGreaterThan(200)
+    expect(Object.keys(body.parts[0]!).sort()).toEqual(['end', 'i', 'lowWords', 'start', 'text'])
+    expect(text.length).toBeLessThan(60_000)
   })
 })
 

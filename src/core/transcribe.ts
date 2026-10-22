@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { segmentWords } from '../shared/captionReview.ts'
 import { WHISPER_MODEL_PATH } from './env.ts'
 import { run } from './exec.ts'
 import { probeVideo } from './media.ts'
@@ -17,8 +18,6 @@ interface WhisperEntry {
 }
 
 const SPECIAL = /^\s*\[_[^\]]*\]\s*$/ // [_BEG_] [_EOT_] [_TT_427] 같은 whisper 특수 토큰
-const SENTENCE_END = /[.?!。？！]$/
-const SEGMENT_GAP_SEC = 0.8
 
 /** whisper-cli `-ojf` 결과를 단어·세그먼트로 바꾼다. 순수 함수. */
 export function parseWhisperJson(json: unknown, durationSec: number): Transcript {
@@ -61,26 +60,6 @@ export function parseWhisperJson(json: unknown, durationSec: number): Transcript
     segments: segmentWords(words),
     hasSpeech: words.length > 0,
   }
-}
-
-function toSegment(ws: Word[]) {
-  return { text: ws.map((w) => w.text).join(' '), start: ws[0]!.start, end: ws[ws.length - 1]!.end }
-}
-
-/** 단어를 문장 단위(0.8초 넘게 쉬거나 문장부호로 끝나면 새 문장)로 묶는다. 순수 함수. */
-export function segmentWords(words: Word[]): Transcript['segments'] {
-  const segments: Transcript['segments'] = []
-  let cur: { words: Word[] } | null = null
-  for (const w of words) {
-    const prev: Word | undefined = cur?.words[cur.words.length - 1]
-    if (!cur || !prev || w.start - prev.end > SEGMENT_GAP_SEC || SENTENCE_END.test(prev.text)) {
-      if (cur) segments.push(toSegment(cur.words))
-      cur = { words: [] }
-    }
-    cur.words.push(w)
-  }
-  if (cur && cur.words.length) segments.push(toSegment(cur.words))
-  return segments
 }
 
 export async function transcribe(

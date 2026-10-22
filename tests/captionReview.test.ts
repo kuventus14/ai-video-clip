@@ -1,6 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { applyTranscriptEdits, reviewParts, REVIEW_LIMITS } from '../src/core/captionReview.ts'
-import { segmentWords } from '../src/core/transcribe.ts'
+import { applyTranscriptEdits, reviewParts, REVIEW_LIMITS, segmentWords } from '../src/shared/captionReview.ts'
 import type { Transcript, Word } from '../src/core/types.ts'
 
 const w = (text: string, start: number, end: number, confidence = 0.9): Word => ({ text, start, end, confidence })
