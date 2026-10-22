@@ -1,9 +1,10 @@
 'use client'
 
 import { Check, ExternalLink, Film } from 'lucide-react'
-import { useRef, useState } from 'react'
-import type { JobDto, Recommendation } from '../../src/shared/types.ts'
-import { plan } from '../../src/ui/api.ts'
+import { useEffect, useRef, useState } from 'react'
+import type { CaptionReviewDto, JobDto, Recommendation } from '../../src/shared/types.ts'
+import { getCaptions, plan } from '../../src/ui/api.ts'
+import { draftFrom, editsFrom, partProblems, type CaptionDraft } from '../../src/ui/captions.ts'
 import { formatDuration, formatViews, sourceFrame } from '../../src/ui/format.ts'
 import { BAD_LINK_MESSAGE, checkLink, initialReference } from '../../src/ui/reference.ts'
 import { ActionBar } from '../ui/ActionBar.tsx'
@@ -11,6 +12,7 @@ import { Button } from '../ui/Button.tsx'
 import { Card } from '../ui/Card.tsx'
 import { cx } from '../ui/cx.ts'
 import { Field, Textarea } from '../ui/Field.tsx'
+import { CaptionReview } from './CaptionReview.tsx'
 import { PurposeChooser, type PurposeChoice } from './PurposeChooser.tsx'
 import { ReferenceInput } from './ReferenceInput.tsx'
 
@@ -76,6 +78,20 @@ export function ReferencePicker({ job, onChanged, onCancel }: { job: JobDto; onC
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const linkInput = useRef<HTMLInputElement>(null)
+  // 자막 확인: 인식 결과는 화면이 열릴 때 한 번 불러온다. 못 불러와도(상태가 달라졌거나 파일이 없을 때) 레퍼런스 고르기는 그대로 된다.
+  const [review, setReview] = useState<CaptionReviewDto | null>(null)
+  const [draft, setDraft] = useState<CaptionDraft>({})
+  useEffect(() => {
+    const ac = new AbortController()
+    getCaptions(job.id, ac.signal)
+      .then((r) => {
+        setReview(r)
+        setDraft(draftFrom(r))
+      })
+      .catch(() => {})
+    return () => ac.abort()
+  }, [job.id])
+  const captionProblem = Object.keys(partProblems(draft)).length > 0
 
   const picked = job.recommendations.find((r) => r.id === recId)
   const checked = checkLink(link)
@@ -92,7 +108,10 @@ export function ReferencePicker({ job, onChanged, onCancel }: { job: JobDto; onC
     setError(null)
     try {
       const reference = fileName ? 'uploaded' : (picked?.url ?? (checked.kind === 'ok' ? checked.url : null))
-      onChanged(await plan(job.id, { reference, request: request.trim(), purposeChoice: choice }))
+      // 자막은 고친 줄 전체를 보낸다. 고친 적도 저장된 것도 없으면 보내지 않는다(되돌려서 비운 경우는 빈 배열로 비운다).
+      const edits = review ? editsFrom(draft) : []
+      const captionEdits = review && (edits.length > 0 || review.edits.length > 0) ? { captionEdits: edits } : {}
+      onChanged(await plan(job.id, { reference, request: request.trim(), purposeChoice: choice, ...captionEdits }))
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
       setSubmitting(false)
@@ -110,6 +129,8 @@ export function ReferencePicker({ job, onChanged, onCancel }: { job: JobDto; onC
           <p className="mt-4 max-w-[62ch] text-[14px] leading-relaxed text-ink-3">다르게 이해했다면 ‘새 영상’에서 설명을 더 자세히 적어 다시 올려 주세요. 편집에서 바라는 점은 아래 ‘참고 요청’에 적어도 돼요.</p>
         </section>
       ) : null}
+
+      {review ? <CaptionReview review={review} draft={draft} onChange={setDraft} videoSrc={job.media.source} disabled={submitting} /> : null}
 
       <Card title="레퍼런스" description="따라 하고 싶은 영상을 골라 주세요. 하나만 고르면 돼요. 없이도 만들 수 있어요.">
         <div className="flex flex-col gap-6">
@@ -180,13 +201,13 @@ export function ReferencePicker({ job, onChanged, onCancel }: { job: JobDto; onC
         <PurposeChooser value={choice} onChange={setChoice} guess={job.purposeGuess} source={sourceFrame(job)} />
       </Card>
 
-      <ActionBar error={error} hint={fileBusy ? '레퍼런스 파일을 올리는 중이에요' : hasReference ? undefined : '레퍼런스를 고르지 않았어요'}>
+      <ActionBar error={error} hint={captionProblem ? '자막이 너무 긴 줄이 있어요' : fileBusy ? '레퍼런스 파일을 올리는 중이에요' : hasReference ? undefined : '레퍼런스를 고르지 않았어요'}>
         {onCancel ? (
           <Button variant="ghost" onClick={onCancel} disabled={submitting}>
             취소
           </Button>
         ) : null}
-        <Button variant="primary" disabled={fileBusy} loading={submitting} onClick={onContinue}>
+        <Button variant="primary" disabled={fileBusy || captionProblem} loading={submitting} onClick={onContinue}>
           {hasReference ? '이 레퍼런스로 계속' : '레퍼런스 없이 계속'}
         </Button>
       </ActionBar>

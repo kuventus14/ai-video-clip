@@ -1,4 +1,4 @@
-import type { ApproveInput, JobDto, PlanInput, SoundListDto, StartInput } from '../shared/types.ts'
+import type { ApproveInput, CaptionReviewDto, JobDto, PlanInput, SoundListDto, StartInput } from '../shared/types.ts'
 
 /** 서버가 거절했거나(status 4xx/5xx) 서버에 닿지 못했을 때(status 0). message 는 사용자에게 그대로 보여 줘도 되는 한국어. */
 export class ApiError extends Error {
@@ -50,6 +50,9 @@ export const confirm = (id: string) => request<JobDto>('POST', jobUrl(id, '/conf
 export const retry = (id: string) => request<JobDto>('POST', jobUrl(id, '/retry'))
 export const otherVersion = (id: string) => request<JobDto>('POST', jobUrl(id, '/other-version'))
 export const removeJob = (id: string) => request<{ ok: true }>('DELETE', jobUrl(id))
+
+/** 자막 확인 화면의 인식 결과(줄 목록·저장된 편집) */
+export const getCaptions = (id: string, signal?: AbortSignal) => request<CaptionReviewDto>('GET', jobUrl(id, '/captions'), { signal })
 
 /** 계획 승인 화면의 배경음악 목록 */
 export const getSound = (signal?: AbortSignal) => request<SoundListDto>('GET', '/api/sound', { signal })
