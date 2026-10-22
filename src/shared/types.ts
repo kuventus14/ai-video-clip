@@ -113,6 +113,12 @@ export interface PlanInput {
 }
 
 /** 승인 화면에서 사용자가 고칠 수 있는 대본 문구(고친 칸만 보낸다) */
+/** 자막 확인 화면에서 고친 한 줄. i = 줄 번호(reviewParts), text null(또는 공백뿐) = 이 줄을 지운다 */
+export interface CaptionEdit {
+  i: number
+  text: string | null
+}
+
 export interface ScriptEdits {
   title?: string
   hookQuestion?: string

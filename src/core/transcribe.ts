@@ -54,6 +54,21 @@ export function parseWhisperJson(json: unknown, durationSec: number): Transcript
       confidence: w.pCount ? w.pSum / w.pCount : 0.5,
     }))
 
+  return {
+    language: root.result?.language ?? 'ko',
+    durationSec,
+    words,
+    segments: segmentWords(words),
+    hasSpeech: words.length > 0,
+  }
+}
+
+function toSegment(ws: Word[]) {
+  return { text: ws.map((w) => w.text).join(' '), start: ws[0]!.start, end: ws[ws.length - 1]!.end }
+}
+
+/** 단어를 문장 단위(0.8초 넘게 쉬거나 문장부호로 끝나면 새 문장)로 묶는다. 순수 함수. */
+export function segmentWords(words: Word[]): Transcript['segments'] {
   const segments: Transcript['segments'] = []
   let cur: { words: Word[] } | null = null
   for (const w of words) {
@@ -65,18 +80,7 @@ export function parseWhisperJson(json: unknown, durationSec: number): Transcript
     cur.words.push(w)
   }
   if (cur && cur.words.length) segments.push(toSegment(cur.words))
-
-  return {
-    language: root.result?.language ?? 'ko',
-    durationSec,
-    words,
-    segments,
-    hasSpeech: words.length > 0,
-  }
-}
-
-function toSegment(ws: Word[]) {
-  return { text: ws.map((w) => w.text).join(' '), start: ws[0]!.start, end: ws[ws.length - 1]!.end }
+  return segments
 }
 
 export async function transcribe(
