@@ -8,6 +8,7 @@ import { approve, getSound, plan } from '../../src/ui/api.ts'
 import { sourceFrame } from '../../src/ui/format.ts'
 import type { AudioMode } from '../../src/shared/voice.ts'
 import { parsePlanCard, planItemKind, type PlanItemKind } from '../../src/ui/plan.ts'
+import { formFrom, overLimit, scriptEditsFrom, type ScriptForm } from '../../src/ui/script.ts'
 import { reconcileSoundChoice } from '../../src/ui/sound.ts'
 import { ActionBar } from '../ui/ActionBar.tsx'
 import { Button } from '../ui/Button.tsx'
@@ -16,6 +17,7 @@ import { Field, Textarea } from '../ui/Field.tsx'
 import { Segmented } from '../ui/Segmented.tsx'
 import { Switch } from '../ui/Switch.tsx'
 import { PurposeChooser, type PurposeChoice } from './PurposeChooser.tsx'
+import { ScriptEditor } from './ScriptEditor.tsx'
 import { SoundPicker } from './SoundPicker.tsx'
 
 type Quality = JobDto['quality']
@@ -45,6 +47,7 @@ export function PlanApproval({ job, onChanged, onEditReference }: { job: JobDto;
   const [sound, setSound] = useState<SoundListDto | null>(null)
   const [soundError, setSoundError] = useState<string | null>(null)
   const [quality, setQuality] = useState<Quality>(job.quality)
+  const [scriptForm, setScriptForm] = useState<ScriptForm | null>(() => (job.script ? formFrom(job.script) : null))
   const [editingRequest, setEditingRequest] = useState(false)
   const [request, setRequest] = useState(job.requestText)
   const [busy, setBusy] = useState<'approve' | 'replan' | null>(null)
@@ -84,6 +87,8 @@ export function PlanApproval({ job, onChanged, onEditReference }: { job: JobDto;
   }
 
   const warnCount = card.items.filter((i) => i.tone === 'warn').length
+  const scriptProblem = job.script && scriptForm ? overLimit(scriptForm, job.script) : []
+  const scriptEdits = job.script && scriptForm ? scriptEditsFrom(job.script, scriptForm) : {}
 
   return (
     <div className="flex flex-col gap-6">
@@ -109,6 +114,8 @@ export function PlanApproval({ job, onChanged, onEditReference }: { job: JobDto;
         ) : null}
         {warnCount > 0 ? <p className="mt-4 text-[13px] text-ink-3">노란 줄은 이번 버전에서 반영되지 않는 부분이에요. 나머지는 그대로 만들어요.</p> : null}
       </section>
+
+      {job.script && scriptForm ? <ScriptEditor script={job.script} form={scriptForm} onChange={setScriptForm} disabled={busy !== null} /> : null}
 
       <Card title="만들기 설정">
         <div className="flex flex-col gap-7">
@@ -200,7 +207,7 @@ export function PlanApproval({ job, onChanged, onEditReference }: { job: JobDto;
         </Card>
       ) : null}
 
-      <ActionBar error={error} hint={purposeChanged ? '용도를 바꿨어요. 계획을 다시 만든 뒤 승인할 수 있어요' : undefined}>
+      <ActionBar error={error} hint={purposeChanged ? '용도를 바꿨어요. 계획을 다시 만든 뒤 승인할 수 있어요' : scriptProblem.length > 0 ? '편집 구성 문구를 확인해 주세요' : undefined}>
         {!editingRequest ? (
           <Button variant="ghost" disabled={busy !== null} onClick={() => setEditingRequest(true)}>
             요청 고치기
@@ -211,7 +218,7 @@ export function PlanApproval({ job, onChanged, onEditReference }: { job: JobDto;
             레퍼런스 바꾸기
           </Button>
         ) : null}
-        <Button variant="primary" loading={busy === 'approve'} disabled={purposeChanged || busy === 'replan'} onClick={() => run('approve', () => approve(job.id, { captions: captionsOn ? 'auto' : 'off', ...(captionsOn ? { captionPosition } : {}), audio, bgm, sfx, quality }))}>
+        <Button variant="primary" loading={busy === 'approve'} disabled={purposeChanged || scriptProblem.length > 0 || busy === 'replan'} onClick={() => run('approve', () => approve(job.id, { captions: captionsOn ? 'auto' : 'off', ...(captionsOn ? { captionPosition } : {}), ...(Object.keys(scriptEdits).length > 0 ? { scriptEdits } : {}), audio, bgm, sfx, quality }))}>
           승인하고 만들기
         </Button>
       </ActionBar>
