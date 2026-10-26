@@ -1,0 +1,161 @@
+import { describe, expect, test } from 'vitest'
+import { applyCaptionTrack, CAPTION_LINE_LIMITS, captionLineProblems, captionLinesOf, cutTranscriptFor, removedSpans, segmentWords } from '../src/shared/captionReview.ts'
+import type { ReviewTranscript, ReviewWord } from '../src/shared/captionReview.ts'
+import type { CaptionLine } from '../src/shared/types.ts'
+
+const w = (text: string, start: number, end: number, confidence = 0.9): ReviewWord => ({ text, start, end, confidence })
+const tr = (words: ReviewWord[]): ReviewTranscript => ({ words, segments: segmentWords(words), hasSpeech: words.length > 0 })
+
+/** 줄 0 = 앞 네 단어(0~2.4초), 줄 1 = 뒤 세 단어(3.4~5초). 영상은 10초라고 본다 */
+const WORDS = [w('이렇게', 0, 0.5, 0.2), w('되면서', 0.5, 1.0, 0.3), w('해네도', 1.0, 1.6, 0.4), w('올라오고,', 1.6, 2.4), w('이게', 3.4, 3.8, 0.1), w('섀도우', 3.8, 4.4, 0.45), w('생활을', 4.4, 5.0, 0.5)]
+const T = tr(WORDS)
+const L = (start: number, end: number, text: string): CaptionLine => ({ start, end, text })
+
+describe('captionLinesOf', () => {
+  test('인식한 줄을 시각·글자 목록으로 낸다', () => {
+    expect(captionLinesOf(T)).toEqual([L(0, 2.4, '이렇게 되면서 해네도 올라오고,'), L(3.4, 5, '이게 섀도우 생활을')])
+  })
+  test('단어가 없으면 빈 목록', () => {
+    expect(captionLinesOf(tr([]))).toEqual([])
+  })
+  test('시각은 소수 둘째 자리로 맞춘다', () => {
+    expect(captionLinesOf(tr([w('가', 0.123456, 0.987654)]))).toEqual([L(0.12, 0.99, '가')])
+  })
+})
+
+describe('captionLineProblems', () => {
+  const ok = [L(0, 2.4, '가'), L(3.4, 5, '나')]
+  test('한도 값', () => {
+    expect(CAPTION_LINE_LIMITS).toEqual({ maxText: 160, minSec: 0.2, maxLines: 800, overlapSec: 0.01, endSlackSec: 0.5 })
+  })
+  test('정상이면 모두 null', () => {
+    expect(captionLineProblems(ok, 10)).toEqual([null, null])
+  })
+  test('맞닿는 줄(앞 줄 끝 = 뒤 줄 시작)은 괜찮다', () => {
+    expect(captionLineProblems([L(0, 2, '가'), L(2, 4, '나')], 10)).toEqual([null, null])
+  })
+  test('(Review Focus 1) 앞 줄과 겹치면 뒤 줄에 알린다', () => {
+    expect(captionLineProblems([L(0, 3, '가'), L(2.5, 4, '나')], 10)).toEqual([null, '앞 줄과 겹쳐요'])
+  })
+  test('끝이 시작보다 빠르거나 0.2초보다 짧으면', () => {
+    expect(captionLineProblems([L(3, 2, '가')], 10)[0]).toBe('끝이 시작보다 빨라요')
+    expect(captionLineProblems([L(3, 3.1, '가')], 10)[0]).toBe('0.2초보다 짧아요')
+  })
+  test('160자를 넘거나 글자가 비었거나 글자가 아니면', () => {
+    expect(captionLineProblems([L(0, 2, '가'.repeat(161))], 10)[0]).toBe('160자를 넘어요')
+    expect(captionLineProblems([L(0, 2, '가'.repeat(160))], 10)[0]).toBeNull()
+    expect(captionLineProblems([L(0, 2, '   ')], 10)[0]).toBe('글자가 비었어요')
+    expect(captionLineProblems([{ start: 0, end: 2, text: 5 as never }], 10)[0]).toBe('글자가 비었어요')
+  })
+  test('시작이 음수거나 영상 길이(+0.5초)를 넘으면', () => {
+    expect(captionLineProblems([L(-1, 2, '가')], 10)[0]).toBe('시작 시각이 잘못됐어요')
+    expect(captionLineProblems([L(9, 10.5, '가')], 10)[0]).toBeNull()
+    expect(captionLineProblems([L(9, 10.6, '가')], 10)[0]).toBe('영상 길이(10.0초)를 넘어요')
+    expect(captionLineProblems([{ start: Number.NaN, end: 2, text: '가' }], 10)[0]).toBe('시작 시각이 잘못됐어요')
+  })
+})
+
+describe('applyCaptionTrack', () => {
+  test('트랙이 null·undefined 면 같은 값(예전 경로를 쓰라는 뜻)', () => {
+    expect(applyCaptionTrack(T, null)).toBe(T)
+    expect(applyCaptionTrack(T, undefined)).toBe(T)
+  })
+  test('원래 줄을 그대로 둔 트랙은 단어를 시각·신뢰도까지 그대로 낸다', () => {
+    expect(applyCaptionTrack(T, captionLinesOf(T)).words).toEqual(WORDS)
+  })
+  test('글자를 고친 줄만 새 단어(신뢰도 1)가 되고 다른 줄은 그대로', () => {
+    const out = applyCaptionTrack(T, [L(0, 2.4, '이렇게 되면서 해네도 올라오고,'), L(3.4, 5, '이게 섀도우 스윙을')])
+    expect(out.words.slice(0, 4)).toEqual(WORDS.slice(0, 4))
+    expect(out.words.slice(4).map((x) => x.text)).toEqual(['이게', '섀도우', '스윙을'])
+    expect(out.words.slice(4).every((x) => x.confidence === 1)).toBe(true)
+    expect(out.words.at(-1)!.end).toBeCloseTo(5, 3)
+  })
+  test('시각만 옮긴 줄은 새 구간 안에 단어가 놓이고 신뢰도 1', () => {
+    const out = applyCaptionTrack(T, [L(0, 2.4, '이렇게 되면서 해네도 올라오고,'), L(3.0, 5.2, '이게 섀도우 생활을')])
+    const moved = out.words.slice(4)
+    expect(moved.map((x) => x.text).join(' ')).toBe('이게 섀도우 생활을')
+    expect(moved[0]!.start).toBeGreaterThanOrEqual(3.0 - 1e-6)
+    expect(moved.at(-1)!.end).toBeLessThanOrEqual(5.2 + 1e-6)
+    expect(moved.every((x) => x.confidence === 1)).toBe(true)
+  })
+  test('(인식이 놓친 구간) 새 줄은 줄 전체 구간에 단어가 놓인다', () => {
+    const out = applyCaptionTrack(T, [...captionLinesOf(T), L(6, 8, '새로 넣은 자막')])
+    const added = out.words.filter((x) => x.start >= 6 - 1e-6)
+    expect(added.map((x) => x.text)).toEqual(['새로', '넣은', '자막'])
+    expect(added[0]!.start).toBe(6)
+    expect(added.at(-1)!.end).toBe(8)
+    expect(added.every((x) => x.confidence === 1)).toBe(true)
+    expect(out.hasSpeech).toBe(true)
+  })
+  test('트랙에 없는 원래 줄의 단어는 빠진다', () => {
+    const out = applyCaptionTrack(T, [L(3.4, 5, '이게 섀도우 생활을')])
+    expect(out.words).toEqual(WORDS.slice(4))
+    expect(out.segments).toHaveLength(1)
+  })
+  test('줄이 시작순이 아니어도 단어는 시각 순서로 나온다', () => {
+    const out = applyCaptionTrack(T, [L(6, 8, '뒤에 넣음'), ...captionLinesOf(T)])
+    const starts = out.words.map((x) => x.start)
+    expect(starts).toEqual([...starts].sort((a, b) => a - b))
+  })
+  test('빈 글자 줄은 무시하고, 트랙이 빈 배열이면 단어가 없어 hasSpeech=false(던지지 않는다)', () => {
+    expect(applyCaptionTrack(T, [L(0, 2, '   '), ...captionLinesOf(T)]).words).toEqual(WORDS)
+    expect(applyCaptionTrack(T, [])).toMatchObject({ words: [], segments: [], hasSpeech: false })
+  })
+  test('(Plan 6 C2) 줄 안의 쉬는 구간에는 새 단어가 시작하거나 끝나지 않는다', () => {
+    const ws = [w('그러니까', 0, 0.5), w('손목을', 0.5, 1.0), w('해네도', 1.6, 2.1), w('하면', 2.1, 2.6)]
+    const out = applyCaptionTrack(tr(ws), [L(0, 2.6, '그러니까 손목을 이렇게 펴서 백스윙 하면')])
+    const inGap = (t: number) => t > 1.0 + 1e-6 && t < 1.6 - 1e-6
+    for (const x of out.words) {
+      expect(inGap(x.start)).toBe(false)
+      expect(inGap(x.end)).toBe(false)
+    }
+    expect(out.words.map((x) => x.text).join(' ')).toBe('그러니까 손목을 이렇게 펴서 백스윙 하면')
+  })
+  test('줄 글자가 160자를 넘으면 160자까지만 쓴다', () => {
+    const out = applyCaptionTrack(T, [L(6, 8, `${'가'.repeat(100)} ${'나'.repeat(100)}`)])
+    expect(Array.from(out.words.map((x) => x.text).join(' ')).length).toBe(160)
+  })
+  test('원본은 바뀌지 않는다', () => {
+    const before = JSON.stringify(T)
+    applyCaptionTrack(T, [L(6, 8, '새 줄')])
+    expect(JSON.stringify(T)).toBe(before)
+  })
+})
+
+describe('cutTranscriptFor — 컷이 사용자가 넣은 자막 구간을 지킨다', () => {
+  test('트랙이 null 이면 같은 값', () => {
+    expect(cutTranscriptFor(T, null)).toBe(T)
+  })
+  test('(Review Focus 2) 인식이 놓친 구간에 넣은 줄은 가짜 단어로 지켜지고, 원래 단어는 그대로 남는다', () => {
+    const out = cutTranscriptFor(T, [...captionLinesOf(T), L(6, 8, '새로 넣은 자막')])
+    expect(out.words.slice(0, 7)).toEqual(WORDS)
+    expect(out.words).toHaveLength(8)
+    expect(out.words[7]).toMatchObject({ start: 6, end: 8, confidence: 1 })
+  })
+  test('말이 인식된 줄 안(쉬는 구간 포함)은 새로 지키지 않는다 — 말 사이 무음 컷은 그대로', () => {
+    expect(cutTranscriptFor(T, captionLinesOf(T)).words).toEqual(WORDS)
+  })
+  test('줄을 인식된 말 바깥으로 늘리면(앞·뒤 0.3초 이상) 그 늘린 곳이 지켜진다', () => {
+    const out = cutTranscriptFor(T, [L(0, 2.4, '이렇게 되면서 해네도 올라오고,'), L(3.0, 6.0, '이게 섀도우 생활을')])
+    const extra = out.words.filter((x) => !WORDS.includes(x))
+    expect(extra.map((x) => [x.start, x.end])).toEqual([[3.0, 3.4], [5, 6]])
+  })
+  test('트랙에서 지운 줄의 원래 단어도 컷 계산에는 남는다(자막을 지워도 영상은 그대로)', () => {
+    expect(cutTranscriptFor(T, [L(3.4, 5, '이게 섀도우 생활을')]).words).toEqual(WORDS)
+  })
+})
+
+describe('removedSpans — 말은 있는데 자막 줄이 없는 구간', () => {
+  test('트랙이 없으면 없다. 원래 줄 그대로면 없다', () => {
+    expect(removedSpans(T, null)).toEqual([])
+    expect(removedSpans(T, captionLinesOf(T))).toEqual([])
+  })
+  test('줄이 빠진 원래 줄만', () => {
+    expect(removedSpans(T, [L(0, 2.4, '가')])).toEqual([{ start: 3.4, end: 5 }])
+    expect(removedSpans(T, [])).toEqual([{ start: 0, end: 2.4 }, { start: 3.4, end: 5 }])
+  })
+  test('절반쯤 겹치게 옮긴 줄은 아니다(30% 이상 겹치면 살아 있는 줄), 거의 안 겹치면 뺀 것', () => {
+    expect(removedSpans(T, [L(0, 2.4, '가'), L(4.2, 7, '나')])).toEqual([]) // 1.6초 중 0.8초(50%) 겹침
+    expect(removedSpans(T, [L(0, 2.4, '가'), L(4.9, 7, '나')])).toEqual([{ start: 3.4, end: 5 }]) // 0.1초(6%) 겹침
+  })
+})
