@@ -272,6 +272,76 @@ describe('자막 편집 적용 (plan·produce)', () => {
   })
 })
 
+describe('자막 트랙 적용 (plan·produce)', () => {
+  // SPEECH 의 인식: 0~1초 "이렇게 되면서"(줄 0), 4~5초 "이게 섀도우"(줄 1)
+  const L = (start: number, end: number, text: string) => ({ start, end, text })
+  const TRACK = [L(0, 1, '이렇게 돼서'), L(4, 5, '이게 섀도우'), L(10, 12, '새로 넣은 줄')] // 줄 0 고침, 줄 1 그대로, 인식이 놓친 10~12초에 새 줄
+
+  test('plan: 트랙을 입힌 transcript 를 prepareEdit 에 넘기고 analysis.json 은 그대로다', async () => {
+    const j = job('queued_plan', { captionTrack: TRACK })
+    writeSpeech(j.id)
+    const f = fakes()
+    await runOnce(jobs, f.deps)
+    const words = f.calls.prepare[0]!.analysis.transcript.words
+    expect(words.map((x) => x.text)).toEqual(['이렇게', '돼서', '이게', '섀도우', '새로', '넣은', '줄'])
+    expect(words.slice(2, 4).map((x) => x.confidence)).toEqual([0.3, 0.3]) // 그대로 둔 줄은 원래 단어·신뢰도
+    expect(words.filter((x) => x.start >= 10 - 1e-6).every((x) => x.confidence === 1)).toBe(true)
+    const onDisk = JSON.parse(fs.readFileSync(path.join(jobs.jobDir(j.id), 'analysis.json'), 'utf8'))
+    expect(onDisk.transcript.words.map((x: { text: string }) => x.text)).toEqual(['이렇게', '되면서', '이게', '섀도우'])
+  })
+
+  test('produce: 같은 transcript 를 주고, cutTranscript 에는 원래 단어 + 인식이 놓친 곳에 넣은 줄 구간이 들어 컷이 잘라내지 않는다 (Review Focus 2)', async () => {
+    const j = job('queued_produce', { captionTrack: TRACK })
+    writeSpeech(j.id)
+    fs.writeFileSync(path.join(jobs.jobDir(j.id), 'prepared.json'), JSON.stringify(PREPARED))
+    const f = fakes()
+    await runOnce(jobs, f.deps)
+    const input = f.calls.produce[0]!
+    expect(input.analysis.transcript.words.map((x) => x.text)).toEqual(['이렇게', '돼서', '이게', '섀도우', '새로', '넣은', '줄'])
+    const cut = input.cutTranscript!.words
+    expect(cut.slice(0, 4).map((x) => x.text)).toEqual(['이렇게', '되면서', '이게', '섀도우']) // 고치기 전 단어 그대로
+    expect(cut.at(-1)).toMatchObject({ start: 10, end: 12 }) // 새 줄 구간은 지켜진다
+  })
+
+  test('plan: 트랙에서 빠진 원래 줄의 구간을 deletedSpans 로 감독에게 알린다', async () => {
+    const j = job('queued_plan', { captionTrack: [L(0, 1, '이렇게 되면서')] })
+    writeSpeech(j.id)
+    const f = fakes()
+    await runOnce(jobs, f.deps)
+    expect(f.calls.prepare[0]!.deletedSpans).toEqual([{ start: 4, end: 5 }])
+  })
+
+  test('(Review Focus 3) 트랙이 있으면 예전 줄 번호 편집은 쓰이지 않는다 — 둘 다 있어도 트랙만', async () => {
+    const j = job('queued_plan', { captionTrack: [L(4, 5, '이게 섀도우')], transcriptEdits: [{ i: 0, text: '예전 편집' }] })
+    writeSpeech(j.id)
+    const f = fakes()
+    await runOnce(jobs, f.deps)
+    expect(f.calls.prepare[0]!.analysis.transcript.words.map((x) => x.text)).toEqual(['이게', '섀도우'])
+  })
+
+  test('(Review Focus 2) 빈 트랙(자막 전부 지움)도 던지지 않고 계획·제작까지 가고, 컷은 원래 인식 기준이다', async () => {
+    const j = job('queued_plan', { captionTrack: [] })
+    writeSpeech(j.id)
+    const f = fakes()
+    await runOnce(jobs, f.deps)
+    expect(jobs.get(j.id)!.status).toBe('awaiting_plan')
+    expect(f.calls.prepare[0]!.analysis.transcript).toMatchObject({ words: [], hasSpeech: false })
+    expect(f.calls.prepare[0]!.deletedSpans).toEqual([{ start: 0, end: 1 }, { start: 4, end: 5 }])
+
+    const k = job('queued_produce', { captionTrack: [] })
+    writeSpeech(k.id)
+    fs.writeFileSync(path.join(jobs.jobDir(k.id), 'prepared.json'), JSON.stringify(PREPARED))
+    await runOnce(jobs, f.deps)
+    expect(f.calls.produce[0]!.cutTranscript!.words.map((x) => x.text)).toEqual(['이렇게', '되면서', '이게', '섀도우'])
+  })
+
+  test('(Review Focus 1) 분석을 다시 하면 예전 인식 줄에 맞춘 트랙도 비운다', async () => {
+    const j = job('queued_analysis', { captionTrack: [L(0, 1, '가')], transcriptEdits: [{ i: 0, text: '나' }] })
+    await runOnce(jobs, fakes().deps)
+    expect(jobs.get(j.id)).toMatchObject({ captionTrack: null, transcriptEdits: null })
+  })
+})
+
 describe('plan 단계', () => {
   test('분석 결과와 입력으로 prepareEdit 를 부르고 계획 카드를 저장해 awaiting_plan 으로 보낸다', async () => {
     const j = job('queued_plan', { requestText: '컷을 더 빠르게', purposeChoice: 'short', referenceSource: 'https://youtu.be/abc' })

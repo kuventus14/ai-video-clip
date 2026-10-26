@@ -7,7 +7,7 @@ import { applyScriptEdits } from '../core/script.ts'
 import { ReferenceFetchError } from '../core/reference.ts'
 import { TempoError } from '../core/tempo.ts'
 import { VoiceError } from '../core/voice.ts'
-import { applyTranscriptEdits, deletedParts } from '../shared/captionReview.ts'
+import { applyCaptionTrack, applyTranscriptEdits, cutTranscriptFor, deletedParts, removedSpans } from '../shared/captionReview.ts'
 import { SoundError } from '../shared/sound.ts'
 import { resolvePurpose } from '../core/purpose.ts'
 import { broadQueries, SearchError } from '../core/search.ts'
@@ -93,12 +93,17 @@ export async function probePhase({ jobs, d, job, dir }: PhaseContext): Promise<v
   })
 }
 
+/** 사용자가 고친 자막을 입힌 인식 결과: 자막 트랙이 있으면 트랙(빈 배열 = 자막 전부 지움), 없으면 예전 줄 번호 편집. 원본은 바꾸지 않는다. */
+function captionedTranscript(raw: Analysis['transcript'], job: Job): Analysis['transcript'] {
+  return job.captionTrack !== null ? applyCaptionTrack(raw, job.captionTrack) : applyTranscriptEdits(raw, job.transcriptEdits)
+}
+
 /** 영상을 이해한다(음성 인식·요약). 레퍼런스가 없으면 비슷한 인기 영상을 검색해 고르게 한다. */
 export async function analysisPhase({ jobs, d, job, dir, onStage }: PhaseContext): Promise<void> {
   const analysis = await d.analyzeInput({ videoPath: requireSource(job), workDir: dir, description: job.description, onStage })
   writeJson(path.join(dir, 'analysis.json'), analysis)
   // 인식 결과가 새로 만들어졌으니 예전 결과의 줄 번호로 고쳐 둔 자막 편집은 더는 맞지 않는다
-  if (job.transcriptEdits) jobs.update(job.id, { transcriptEdits: null })
+  if (job.transcriptEdits || job.captionTrack !== null) jobs.update(job.id, { transcriptEdits: null, captionTrack: null })
 
   // 말이 없는 영상은 확인할 자막이 없으니 레퍼런스가 이미 있으면 곧바로 계획으로 간다.
   if (job.referenceSource && !analysis.transcript.hasSpeech) {
@@ -126,15 +131,15 @@ export async function analysisPhase({ jobs, d, job, dir, onStage }: PhaseContext
 export async function planPhase({ jobs, d, job, dir, onStage }: PhaseContext): Promise<void> {
   const raw = readJson<Analysis>(path.join(dir, 'analysis.json'))
   if (!raw) throw new Error('분석 결과(analysis.json)를 찾을 수 없어요')
-  // 사용자가 자막 확인에서 고친 글자를 입힌 인식 결과로 계획한다(편집 감독이 틀린 글자로 문구를 쓰지 않게). 파일은 원본 그대로 둔다.
-  const analysis: Analysis = { ...raw, transcript: applyTranscriptEdits(raw.transcript, job.transcriptEdits) }
+  // 사용자가 자막 편집에서 고친 자막(트랙, 없으면 예전 줄 번호 편집)을 입힌 인식 결과로 계획한다(편집 감독이 틀린 글자로 문구를 쓰지 않게). 파일은 원본 그대로 둔다.
+  const analysis: Analysis = { ...raw, transcript: captionedTranscript(raw.transcript, job) }
   const previous = readJson<Prepared>(path.join(dir, 'prepared.json'))
 
   const reference = job.referenceSource ?? undefined
   // 같은 레퍼런스로 다시 계획하면(용도 바꾸기·요청 고치기) 이미 분석한 스펙을 쓰고 다시 받지 않는다
   const knownSpec = reference && previous?.referenceSource === reference ? previous.spec : undefined
 
-  const prepared = await d.prepareEdit({ analysis, workDir: dir, reference, knownSpec, request: job.requestText, purposeChoice: job.purposeChoice, onStage, deletedSpans: deletedParts(raw.transcript, job.transcriptEdits) })
+  const prepared = await d.prepareEdit({ analysis, workDir: dir, reference, knownSpec, request: job.requestText, purposeChoice: job.purposeChoice, onStage, deletedSpans: job.captionTrack !== null ? removedSpans(raw.transcript, job.captionTrack) : deletedParts(raw.transcript, job.transcriptEdits) })
   writeJson(path.join(dir, 'prepared.json'), prepared)
   jobs.transition(job.id, ['planning'], 'awaiting_plan', { plan: prepared.plan, planCard: prepared.planCard, purpose: prepared.purpose, captionPosition: prepared.captionPosition, script: prepared.script ?? null, scriptEdits: null, errorMessage: null, stage: null })
 }
@@ -144,12 +149,12 @@ export async function producePhase({ jobs, d, job, dir, onStage }: PhaseContext)
   const raw = readJson<Analysis>(path.join(dir, 'analysis.json'))
   const prepared = readJson<Prepared>(path.join(dir, 'prepared.json'))
   if (!raw || !prepared) throw new Error('분석·계획 결과를 찾을 수 없어요')
-  const analysis: Analysis = { ...raw, transcript: applyTranscriptEdits(raw.transcript, job.transcriptEdits) }
+  const analysis: Analysis = { ...raw, transcript: captionedTranscript(raw.transcript, job) }
 
   const outDir = path.join(dir, 'out')
   // 승인 화면에서 문구를 고쳤다면 계획 대본 위에 덮어서 넘긴다(상한을 넘는 값은 정리된다). 고치지 않았으면 엔진이 prepared.script 를 그대로 쓴다.
   const script = job.scriptEdits && prepared.script ? applyScriptEdits(prepared.script, job.scriptEdits, { durationSec: analysis.info.durationSec, fallbackTitle: analysis.summary.genre || analysis.summary.topic }) : undefined
-  const result = await d.produceEdit({ analysis, prepared, outDir, script, cutTranscript: raw.transcript, quality: job.quality, captions: job.captionsMode, captionPosition: job.captionPosition ?? undefined, audio: job.audioMode, bgm: job.bgmId, sfx: job.sfxMode, onStage })
+  const result = await d.produceEdit({ analysis, prepared, outDir, script, cutTranscript: job.captionTrack !== null ? cutTranscriptFor(raw.transcript, job.captionTrack) : raw.transcript, quality: job.quality, captions: job.captionsMode, captionPosition: job.captionPosition ?? undefined, audio: job.audioMode, bgm: job.bgmId, sfx: job.sfxMode, onStage })
 
   let thumbPath: string | null = null
   try {
