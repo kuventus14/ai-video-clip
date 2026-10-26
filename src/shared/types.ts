@@ -116,6 +116,13 @@ export interface PlanInput {
   captionEdits?: CaptionEdit[]
 }
 
+/** 자막 한 줄: start~end(초) 동안 text 를 보여 준다. 사용자가 만든 자막 트랙은 이 줄들의 전체 목록이다. */
+export interface CaptionLine {
+  start: number
+  end: number
+  text: string
+}
+
 /** 자막 확인 화면에서 고친 한 줄. i = 줄 번호(reviewParts), text null(또는 공백뿐) = 이 줄을 지운다 */
 export interface CaptionEdit {
   i: number

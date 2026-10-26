@@ -1,4 +1,4 @@
-import type { CaptionEdit } from './types.ts'
+import type { CaptionEdit, CaptionLine } from './types.ts'
 
 /**
  * 자막 확인에 필요한 만큼만 아는 단어·인식 결과 모양(편집 엔진의 Word·Transcript 가 이 모양을 만족한다).
@@ -199,4 +199,116 @@ export function segmentWords(words: Word[]): ReviewTranscript['segments'] {
   }
   if (cur && cur.words.length) segments.push(toSegment(cur.words))
   return segments
+}
+
+// ───────────────────────── 자막 트랙: 사용자가 만든 줄 전체 ─────────────────────────
+
+/** 서버(zod)와 화면이 같이 쓰는 줄 한도 */
+export const CAPTION_LINE_LIMITS = { maxText: 160, minSec: 0.2, maxLines: 800, overlapSec: 0.01, endSlackSec: 0.5 } as const
+
+const round2 = (n: number) => Math.round(n * 100) / 100
+const lineText = (l: CaptionLine) => (typeof l.text === 'string' ? norm(l.text) : '')
+const validLine = (l: CaptionLine) => lineText(l) !== '' && Number.isFinite(l.start) && Number.isFinite(l.end) && l.end > l.start
+
+/** 인식한 줄(reviewParts)을 자막 줄 목록으로. 시각은 소수 둘째 자리. */
+export function captionLinesOf(t: Pick<ReviewTranscript, 'words'>): CaptionLine[] {
+  return reviewParts(t).map((p) => ({ start: round2(p.start), end: round2(p.end), text: p.text }))
+}
+
+/**
+ * 줄마다 문제(한국어, 없으면 null). 줄은 시작순으로 줘야 한다 — 앞 줄과 겹치는지를 앞 줄 기준으로 본다.
+ * 시작 시각·끝이 시작보다 빠름·0.2초 미만·글자 없음·160자 초과·영상 길이(+0.5초) 밖·앞 줄과 겹침.
+ */
+export function captionLineProblems(lines: CaptionLine[], durationSec: number): (string | null)[] {
+  const L = CAPTION_LINE_LIMITS
+  let prevEnd = -Infinity
+  return lines.map((l) => {
+    const text = lineText(l)
+    let problem: string | null = null
+    if (!Number.isFinite(l.start) || l.start < 0) problem = '시작 시각이 잘못됐어요'
+    else if (!Number.isFinite(l.end) || l.end <= l.start) problem = '끝이 시작보다 빨라요'
+    else if (l.end - l.start < L.minSec - 1e-9) problem = `${L.minSec}초보다 짧아요`
+    else if (!text) problem = '글자가 비었어요'
+    else if (Array.from(text).length > L.maxText) problem = `${L.maxText}자를 넘어요`
+    else if (l.end > durationSec + L.endSlackSec) problem = `영상 길이(${durationSec.toFixed(1)}초)를 넘어요`
+    else if (l.start < prevEnd - L.overlapSec) problem = '앞 줄과 겹쳐요'
+    if (Number.isFinite(l.end)) prevEnd = Math.max(prevEnd, l.end)
+    return problem
+  })
+}
+
+/**
+ * 사용자가 만든 자막 트랙을 입힌 transcript(원본은 바꾸지 않는다). 트랙이 null 이면 입력 그대로(예전 편집 경로를 쓰라는 뜻).
+ * - 원래 인식한 줄과 글자·시작·끝(±0.06초)이 같은 줄은 **원래 단어를 그대로**(시각·신뢰도 포함) 쓴다.
+ * - 글자나 시각이 바뀐 줄, 인식이 놓친 구간에 새로 넣은 줄은 글자 수 비율로 단어를 만든다(신뢰도 1 = 사람이 확인한 글자).
+ *   그 줄 구간에 걸친 원래 단어의 **말하던 구간에만** 놓고, 걸친 단어가 없으면 줄 전체 구간에 놓는다.
+ * - 트랙에 없는 원래 줄의 단어는 빠진다. 빈 글자·길이 없는 줄은 무시. 160자를 넘는 글자는 160자까지.
+ */
+export function applyCaptionTrack<T extends ReviewTranscript>(t: T, track: CaptionLine[] | null | undefined): T {
+  if (track === null || track === undefined) return t
+  const parts = reviewParts(t)
+  const used = new Set<number>()
+  const lines = track
+    .filter(validLine)
+    .map((l) => ({ start: l.start, end: l.end, text: Array.from(lineText(l)).slice(0, CAPTION_LINE_LIMITS.maxText).join('').trim() }))
+    .sort((a, b) => a.start - b.start)
+  const words: Word[] = []
+  for (const l of lines) {
+    const same = parts.find((p) => !used.has(p.i) && p.text === l.text && Math.abs(p.start - l.start) < 0.06 && Math.abs(p.end - l.end) < 0.06)
+    if (same) {
+      used.add(same.i)
+      words.push(...t.words.slice(same.from, same.to))
+      continue
+    }
+    const own = t.words
+      .filter((x) => {
+        const mid = (x.start + x.end) / 2
+        return mid >= l.start && mid <= l.end
+      })
+      .map((x) => ({ ...x, start: Math.max(x.start, l.start), end: Math.min(x.end, l.end) }))
+      .filter((x) => x.end > x.start)
+    words.push(...spreadWords(l.text, own, { start: l.start, end: l.end }))
+  }
+  words.sort((a, b) => a.start - b.start)
+  return { ...t, words, segments: segmentWords(words), hasSpeech: words.length > 0 }
+}
+
+/** 컷이 지켜 줄 "말" 로 쓰이는 가짜 단어(사용자가 넣은 줄 구간) */
+const protect = (l: CaptionLine, start: number, end: number): Word => ({ text: lineText(l), start, end, confidence: 1 })
+
+/**
+ * 컷을 계산할 인식 결과: 원래 단어 전부(자막을 지워도 영상은 그대로) + 사용자가 **인식이 놓친 곳에 넣은** 줄 구간.
+ * 인식된 말과 겹치는 줄은 말 앞·뒤로 0.3초 이상 늘린 부분만 더 지킨다(줄 안의 말 사이 쉬는 구간은 지키지 않는다 — 무음 컷은 그대로).
+ */
+export function cutTranscriptFor<T extends ReviewTranscript>(t: T, track: CaptionLine[] | null | undefined): T {
+  if (track === null || track === undefined) return t
+  const extra: Word[] = []
+  for (const l of track.filter(validLine)) {
+    const hit = t.words.filter((x) => x.start < l.end && x.end > l.start)
+    if (hit.length === 0) {
+      extra.push(protect(l, l.start, l.end))
+      continue
+    }
+    const first = Math.min(...hit.map((x) => x.start))
+    const last = Math.max(...hit.map((x) => x.end))
+    if (first - l.start >= 0.3) extra.push(protect(l, l.start, first))
+    if (l.end - last >= 0.3) extra.push(protect(l, last, l.end))
+  }
+  if (extra.length === 0) return t
+  const words = [...t.words, ...extra].sort((a, b) => a.start - b.start)
+  return { ...t, words, segments: segmentWords(words), hasSpeech: true }
+}
+
+/** 인식된 말이 있는데 자막 줄이 없는 구간: 원래 줄 중 트랙의 줄과 30% 이상 겹치지 않는 것. 트랙이 null 이면 없다. */
+export function removedSpans(t: Pick<ReviewTranscript, 'words'>, track: CaptionLine[] | null | undefined): { start: number; end: number }[] {
+  if (track === null || track === undefined) return []
+  const lines = track.filter(validLine)
+  return reviewParts(t)
+    .filter((p) => {
+      const len = p.end - p.start
+      if (len <= 0) return false
+      const overlap = lines.reduce((s, l) => s + Math.max(0, Math.min(p.end, l.end) - Math.max(p.start, l.start)), 0)
+      return overlap / len < 0.3
+    })
+    .map((p) => ({ start: p.start, end: p.end }))
 }
