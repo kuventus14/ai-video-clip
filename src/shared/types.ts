@@ -72,7 +72,7 @@ export interface JobDto {
   captionPosition: CaptionPosition | null
   /** 편집 감독이 짠 구성(승인 화면에 보여 주고 문구를 고칠 수 있다). 감독이 실패했거나 계획 전이면 null. 사용자가 고친 문구가 반영돼 있다 */
   script: ScriptDto | null
-  /** 자막 확인에서 고친 줄 수(없으면 0) */
+  /** 자막 편집 줄 수: 트랙이 있으면 트랙의 줄 수, 없으면 줄 번호로 고친 수(없으면 0) */
   captionEditCount: number
   quality: 'draft' | 'looks' | 'delivery'
   summary: { topic: string; genre: string; oneLine: string; hookTitle: string; searchQueries: string[] } | null
@@ -114,6 +114,8 @@ export interface PlanInput {
   purposeChoice?: 'auto' | PurposeValue
   /** 자막 확인에서 고친 줄 전체(보내면 저장된 것을 이 값으로 바꾼다, 빈 배열이면 비운다). 보내지 않으면 그대로 */
   captionEdits?: CaptionEdit[]
+  /** 자막 트랙(줄 전체). 보내면 저장, 빈 배열은 자막을 전부 지움, null 은 비워 인식 결과로 되돌림(예전 편집도 비운다). 보내지 않으면 그대로 */
+  captionTrack?: CaptionLine[] | null
 }
 
 /** 자막 한 줄: start~end(초) 동안 text 를 보여 준다. 사용자가 만든 자막 트랙은 이 줄들의 전체 목록이다. */
@@ -139,11 +141,28 @@ export interface CaptionPartDto {
   lowWords: string[]
 }
 
-/** GET /api/jobs/<id>/captions: 인식한 줄(원문)과 이미 저장된 편집 */
+/** 인식한 줄(원본) 한 줄 + 인식기가 확신하지 못한 단어 */
+export interface CaptionOriginalLine extends CaptionLine {
+  lowWords: string[]
+}
+
+/**
+ * GET /api/jobs/<id>/captions.
+ * 새 편집기(자막 트랙)가 쓰는 것: durationSec·original·lines·custom.
+ * parts·edits 는 예전(줄 번호 편집) 화면이 쓰는 것으로, 새 화면으로 바꾸면서 없앤다.
+ */
 export interface CaptionReviewDto {
   parts: CaptionPartDto[]
   edits: CaptionEdit[]
   hasSpeech: boolean
+  /** 영상 길이(초) — 줄 시각의 상한과 "자막 없는 구간" 계산에 쓴다 */
+  durationSec: number
+  /** 인식한 줄 그대로(의심 단어 표시용, "원래대로"의 기준) */
+  original: CaptionOriginalLine[]
+  /** 지금의 줄: 저장된 트랙 → 없으면 예전 편집을 입힌 줄 → 없으면 original */
+  lines: CaptionLine[]
+  /** 사용자가 고친 것(트랙 또는 예전 편집)이 저장돼 있나 */
+  custom: boolean
 }
 
 /** 승인 화면에서 사용자가 고칠 수 있는 대본 문구(고친 칸만 보낸다) */

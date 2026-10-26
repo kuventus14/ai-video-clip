@@ -116,7 +116,7 @@ describe('GET /captions — 자막 확인용 인식 결과', () => {
   test('말이 없는 영상은 parts 가 비고 hasSpeech=false', async () => {
     const j = job('awaiting_reference')
     writeAnalysis(j.id, [])
-    expect(await (await get(j.id)).json()).toEqual({ parts: [], edits: [], hasSpeech: false })
+    expect(await (await get(j.id)).json()).toEqual({ parts: [], edits: [], hasSpeech: false, durationSec: 10, original: [], lines: [], custom: false })
   })
 
   test('분석 파일이 없으면 404, 진행 중·확정·분석 단계 실패는 409', async () => {
@@ -145,7 +145,117 @@ describe('GET /captions — 자막 확인용 인식 결과', () => {
     const body = JSON.parse(text) as CaptionReviewDto
     expect(body.parts.length).toBeGreaterThan(200)
     expect(Object.keys(body.parts[0]!).sort()).toEqual(['end', 'i', 'lowWords', 'start', 'text'])
-    expect(text.length).toBeLessThan(60_000)
+    expect(text.length).toBeLessThan(120_000) // 줄 목록이 parts·original·lines 로 세 번 들어 있어도 이 정도(단어별 시각은 없다)
+  })
+})
+
+describe('GET /captions — 자막 줄 전체(원본·현재·custom)', () => {
+  const w = (text: string, start: number, end: number, confidence = 0.9) => ({ text, start, end, confidence })
+  const WORDS = [w('이렇게', 0, 0.5, 0.2), w('되면서', 0.5, 1.0, 0.9), w('올라오고,', 1.0, 1.8, 0.9), w('이게', 3.0, 3.4, 0.1), w('섀도우', 3.4, 4.0, 0.9)]
+  const SRC = { durationSec: 20, width: 1920, height: 1080 }
+  const write = (id: string) => fs.writeFileSync(path.join(getContext().jobs.jobDir(id), 'analysis.json'), JSON.stringify({ version: 1, sourcePath: 'x', info: {}, transcript: { language: 'ko', durationSec: 10, words: WORDS, segments: [], hasSpeech: true } }))
+  const get = async (id: string) => (await captions(new Request(`http://${HOST}/api/jobs/${id}/captions`), { params: Promise.resolve({ id }) })) as Response
+  const L = (start: number, end: number, text: string) => ({ start, end, text })
+
+  test('저장된 게 없으면 현재 줄 = 원본 줄, custom=false, 영상 길이는 작업의 값', async () => {
+    const j = job('awaiting_reference', { sourceInfo: SRC })
+    write(j.id)
+    const body = (await (await get(j.id)).json()) as CaptionReviewDto
+    expect(body.durationSec).toBe(20)
+    expect(body.original).toEqual([{ ...L(0, 1.8, '이렇게 되면서 올라오고,'), lowWords: ['이렇게'] }, { ...L(3, 4, '이게 섀도우'), lowWords: ['이게'] }])
+    expect(body.lines).toEqual([L(0, 1.8, '이렇게 되면서 올라오고,'), L(3, 4, '이게 섀도우')])
+    expect(body.custom).toBe(false)
+  })
+  test('저장된 트랙이 있으면 그것이 현재 줄(인식이 놓친 곳에 넣은 줄 포함), original 은 그대로, custom=true', async () => {
+    const j = job('awaiting_plan', { sourceInfo: SRC, captionTrack: [L(0, 2, '고친 첫 줄'), L(15, 18, '인식이 놓친 곳')] })
+    write(j.id)
+    const body = (await (await get(j.id)).json()) as CaptionReviewDto
+    expect(body.lines).toEqual([L(0, 2, '고친 첫 줄'), L(15, 18, '인식이 놓친 곳')])
+    expect(body.original).toHaveLength(2)
+    expect(body.custom).toBe(true)
+  })
+  test('트랙이 없고 예전(줄 번호) 편집만 있으면 그 편집을 입힌 줄이 현재 줄이다(이미 있는 작업 호환)', async () => {
+    const j = job('awaiting_plan', { sourceInfo: SRC, transcriptEdits: [{ i: 0, text: '고친 글' }, { i: 1, text: null }] })
+    write(j.id)
+    const body = (await (await get(j.id)).json()) as CaptionReviewDto
+    expect(body.lines).toEqual([L(0, 1.8, '고친 글')])
+    expect(body.custom).toBe(true)
+  })
+  test('자막을 전부 지운 빈 트랙은 빈 현재 줄이고 custom=true(저장 안 한 것과 다르다)', async () => {
+    const j = job('awaiting_plan', { sourceInfo: SRC, captionTrack: [] })
+    write(j.id)
+    const body = (await (await get(j.id)).json()) as CaptionReviewDto
+    expect(body.lines).toEqual([])
+    expect(body.custom).toBe(true)
+  })
+  test('결과 확인(awaiting_confirm)에서도 열린다 — 결과 화면에서 자막을 고치러 들어가는 길. 확정(confirmed)은 아니다', async () => {
+    const a = job('awaiting_confirm', { sourceInfo: SRC })
+    write(a.id)
+    expect((await get(a.id)).status).toBe(200)
+    const b = job('confirmed', { sourceInfo: SRC })
+    write(b.id)
+    expect((await get(b.id)).status).toBe(409)
+  })
+})
+
+describe('plan — 자막 트랙(captionTrack)', () => {
+  const SRC = { durationSec: 20, width: 1920, height: 1080 }
+  const L = (start: number, end: number, text: string) => ({ start, end, text })
+  const planWith = (j: Job, captionTrack: unknown) => call(plan, j.id, { captionTrack })
+
+  test('보내면 시작순·정리된 모양으로 저장되고 예전 편집은 비워진다', async () => {
+    const j = job('awaiting_reference', { sourceInfo: SRC, transcriptEdits: [{ i: 0, text: '예전' }] })
+    const res = await planWith(j, [L(6.001, 8, ' 뒤 줄 '), L(0, 2, '앞   줄'), L(3, 4, '   ')])
+    expect(res.status).toBe(200)
+    expect(read(j.id).captionTrack).toEqual([L(0, 2, '앞 줄'), L(6, 8, '뒤 줄')])
+    expect(read(j.id).transcriptEdits).toBeNull()
+  })
+  test('보내지 않으면 그대로, null 이면 트랙과 예전 편집을 모두 비우고, 빈 배열은 빈 트랙(자막 전부 지움)', async () => {
+    const keep = job('awaiting_plan', { sourceInfo: SRC, captionTrack: [L(0, 2, '가')] })
+    await call(plan, keep.id, { request: '다른 요청' })
+    expect(read(keep.id).captionTrack).toEqual([L(0, 2, '가')])
+
+    const clear = job('awaiting_plan', { sourceInfo: SRC, captionTrack: [L(0, 2, '가')], transcriptEdits: [{ i: 0, text: 'x' }] })
+    await planWith(clear, null)
+    expect(read(clear.id)).toMatchObject({ captionTrack: null, transcriptEdits: null })
+
+    const empty = job('awaiting_plan', { sourceInfo: SRC })
+    await planWith(empty, [])
+    expect(read(empty.id).captionTrack).toEqual([])
+  })
+  test('(Review Focus 1) 겹침·끝이 시작보다 빠름·0.2초 미만·글자 비었음·160자 초과·영상 길이 밖은 400 이고 줄 번호가 안내에 들어가며 저장되지 않는다', async () => {
+    const cases: [unknown, RegExp][] = [
+      [[L(0, 3, '가'), L(2.5, 4, '나')], /2번째 줄.*겹쳐요/],
+      [[L(3, 2, '가')], /1번째 줄.*끝이 시작보다/],
+      [[L(3, 3.1, '가')], /0\.2초보다 짧아요/],
+      [[L(0, 2, '가'.repeat(161))], /160자를 넘어요/],
+      [[L(0, 2, '😀'.repeat(160))], /^$/], // 160자(코드 포인트)는 통과해야 한다 — 아래에서 따로 확인
+      [[L(19, 20.4, '가')], /^$/], // 영상 길이 20초 + 0.5초 안이라 통과
+      [[L(19, 21.6, '가')], /영상 길이\(20\.0초\)를 넘어요/],
+    ]
+    for (const [track, expected] of cases) {
+      const j = job('awaiting_reference', { sourceInfo: SRC })
+      const res = await planWith(j, track)
+      if (expected.source === '^$') {
+        expect(res.status, JSON.stringify(track).slice(0, 40)).toBe(200)
+        continue
+      }
+      expect(res.status).toBe(400)
+      expect(((await res.json()) as { error: string }).error).toMatch(expected)
+      expect(read(j.id)).toMatchObject({ status: 'awaiting_reference', captionTrack: null })
+    }
+  })
+  test('잘못된 본문(글자가 아닌 text · 알 수 없는 칸 · 숫자가 아닌 시각 · 801줄)은 400', async () => {
+    const lines801 = Array.from({ length: 801 }, (_, i) => L(i * 0.5, i * 0.5 + 0.4, 'x'))
+    for (const track of [[{ start: 0, end: 2, text: 5 }], [{ start: 0, end: 2, text: 'x', extra: 1 }], [{ start: '0', end: 2, text: 'x' }], lines801]) {
+      const j = job('awaiting_reference', { sourceInfo: { durationSec: 1000, width: 1, height: 1 } })
+      expect((await planWith(j, track)).status).toBe(400)
+      expect(read(j.id).captionTrack).toBeNull()
+    }
+  })
+  test('JobDto.captionEditCount 는 트랙이 있으면 트랙의 줄 수', async () => {
+    const j = job('awaiting_plan', { sourceInfo: SRC, captionTrack: [L(0, 2, '가'), L(3, 4, '나')] })
+    expect(((await (await call(plan, j.id, { request: '요청' })).json()) as JobDto).captionEditCount).toBe(2)
   })
 })
 
@@ -611,6 +721,13 @@ describe('other-version', () => {
     const child = (await (await call(otherVersion, p.id)).json()) as JobDto
     const cd = getContext().jobs.jobDir(child.id)
     expect(fs.readFileSync(path.join(cd, 'ref-frames', 'frame-00.jpg'), 'utf8')).toBe('REFJPG')
+  })
+
+  test('자막 트랙(captionTrack)도 새 작업이 이어받는다', async () => {
+    const p = parent('confirmed', 'short')
+    getContext().jobs.update(p.id, { captionTrack: [{ start: 0, end: 2, text: '고친 줄' }] })
+    const child = (await (await call(otherVersion, p.id)).json()) as JobDto
+    expect(read(child.id).captionTrack).toEqual([{ start: 0, end: 2, text: '고친 줄' }])
   })
 
   test('고친 자막(transcriptEdits)도 새 작업이 이어받는다 — 다른 버전에서도 같은 글자로 만든다', async () => {

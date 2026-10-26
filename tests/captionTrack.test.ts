@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { applyCaptionTrack, CAPTION_LINE_LIMITS, captionLineProblems, captionLinesOf, cutTranscriptFor, removedSpans, segmentWords } from '../src/shared/captionReview.ts'
+import { applyCaptionTrack, CAPTION_LINE_LIMITS, captionLineProblems, captionLinesOf, captionLinesWithEdits, cutTranscriptFor, normalizeCaptionLines, removedSpans, segmentWords } from '../src/shared/captionReview.ts'
 import type { ReviewTranscript, ReviewWord } from '../src/shared/captionReview.ts'
 import type { CaptionLine } from '../src/shared/types.ts'
 
@@ -157,5 +157,27 @@ describe('removedSpans — 말은 있는데 자막 줄이 없는 구간', () => 
   test('절반쯤 겹치게 옮긴 줄은 아니다(30% 이상 겹치면 살아 있는 줄), 거의 안 겹치면 뺀 것', () => {
     expect(removedSpans(T, [L(0, 2.4, '가'), L(4.2, 7, '나')])).toEqual([]) // 1.6초 중 0.8초(50%) 겹침
     expect(removedSpans(T, [L(0, 2.4, '가'), L(4.9, 7, '나')])).toEqual([{ start: 3.4, end: 5 }]) // 0.1초(6%) 겹침
+  })
+})
+
+describe('captionLinesWithEdits — 예전(줄 번호) 편집을 자막 줄로', () => {
+  test('편집이 없으면 원래 줄. 글자를 고친 줄은 시각 그대로 글자만, 지운 줄(null·공백뿐)은 빠진다', () => {
+    expect(captionLinesWithEdits(T, null)).toEqual(captionLinesOf(T))
+    expect(captionLinesWithEdits(T, [{ i: 0, text: '고친   글' }, { i: 1, text: null }])).toEqual([L(0, 2.4, '고친 글')])
+    expect(captionLinesWithEdits(T, [{ i: 1, text: '   ' }])).toEqual([L(0, 2.4, '이렇게 되면서 해네도 올라오고,')])
+  })
+  test('범위 밖 번호·글자가 아닌 text 는 무시하고 같은 번호는 마지막이 이긴다', () => {
+    expect(captionLinesWithEdits(T, [{ i: 9, text: 'x' }, { i: 0, text: 5 as never }, { i: 1, text: '처음' }, { i: 1, text: '나중' }])).toEqual([L(0, 2.4, '이렇게 되면서 해네도 올라오고,'), L(3.4, 5, '나중')])
+  })
+})
+
+describe('normalizeCaptionLines — 서버가 저장하는 모양', () => {
+  test('시작순 정렬, 글자 공백 정리, 시각은 소수 둘째 자리, 빈 글자 줄은 빠진다', () => {
+    expect(normalizeCaptionLines([L(3.456, 5.001, ' 뒤   줄 '), L(0, 2, '앞'), L(2.1, 3, '   ')])).toEqual([L(0, 2, '앞'), L(3.46, 5, '뒤 줄')])
+  })
+  test('입력을 바꾸지 않는다', () => {
+    const input = [L(3, 4, 'b'), L(0, 1, 'a')]
+    normalizeCaptionLines(input)
+    expect(input[0]).toEqual(L(3, 4, 'b'))
   })
 })

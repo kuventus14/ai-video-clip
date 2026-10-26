@@ -4,6 +4,10 @@ import { draftFrom, editsFrom, isDirty, partProblems, partWarnings, setPartText,
 
 const REVIEW: CaptionReviewDto = {
   hasSpeech: true,
+  durationSec: 20,
+  original: [],
+  lines: [],
+  custom: false,
   edits: [],
   parts: [
     { i: 0, start: 0, end: 1.8, text: '이렇게 되면서 올라오고,', lowWords: ['이렇게'] },

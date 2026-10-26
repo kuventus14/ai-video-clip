@@ -1,4 +1,5 @@
 import type { Job } from '../../../../../src/db/jobs.ts'
+import { captionLineProblems, normalizeCaptionLines } from '../../../../../src/shared/captionReview.ts'
 import type { JobStatus } from '../../../../../src/shared/types.ts'
 import { toJobDto } from '../../../../../src/web/dto.ts'
 import { resolveReference } from '../../../../../src/web/flow.ts'
@@ -31,7 +32,20 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   if (ref.value !== undefined) patch.referenceSource = ref.value
   if (body.data.request !== undefined) patch.requestText = body.data.request.trim()
   if (body.data.purposeChoice !== undefined) patch.purposeChoice = body.data.purposeChoice
-  if (body.data.captionEdits !== undefined) patch.transcriptEdits = body.data.captionEdits
+  if (body.data.captionTrack !== undefined) {
+    if (body.data.captionTrack === null) {
+      // 인식 결과로 되돌린다: 트랙도 예전 편집도 비운다
+      patch.captionTrack = null
+      patch.transcriptEdits = null
+    } else {
+      const track = normalizeCaptionLines(body.data.captionTrack)
+      const problems = captionLineProblems(track, job.sourceInfo?.durationSec ?? Number.POSITIVE_INFINITY)
+      const at = problems.findIndex((p) => p !== null)
+      if (at >= 0) return jsonError(400, `자막 ${at + 1}번째 줄: ${problems[at]}`)
+      patch.captionTrack = track
+      patch.transcriptEdits = null // 트랙이 있으면 예전 줄 번호 편집은 쓰이지 않는다
+    }
+  } else if (body.data.captionEdits !== undefined) patch.transcriptEdits = body.data.captionEdits
 
   const next = jobs.transition(job.id, FROM, 'queued_plan', patch)
   return next ? Response.json(toJobDto(next)) : jsonError(409, '지금은 계획을 다시 요청할 수 없는 상태예요')

@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { CAPTION_LINE_LIMITS } from '../shared/captionReview.ts'
 import { cleanScriptText, SCRIPT_TEXT_LIMITS } from '../shared/scriptText.ts'
 
 export const PurposeChoice = z.enum(['auto', 'post', 'short'])
@@ -16,11 +17,20 @@ export const CaptionEditsBody = z
   .array(z.strictObject({ i: z.number().int().min(0), text: z.string().max(160).nullable() }))
   .max(500)
 
+/**
+ * 자막 트랙(줄 전체). 모양만 거르고(알 수 없는 칸 거절·글자 길이는 넉넉히 2000자까지), 겹침·길이·160자 같은 규칙은
+ * 라우트가 captionLineProblems 로 검사해 "N번째 줄: …" 한국어로 알린다.
+ */
+export const CaptionTrackBody = z
+  .array(z.strictObject({ start: z.number().finite(), end: z.number().finite(), text: z.string().max(2000) }))
+  .max(CAPTION_LINE_LIMITS.maxLines)
+
 export const PlanBody = z.object({
   reference: z.string().max(2000).nullable().optional(),
   request: z.string().max(4000).optional(),
   purposeChoice: PurposeChoice.optional(),
   captionEdits: CaptionEditsBody.optional(),
+  captionTrack: CaptionTrackBody.nullable().optional(),
 })
 
 const scriptText = (max: number) =>

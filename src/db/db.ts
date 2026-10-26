@@ -52,6 +52,8 @@ const MIGRATIONS: string[] = [
   ALTER TABLE jobs ADD COLUMN script_edits TEXT;`,
   // 자막 확인 화면에서 사용자가 고친 줄(JSON 배열 [{i, text}]). 이미 있는 작업은 NULL(고친 것 없음).
   `ALTER TABLE jobs ADD COLUMN transcript_edits TEXT;`,
+  // 사용자가 만든 자막 트랙(JSON 배열 [{start,end,text}] 전체). NULL = 트랙 없음(인식 결과 + 예전 줄 번호 편집을 쓴다), [] = 자막을 전부 지움.
+  `ALTER TABLE jobs ADD COLUMN caption_track TEXT;`,
 ]
 
 /** <dataDir>/app.db 를 열고(없으면 만들고) 마이그레이션한다. 화면 서버와 워커가 같은 파일을 연다(WAL). */

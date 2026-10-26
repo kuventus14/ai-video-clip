@@ -312,3 +312,22 @@ export function removedSpans(t: Pick<ReviewTranscript, 'words'>, track: CaptionL
     })
     .map((p) => ({ start: p.start, end: p.end }))
 }
+
+/** 예전(줄 번호) 편집을 자막 줄 목록으로: 글자를 고친 줄은 시각 그대로 글자만 바뀌고, 지운 줄은 빠진다. 편집이 없으면 원래 줄. */
+export function captionLinesWithEdits(t: Pick<ReviewTranscript, 'words'>, edits: CaptionEdit[] | null | undefined): CaptionLine[] {
+  const parts = reviewParts(t)
+  const byPart = edits?.length ? collectEdits(parts.length, edits) : new Map<number, string | null>()
+  return parts.flatMap((p) => {
+    const edit = byPart.get(p.i)
+    const text = edit === undefined ? p.text : edit === null ? '' : edit
+    return text ? [{ start: round2(p.start), end: round2(p.end), text }] : []
+  })
+}
+
+/** 서버가 저장하는 모양: 시작순 정렬, 글자 공백 정리(빈 글자 줄은 뺀다), 시각은 소수 둘째 자리. 입력은 바꾸지 않는다. */
+export function normalizeCaptionLines(lines: CaptionLine[]): CaptionLine[] {
+  return lines
+    .filter((l) => lineText(l) !== '')
+    .map((l) => ({ start: round2(l.start), end: round2(l.end), text: lineText(l) }))
+    .sort((a, b) => a.start - b.start)
+}
