@@ -98,25 +98,26 @@ describe('GET /captions — 자막 확인용 인식 결과', () => {
     expect(res.status).toBe(200)
     const body = (await res.json()) as CaptionReviewDto
     expect(body.hasSpeech).toBe(true)
-    expect(body.parts).toEqual([
-      { i: 0, start: 0, end: 1.8, text: '이렇게 되면서 올라오고,', lowWords: ['이렇게'] },
-      { i: 1, start: 3, end: 4, text: '이게 섀도우', lowWords: ['이게'] },
+    expect(body.original).toEqual([
+      { start: 0, end: 1.8, text: '이렇게 되면서 올라오고,', lowWords: ['이렇게'] },
+      { start: 3, end: 4, text: '이게 섀도우', lowWords: ['이게'] },
     ])
-    expect(body.edits).toEqual([])
+    expect(Object.keys(body).sort()).toEqual(['custom', 'durationSec', 'hasSpeech', 'lines', 'original'])
   })
 
-  test('저장된 편집은 edits 로 따로 오고 원문은 그대로다', async () => {
+  test('예전(줄 번호) 편집은 현재 줄에 입혀 오고 원문은 그대로다', async () => {
     const j = job('awaiting_plan', { transcriptEdits: [{ i: 1, text: '이게 섀도우 스윙' }] })
     writeAnalysis(j.id, WORDS)
     const body = (await (await get(j.id)).json()) as CaptionReviewDto
-    expect(body.parts[1]!.text).toBe('이게 섀도우')
-    expect(body.edits).toEqual([{ i: 1, text: '이게 섀도우 스윙' }])
+    expect(body.original[1]!.text).toBe('이게 섀도우')
+    expect(body.lines[1]!.text).toBe('이게 섀도우 스윙')
+    expect(body.custom).toBe(true)
   })
 
-  test('말이 없는 영상은 parts 가 비고 hasSpeech=false', async () => {
+  test('말이 없는 영상은 줄이 비고 hasSpeech=false', async () => {
     const j = job('awaiting_reference')
     writeAnalysis(j.id, [])
-    expect(await (await get(j.id)).json()).toEqual({ parts: [], edits: [], hasSpeech: false, durationSec: 10, original: [], lines: [], custom: false })
+    expect(await (await get(j.id)).json()).toEqual({ hasSpeech: false, durationSec: 10, original: [], lines: [], custom: false })
   })
 
   test('분석 파일이 없으면 404, 진행 중·확정·분석 단계 실패는 409', async () => {
@@ -143,9 +144,9 @@ describe('GET /captions — 자막 확인용 인식 결과', () => {
     writeAnalysis(j.id, many)
     const text = await (await get(j.id)).text()
     const body = JSON.parse(text) as CaptionReviewDto
-    expect(body.parts.length).toBeGreaterThan(200)
-    expect(Object.keys(body.parts[0]!).sort()).toEqual(['end', 'i', 'lowWords', 'start', 'text'])
-    expect(text.length).toBeLessThan(120_000) // 줄 목록이 parts·original·lines 로 세 번 들어 있어도 이 정도(단어별 시각은 없다)
+    expect(body.original.length).toBeGreaterThan(200)
+    expect(Object.keys(body.original[0]!).sort()).toEqual(['end', 'lowWords', 'start', 'text'])
+    expect(text.length).toBeLessThan(80_000) // 줄 목록이 original·lines 로 두 번 들어 있어도 이 정도(단어별 시각은 없다)
   })
 })
 

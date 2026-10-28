@@ -4,7 +4,7 @@ import { Check, ExternalLink, Film } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import type { CaptionReviewDto, JobDto, Recommendation } from '../../src/shared/types.ts'
 import { getCaptions, plan } from '../../src/ui/api.ts'
-import { draftFrom, editsFrom, isDirty, partProblems, type CaptionDraft } from '../../src/ui/captions.ts'
+import { isDirty, lineProblems, trackPayload, type Lines } from '../../src/ui/captionTrack.ts'
 import { formatDuration, formatViews, sourceFrame } from '../../src/ui/format.ts'
 import { BAD_LINK_MESSAGE, checkLink, initialReference } from '../../src/ui/reference.ts'
 import { ActionBar } from '../ui/ActionBar.tsx'
@@ -80,20 +80,20 @@ export function ReferencePicker({ job, onChanged, onCancel }: { job: JobDto; onC
   const linkInput = useRef<HTMLInputElement>(null)
   // 자막 확인: 인식 결과는 화면이 열릴 때 한 번 불러온다. 못 불러와도(상태가 달라졌거나 파일이 없을 때) 레퍼런스 고르기는 그대로 된다.
   const [review, setReview] = useState<CaptionReviewDto | null>(null)
-  const [draft, setDraft] = useState<CaptionDraft>({})
+  const [lines, setLines] = useState<Lines>([])
   useEffect(() => {
     const ac = new AbortController()
     getCaptions(job.id, ac.signal)
       .then((r) => {
         setReview(r)
-        setDraft(draftFrom(r))
+        setLines(r.lines)
       })
       .catch(() => {})
     return () => ac.abort()
   }, [job.id])
-  const captionProblem = Object.keys(partProblems(draft)).length > 0
+  const captionProblem = review ? lineProblems(lines, review.durationSec).some((p) => p !== null) : false
   // 저장하지 않은 자막 고침이 있으면 새로고침·창 닫기·뒤로 가기 전에 한 번 물어본다(긴 영상은 고칠 줄이 많다)
-  const dirty = review ? isDirty(review, draft) : false
+  const dirty = review ? isDirty(review.lines, lines) : false
   useEffect(() => {
     if (!dirty) return
     const warn = (e: BeforeUnloadEvent) => {
@@ -119,10 +119,7 @@ export function ReferencePicker({ job, onChanged, onCancel }: { job: JobDto; onC
     setError(null)
     try {
       const reference = fileName ? 'uploaded' : (picked?.url ?? (checked.kind === 'ok' ? checked.url : null))
-      // 자막은 고친 줄 전체를 보낸다. 고친 적도 저장된 것도 없으면 보내지 않는다(되돌려서 비운 경우는 빈 배열로 비운다).
-      const edits = review ? editsFrom(draft) : []
-      const captionEdits = review && (edits.length > 0 || review.edits.length > 0) ? { captionEdits: edits } : {}
-      onChanged(await plan(job.id, { reference, request: request.trim(), purposeChoice: choice, ...captionEdits }))
+      onChanged(await plan(job.id, { reference, request: request.trim(), purposeChoice: choice, ...(review ? trackPayload(review, lines) : {}) }))
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
       setSubmitting(false)
@@ -141,7 +138,7 @@ export function ReferencePicker({ job, onChanged, onCancel }: { job: JobDto; onC
         </section>
       ) : null}
 
-      {review ? <CaptionReview review={review} draft={draft} onChange={setDraft} videoSrc={job.media.source} disabled={submitting} /> : null}
+      {review ? <CaptionReview review={review} lines={lines} onChange={setLines} videoSrc={job.media.source} disabled={submitting} /> : null}
 
       <Card title="레퍼런스" description="따라 하고 싶은 영상을 골라 주세요. 하나만 고르면 돼요. 없이도 만들 수 있어요.">
         <div className="flex flex-col gap-6">

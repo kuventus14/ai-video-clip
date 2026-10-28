@@ -131,29 +131,13 @@ export interface CaptionEdit {
   text: string | null
 }
 
-/** 자막 확인 화면의 한 줄(원문). 줄마다 이 칸만 내보낸다 — 단어별 시각은 보내지 않는다 */
-export interface CaptionPartDto {
-  i: number
-  start: number
-  end: number
-  text: string
-  /** 인식기가 확신하지 못한 단어 */
-  lowWords: string[]
-}
-
 /** 인식한 줄(원본) 한 줄 + 인식기가 확신하지 못한 단어 */
 export interface CaptionOriginalLine extends CaptionLine {
   lowWords: string[]
 }
 
-/**
- * GET /api/jobs/<id>/captions.
- * 새 편집기(자막 트랙)가 쓰는 것: durationSec·original·lines·custom.
- * parts·edits 는 예전(줄 번호 편집) 화면이 쓰는 것으로, 새 화면으로 바꾸면서 없앤다.
- */
+/** GET /api/jobs/<id>/captions — 자막 편집기가 쓰는 인식 결과와 지금의 줄 */
 export interface CaptionReviewDto {
-  parts: CaptionPartDto[]
-  edits: CaptionEdit[]
   hasSpeech: boolean
   /** 영상 길이(초) — 줄 시각의 상한과 "자막 없는 구간" 계산에 쓴다 */
   durationSec: number
