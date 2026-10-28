@@ -215,7 +215,7 @@ export function PlanApproval({ job, onChanged, onEditReference }: { job: JobDto;
         ) : null}
         {onEditReference ? (
           <Button disabled={busy !== null} onClick={onEditReference}>
-            레퍼런스 바꾸기
+            자막·레퍼런스 바꾸기
           </Button>
         ) : null}
         <Button variant="primary" loading={busy === 'approve'} disabled={purposeChanged || scriptProblem.length > 0 || busy === 'replan'} onClick={() => run('approve', () => approve(job.id, { captions: captionsOn ? 'auto' : 'off', ...(captionsOn ? { captionPosition } : {}), ...(Object.keys(scriptEdits).length > 0 ? { scriptEdits } : {}), audio, bgm, sfx, quality }))}>

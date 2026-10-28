@@ -22,7 +22,7 @@ import { UploadForm } from './UploadForm.tsx'
 /** 작업 화면. 작업을 읽어 오고 상태가 바뀌면 본문을 알맞은 패널로 바꾼다. */
 export function JobView({ id }: { id: string }) {
   const { job, error, notFound, refresh } = useJob(id)
-  // 계획이 이미 있거나 계획 단계에서 실패한 작업에서 "레퍼런스 바꾸기" 로 레퍼런스 선택 화면을 여는 스위치. 상태가 바뀌면(계획을 다시 요청하면) 닫는다.
+  // 계획이 이미 있거나 결과를 본 뒤, 또는 계획 단계에서 실패한 작업에서 "자막·레퍼런스 바꾸기"·"자막 고치기" 로 레퍼런스 선택(자막 편집) 화면을 여는 스위치. 상태가 바뀌면(계획을 다시 요청하면) 닫는다.
   const [pickerOpen, setPickerOpen] = useState(false)
   const status = job?.status
   useEffect(() => setPickerOpen(false), [status])
@@ -136,6 +136,9 @@ function bodyFor(job: JobDto, { refresh, pickerOpen, setPickerOpen }: BodyContex
     case 'awaiting_plan':
       return { node: pickerOpen ? picker : <PlanApproval job={job} onChanged={refresh} onEditReference={() => setPickerOpen(true)} /> }
     case 'awaiting_confirm':
+      // 결과를 본 뒤 자막만 고치고 싶을 때: 편집기(레퍼런스 선택 화면)를 열고, 계속하면 고친 자막으로 계획부터 다시 만든다
+      if (pickerOpen) return { node: picker }
+      return { node: <ResultReview job={job} onChanged={refresh} onEditCaptions={() => setPickerOpen(true)} />, wide: true }
     case 'confirmed':
       return { node: <ResultReview job={job} onChanged={refresh} />, wide: true }
     case 'failed':

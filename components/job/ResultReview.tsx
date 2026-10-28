@@ -1,6 +1,6 @@
 'use client'
 
-import { Download, Film, Pencil } from 'lucide-react'
+import { Captions, Download, Film, Pencil } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useRef, useState } from 'react'
@@ -126,7 +126,7 @@ function UploadSlot() {
  * 결과 확인 화면(awaiting_confirm)과 확정한 뒤의 모습(confirmed). 영상이 먼저이고 검수 리포트가 이어진다.
  * 확정하면 기록에 저장되고, 수정 요청은 이전 요청에 덧붙여 계획을 다시 만들고, 다른 버전은 반대 용도로 새 작업을 만든다.
  */
-export function ResultReview({ job, onChanged }: { job: JobDto; onChanged: (next: JobDto) => void }) {
+export function ResultReview({ job, onChanged, onEditCaptions }: { job: JobDto; onChanged: (next: JobDto) => void; onEditCaptions?: () => void }) {
   const router = useRouter()
   const confirmed = job.status === 'confirmed'
   const verdict = verdictOf(job.report)
@@ -192,6 +192,11 @@ export function ResultReview({ job, onChanged }: { job: JobDto; onChanged: (next
             {confirmed || revising ? null : (
               <Button disabled={busy !== null} onClick={() => setRevising(true)} icon={<Pencil size={16} strokeWidth={1.75} aria-hidden="true" />}>
                 수정 요청
+              </Button>
+            )}
+            {confirmed || !onEditCaptions ? null : (
+              <Button disabled={busy !== null} onClick={onEditCaptions} icon={<Captions size={16} strokeWidth={1.75} aria-hidden="true" />}>
+                자막 고치기
               </Button>
             )}
             {other ? (
