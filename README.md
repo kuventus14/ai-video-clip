@@ -2,6 +2,27 @@
 
 영상 1개를 올리고 따라 하고 싶은 레퍼런스를 고르면, 컷·자막·제목 카드·구도를 레퍼런스처럼 맞춰 자동으로 편집하고, 자막 오타·화질·오디오까지 검수한 결과를 돌려줍니다. 내 맥에서만 도는 웹앱이에요(로그인 없음). 설계: `docs/superpowers/specs/`, 계획: `docs/superpowers/plans/`.
 
+## 처음 시작하기
+
+이 앱은 웹사이트가 아니라 **내 맥에서 직접 돌리는 프로그램**이에요. 영상은 내 컴퓨터 밖으로 나가지 않고, 레퍼런스 검색과 AI 호출에만 인터넷을 써요.
+
+**필요한 것:** 맥(애플 칩 권장, 메모리 8GB 이상), Node.js 22 이상, **[Claude Code](https://claude.com/claude-code) 설치와 로그인** — AI가 필요한 단계마다 `claude` 명령을 쓰고, **사용량은 로그인한 본인 계정에서 나가요**. 영상 한 편에 AI 호출이 여러 번 들어가요. 그리고 아래 프로그램들:
+
+```bash
+brew install ffmpeg whisper-cpp node uv
+npm i -g hyperframes
+uv tool install yt-dlp
+git clone https://github.com/kuventus14/ai-video-clip.git && cd ai-video-clip
+npm install
+npm run setup     # 빠진 게 있으면 설치 방법을 알려 줘요(음성 인식 모델을 받는 명령도 나와요)
+npm run app       # 그다음 http://127.0.0.1:4848
+```
+
+- **배경음악·효과음 파일은 저작권 때문에 들어 있지 않아요.** 음악 없이도 그대로 쓸 수 있고, 넣는 법은 `assets/sound/README.md` 에 있어요.
+- 소리를 또렷하게 하는 기능은 선택 설치예요(아래 "목소리 보정 설치").
+- 맥에서만 확인했어요. 윈도우·리눅스는 안 돼요(목소리 보정 도구와 일부 처리가 맥 전용이에요).
+- 영상 올리기 → 분석 → 자막·레퍼런스 → 승인 → 제작 → 확정 순서는 아래 "화면 사용 순서"에 있어요. 라이선스는 MIT 예요(`LICENSE`).
+
 ## 실행 (한 줄)
 
 ```bash
@@ -46,13 +67,11 @@ chmod +x deep-filter
 - **배경음악:** 곡을 분위기(잔잔한·밝은·신나는)별로 묶어 보여 주고, ▶ 로 미리 들어 볼 수 있어요. 음악은 목소리보다 약 14 LU 작게 깔리고, **말할 때는 자동으로 6~8dB 더 줄어요**(쉬는 구간에서 다시 올라와요). 영상보다 짧은 곡은 반복하고 끝은 페이드해요.
 - **효과음:** 제목 카드가 나올 때 짧은 `pop`, 컷이 바뀌는 곳마다 `whoosh` 를 넣어요. 너무 잦지 않게 2초 이상 띄워요. 넣을 곳이 하나도 없으면(컷이 없는 영상 등) 검수 리포트에 그렇게 알려 줘요.
 - 레퍼런스의 음악은 쓰지 않아요. 계획 카드의 "음악" 줄은 레퍼런스에 음악이 있어 보이는지만 알려 주고, 곡은 직접 골라요.
-- 명령줄: `--bgm <곡 id|none>`, `--sfx on|off`, `--audio original|voice` (곡 id 는 `assets/sound/CREDITS.md`).
+- 명령줄: `--bgm <곡 id|none>`, `--sfx on|off`, `--audio original|voice` (곡 id 는 `npm run sound:measure` 가 만드는 `assets/sound/CREDITS.md` 에 있어요).
 
 ### 음원
 
-`assets/sound` 에 [Mixkit](https://mixkit.co)의 무료 음원(배경음악 19곡, 효과음 11개)이 들어 있어요. Mixkit 의 무료 라이선스는 저작자 표시와 가입 없이 유튜브·소셜 미디어·온라인 광고 영상에 쓸 수 있게 해 줘요(음악은 CD·DVD·게임·TV/라디오 방송은 불가). 곡마다 출처 주소는 `assets/sound/CREDITS.md` 에 있어요. **이 앱 안에서 영상에 입히는 용도로만 쓰세요 — 저장소를 공개한다면 음원 파일은 빼고 목록(`sources.json`·`CREDITS.md`)만 올리세요.**
-
-내 음원을 넣으려면: ① 파일을 `assets/sound/bgm/` 또는 `sfx/` 에 두고 ② `assets/sound/sources.json` 에 항목(제목·작가·출처 https 주소·라이선스·분위기 `calm|bright|energetic` 또는 역할 `whoosh|pop`)을 적고 ③ `npm run sound:measure`. 라이선스는 `CC0`, `Pixabay License`, `Mixkit Free License` 만 받아요(저작자 표시가 필요한 라이선스는 일부러 막았어요). 다른 폴더를 쓰려면 `VAE_SOUND_DIR=/경로`.
+음원 파일은 **저작권 때문에 이 저장소에 없어요.** 넣는 법(파일을 두고 → `sources.json` 에 적고 → `npm run sound:measure`)과 형식은 `assets/sound/README.md` 와 `assets/sound/sources.example.json` 에 있어요. 라이선스는 `CC0`, `Pixabay License`, `Mixkit Free License` 만 받아요(저작자 표시가 필요한 라이선스는 일부러 막았어요). 곡마다 출처·라이선스는 `sources.json` 에 적고, 앱 안에서 영상에 입히는 용도로만 쓰세요. 다른 폴더를 쓰려면 `VAE_SOUND_DIR=/경로`.
 
 **한계:** 음악·효과음 크기는 영상 한 편(20초)으로 측정해서 맞췄어요. 소리가 영상 분위기와 어울리는지는 사람이 들어서 판단해야 해요(검수의 "확인하지 않은 항목"에 적혀 있어요). 무료 음원도 유튜브·인스타의 저작권 자동 감지에 걸릴 수 있다는 주장이 있는데 확인하지 못했어요 — 처음 올릴 때 비공개로 올려서 확인하세요.
 
@@ -134,13 +153,7 @@ chmod +x deep-filter
 
 ## 필요한 도구
 
-Node 22+, `ffmpeg`, `whisper-cpp`(+ 모델 `~/.cache/hyperframes/whisper/models/ggml-small.bin`), `hyperframes`, `yt-dlp`, 로그인된 `claude`.
-
-```bash
-brew install ffmpeg whisper-cpp && npm i -g hyperframes && uv tool install yt-dlp && npm install
-```
-
-whisper 모델은 `hyperframes init <폴더> --video <영상> --language ko --model small` 를 한 번 돌리면 받아져요. 환경 점검: `npx tsx -e "import('./src/core/env.ts').then(m=>m.checkEnvironment()).then(r=>console.log(JSON.stringify(r,null,1)))"`
+맨 위 "처음 시작하기"의 명령으로 설치하고, `npm run setup` 으로 점검해요(빠진 것은 설치 방법을 알려 줘요). 음성 인식 모델(`~/.cache/hyperframes/whisper/models/ggml-small.bin`, 약 465MB)은 `npm run setup` 이 보여 주는 `curl` 명령으로 받아요.
 
 ## 명령줄로 쓰기 (화면 없이)
 

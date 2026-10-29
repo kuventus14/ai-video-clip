@@ -15,6 +15,7 @@
     "worker": "tsx src/worker/main.ts",
     "app": "node scripts/app.mjs",
     "app:dev": "node scripts/app.mjs --dev",
+    "setup": "tsx scripts/setup.ts",
     "seed:demo": "VAE_DATA_DIR=data-demo tsx scripts/seed-demo.ts",
     "sound:measure": "tsx scripts/sound-measure.ts"
   },
@@ -39,5 +40,6 @@
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
     "vitest": "^5.0.5"
-  }
+  },
+  "license": "MIT"
 }

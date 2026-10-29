@@ -83,3 +83,22 @@ describe('buildManifest — sources.json 에 길이·음량·최대치를 재어
     await expect(buildManifest(dir)).rejects.toThrow(/calm-a/)
   })
 })
+
+describe('assets/sound/sources.example.json — 내려받은 사람이 베껴 쓰는 예시가 지금 형식을 따른다', () => {
+  test('예시를 sources.json 으로 두고 그 경로에 음원이 있으면 측정까지 통과한다', async () => {
+    const example = JSON.parse(fs.readFileSync(path.resolve(import.meta.dirname, '../assets/sound/sources.example.json'), 'utf8')) as { tracks: { kind: string; file: string }[] }
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'vae-sound-example-'))
+    try {
+      fs.copyFileSync(path.resolve(import.meta.dirname, '../assets/sound/sources.example.json'), path.join(tmp, 'sources.json'))
+      for (const t of example.tracks) {
+        fs.mkdirSync(path.dirname(path.join(tmp, t.file)), { recursive: true })
+        const src = t.kind === 'bgm' ? 'anoisesrc=color=pink:amplitude=0.3:duration=2:sample_rate=48000' : 'sine=frequency=800:duration=0.3'
+        await ff(['-f', 'lavfi', '-i', src, '-ac', '2', '-ar', '48000', path.join(tmp, t.file)])
+      }
+      const { manifest } = await buildManifest(tmp)
+      expect(manifest.tracks.length).toBe(example.tracks.length)
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true })
+    }
+  })
+})

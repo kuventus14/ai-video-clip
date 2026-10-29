@@ -3,12 +3,13 @@ import path from 'node:path'
 import { describe, expect, test } from 'vitest'
 import { ALLOWED_LICENSES, BGM_MOODS, loadCatalog, trackPath } from '../src/shared/sound.ts'
 
-// 앱에 내장한 실제 음원(assets/sound)을 검사한다. 음원을 바꾸면 npm run sound:measure 로 목록을 다시 만든다.
+// 이 컴퓨터에 둔 실제 음원(assets/sound)을 검사한다. 음원을 바꾸면 npm run sound:measure 로 목록을 다시 만든다.
+// 음원 파일은 라이선스 때문에 저장소에 없다 — 음원 목록(manifest.json)이 없는 곳(내려받은 직후)에서는 이 검사를 건너뛴다.
 const DIR = path.resolve(import.meta.dirname, '../assets/sound')
 const MAX_TOTAL_BYTES = 80 * 1024 * 1024
 const catalog = () => loadCatalog(DIR)
 
-describe('내장 음원 목록(assets/sound)', () => {
+describe.skipIf(!fs.existsSync(path.join(DIR, 'manifest.json')))('내장 음원 목록(assets/sound)', () => {
   test('목록이 읽힌다(형식·파일 존재·id 중복 검증 통과)', () => {
     const c = catalog()
     expect(c.bgm.length).toBeGreaterThan(0)

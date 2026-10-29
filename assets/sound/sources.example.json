@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "tracks": [
+    {
+      "kind": "bgm",
+      "id": "calm-my-song",
+      "file": "bgm/calm-my-song.mp3",
+      "title": "내 배경음악 제목",
+      "author": "작가 이름",
+      "sourceUrl": "https://mixkit.co/free-stock-music/곡-주소/",
+      "license": "Mixkit Free License",
+      "mood": "calm"
+    },
+    {
+      "kind": "sfx",
+      "id": "whoosh-my-sound",
+      "file": "sfx/whoosh-my-sound.mp3",
+      "title": "내 효과음 제목",
+      "author": "작가 이름",
+      "sourceUrl": "https://mixkit.co/free-sound-effects/효과음-주소/",
+      "license": "Mixkit Free License",
+      "role": "whoosh"
+    }
+  ]
+}
