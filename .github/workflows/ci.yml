@@ -30,6 +30,8 @@ jobs:
       - name: ffmpeg 설치 (윈도우)
         if: runner.os == 'Windows'
         run: choco install ffmpeg -y --no-progress
+      - name: hyperframes 설치 (시험이 hyperframes check·렌더를 실제로 부른다)
+        run: npm i -g hyperframes
       - run: npm ci
       - run: npx tsc --noEmit
       - run: npx vitest run

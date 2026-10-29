@@ -6,7 +6,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import type { ZodType } from 'zod'
-import { envValue, killProcessTree, prepareSpawn, searchPathFor, withPath } from './platform.ts'
+import { envValue, killProcessTree, pathFor, prepareSpawn, searchPathFor, withPath } from './platform.ts'
 
 export class LlmError extends Error {
   kind: 'spawn' | 'timeout' | 'invalid-json' | 'schema'
@@ -52,7 +52,8 @@ export function cleanEnv(extra: Record<string, string> = {}, o: { platform?: Nod
   for (const k of SAFE_KEYS) if (src[k]) env[k] = src[k]!
   env.HOME ||= home
   env.LANG ||= 'ko_KR.UTF-8'
-  const fixed = ['/usr/local/bin', ...(platform === 'darwin' ? ['/opt/homebrew/bin'] : []), path.join(home, '.npm-global/bin'), path.join(home, '.local/bin'), '/usr/bin', '/bin', '/usr/sbin', '/sbin']
+  const p = pathFor(platform)
+  const fixed = ['/usr/local/bin', ...(platform === 'darwin' ? ['/opt/homebrew/bin'] : []), p.join(home, '.npm-global/bin'), p.join(home, '.local/bin'), '/usr/bin', '/bin', '/usr/sbin', '/sbin']
   env.PATH = (platform === 'darwin' ? fixed : [...fixed, ...(src.PATH ?? '').split(':').filter(Boolean)]).join(':')
   return { ...env, ...extra } as unknown as NodeJS.ProcessEnv
 }

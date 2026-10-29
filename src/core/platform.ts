@@ -8,7 +8,7 @@ import nodePath from 'node:path'
 
 // Next 의 타입 정의는 NodeJS.ProcessEnv 에 NODE_ENV 를 필수로 만든다 — 여기서는 어떤 환경이든 받는 느슨한 타입을 쓰고, 자식 프로세스에 넘길 때만 ProcessEnv 로 본다
 type Env = Record<string, string | undefined>
-const pathFor = (platform: NodeJS.Platform) => (platform === 'win32' ? nodePath.win32 : nodePath.posix)
+export const pathFor = (platform: NodeJS.Platform) => (platform === 'win32' ? nodePath.win32 : nodePath.posix)
 const delimiterFor = (platform: NodeJS.Platform) => (platform === 'win32' ? ';' : ':')
 
 /** 윈도우는 환경 변수 이름의 대소문자를 가리지 않는다(Path·PATH). 찾는 이름과 같은 키를 돌려준다. */
@@ -85,6 +85,8 @@ const quoteCmd = (s: string): string => (s === '' ? '""' : /[\s"&|<>^()%!]/.test
  * shortcut: cmd.exe 는 인자 안의 줄바꿈과 %변수% 를 안전하게 막지 못한다 — .cmd 도구에는 한 줄짜리 인자만 넘길 것, .exe 는 영향 없음.
  */
 export function spawnPlan(file: string, args: string[], platform: NodeJS.Platform = process.platform): { command: string; args: string[]; shell: boolean } {
+  // node 스크립트(.js·.mjs·.cjs)는 node 로 연다 — 윈도우는 셔뱅(#!)을 못 읽어서 직접 실행이 안 된다. VAE_CLAUDE_BIN 에 감싸는 스크립트를 쓸 수 있다.
+  if (/\.(mjs|cjs|js)$/i.test(file)) return { command: process.execPath, args: [file, ...args], shell: false }
   if (platform === 'win32' && /\.(cmd|bat)$/i.test(file)) return { command: quoteCmd(file), args: args.map(quoteCmd), shell: true }
   return { command: file, args, shell: false }
 }

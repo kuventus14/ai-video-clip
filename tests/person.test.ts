@@ -8,6 +8,9 @@ import { ensureFixtures, type Fixtures } from './helpers/fixtures.ts'
 
 const SAMPLE = path.join(os.homedir(), 'Desktop/롱아이언_릴스_편집본.mp4')
 
+// 사람 인식은 맥의 Swift·Vision 도구라서 맥에서만 돌린다(앱은 지금 이 기능을 쓰지 않는다 — 가로→세로는 자르지 않고 블러 띠를 쓴다)
+const onlyMac = describe.skipIf(process.platform !== 'darwin')
+
 let fx: Fixtures
 beforeAll(async () => {
   fx = await ensureFixtures()
@@ -31,7 +34,7 @@ describe('parsePersonTrack', () => {
   })
 })
 
-describe('ensurePersonTrackBinary', () => {
+onlyMac('ensurePersonTrackBinary', () => {
   test('Swift 도구를 컴파일해 실행 가능한 파일 경로를 돌려주고, 두 번째는 다시 컴파일하지 않는다', async () => {
     const p = await ensurePersonTrackBinary()
     expect(fs.statSync(p).isFile()).toBe(true)
@@ -42,7 +45,7 @@ describe('ensurePersonTrackBinary', () => {
   }, 300_000)
 })
 
-describe('trackPeople', () => {
+onlyMac('trackPeople', () => {
   test('사람이 없는 영상은 모든 샘플의 박스가 빈 배열이다 (초당 4개)', async () => {
     const t = await trackPeople(fx.landscape)
     expect([t.width, t.height]).toEqual([1920, 1080])

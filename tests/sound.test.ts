@@ -310,10 +310,10 @@ describe('applySound — 고른 값으로 측정하고 섞는다', () => {
     expect(f.calls.measured).toEqual(['/w/render-1.mp4'])
     expect(f.calls.mix).toMatchObject({
       videoPath: '/w/render-1.mp4', outPath: '/w/mix-1.mp4', durationSec: 9, hasAudio: true, voice: { lufs: -18, peakDb: -2 },
-      bgm: { file: '/snd/bgm/calm-1.mp3', lufs: -14 },
+      bgm: { file: path.join('/snd', 'bgm/calm-1.mp3'), lufs: -14 },
     })
     // 제목 pop 0.1초, 경계(출력 5초) whoosh 4.85초
-    expect(f.calls.mix!.sfx.map((s) => [s.file, s.atSec])).toEqual([['/snd/sfx/p1.mp3', 0.1], ['/snd/sfx/w1.mp3', 4.85]])
+    expect(f.calls.mix!.sfx.map((s) => [s.file, s.atSec])).toEqual([[path.join('/snd', 'sfx/p1.mp3'), 0.1], [path.join('/snd', 'sfx/w1.mp3'), 4.85]])
     expect(r.report).toEqual({ bgm: { id: 'calm-1', title: '잔잔한 곡', author: '작가', license: 'Pixabay License', sourceUrl: 'https://pixabay.com/music/x' }, sfxCount: 2 })
   })
   test('속도(speed)를 주면 효과음 위치도 같은 배수로 앞당겨진다 — 4.85초 → 1.25배속에서 3.88초', async () => {
@@ -431,9 +431,9 @@ describe('remixSound — 소리만 다시 섞는다', () => {
     expect(r.calls).toHaveLength(1)
     expect(r.calls[0]).toMatchObject({
       videoPath: path.join(d, 'dry.mp4'), durationSec: 9, hasAudio: true, voice: { lufs: -18, peakDb: -2 },
-      bgm: { file: '/snd/bgm/calm-1.mp3', lufs: -14 }, bgmGainDb: 3, sfxGainDb: -2,
+      bgm: { file: path.join('/snd', 'bgm/calm-1.mp3'), lufs: -14 }, bgmGainDb: 3, sfxGainDb: -2,
     })
-    expect(r.calls[0]!.sfx.map((e) => [e.file, e.atSec])).toEqual([['/snd/sfx/p1.mp3', 0.1], ['/snd/sfx/w1.mp3', 3.88]])
+    expect(r.calls[0]!.sfx.map((e) => [e.file, e.atSec])).toEqual([[path.join('/snd', 'sfx/p1.mp3'), 0.1], [path.join('/snd', 'sfx/w1.mp3'), 3.88]])
     expect(path.extname(r.calls[0]!.outPath)).toBe('.mp4') // ffmpeg 는 확장자로 형식을 정한다
     expect(read(d, 'result.mp4')).toBe('NEW')
     expect(fs.readdirSync(d).sort()).toEqual(['dry.mp4', 'mix.json', 'result.mp4'])

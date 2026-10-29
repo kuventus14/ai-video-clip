@@ -113,3 +113,11 @@ describe('prepareSpawn — 이름만 준 명령을 찾아서 실행 방식까지
     expect(prepareSpawn('/usr/bin/ffmpeg', ['-v'], { PATH: '/bin' }, 'darwin')).toEqual({ command: '/usr/bin/ffmpeg', args: ['-v'], shell: false })
   })
 })
+
+describe('spawnPlan — node 스크립트', () => {
+  test('.mjs/.js 는 어느 플랫폼이든 node 로 연다(윈도우는 셔뱅을 못 읽는다)', () => {
+    for (const platform of ['win32', 'darwin', 'linux'] as const) {
+      expect(spawnPlan('/x/fake-claude.mjs', ['-p', 'a b'], platform)).toEqual({ command: process.execPath, args: ['/x/fake-claude.mjs', '-p', 'a b'], shell: false })
+    }
+  })
+})
