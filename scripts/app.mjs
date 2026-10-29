@@ -6,7 +6,7 @@
 import { spawn } from 'node:child_process'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { createSignalHandler, isPortFree, killTree, linePrefixer, needsBuild, nextBinPath, parseAppArgs } from './app-lib.mjs'
+import { childSpawnOptions, createHangupHandler, createSignalHandler, isPortFree, killTree, linePrefixer, needsBuild, nextBinPath, parseAppArgs } from './app-lib.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const HOST = '127.0.0.1'
@@ -30,7 +30,7 @@ if (!(await isPortFree(port, HOST))) {
 function run(prefix, command, commandArgs) {
   // detached: 자식을 자기 프로세스 그룹에 둔다 — 터미널의 Ctrl+C 가 자식(렌더링 중인 워커·hyperframes·ffmpeg)에게 직접 가서
   // 진행 중인 작업이 바로 죽는 일이 없게 하고, 종료는 런처가 정해진 순서로 알린다.
-  const child = spawn(command, commandArgs, { cwd: root, env: process.env, stdio: ['ignore', 'pipe', 'pipe'], detached: true, windowsHide: true })
+  const child = spawn(command, commandArgs, { cwd: root, env: process.env, stdio: ['ignore', 'pipe', 'pipe'], ...childSpawnOptions() })
   const out = linePrefixer(prefix, say)
   const err = linePrefixer(prefix, say)
   child.stdout.on('data', (c) => out.write(c))
@@ -133,6 +133,8 @@ const handleSignal = () => {
 }
 process.on('SIGINT', handleSignal)
 process.on('SIGTERM', handleSignal)
+// 터미널·콘솔 창을 닫으면: 기다리지 않고 자식을 트리째 끝낸다(안 그러면 보이지 않는 채로 포트를 잡고 남는다)
+process.on('SIGHUP', createHangupHandler({ listChildren: () => [...children], kill: (pid) => killTree(pid), exit: (code) => process.exit(code) }))
 
 // 화면이 열리면 주소를 알려 준다
 const url = `http://${HOST}:${port}`

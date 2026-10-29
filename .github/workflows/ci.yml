@@ -1,7 +1,11 @@
 name: CI
 
 # 맥·윈도우·리눅스에서 같은 시험을 돌려 "맥에서만 되는" 코드가 들어오는 것을 막는다.
-# 음성 인식(whisper)·hyperframes 렌더·AI(claude) 를 실제로 부르는 전체 흐름은 여기서 돌리지 않는다(시험은 가짜 도구와 ffmpeg 로 확인).
+# ffmpeg·hyperframes(check·draft 렌더)·whisper-cli(작은 모델, 윈도우·리눅스)를 실제로 부르고 앱 전체(실행기·웹·워커)도 켜 본다.
+# AI(claude)·yt-dlp·deep-filter 를 실제로 부르는 단계는 여기서 돌리지 않는다(시험은 가짜 도구로 확인).
+permissions:
+  contents: read # 읽기만 — 이 작업에서 저장소를 바꿀 일이 없다
+
 on:
   push:
     branches: [main, cross-platform]
@@ -11,12 +15,15 @@ jobs:
   test:
     name: ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false # 이어지는 단계(npm 전역 설치·내려받은 실행 파일)가 토큰을 읽지 못하게
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -42,7 +49,7 @@ jobs:
           dir=$(dirname "$(find "$RUNNER_TEMP/whisper" -name whisper-cli -type f | head -1)")
           chmod +x "$dir"/whisper-cli
           echo "$dir" >> "$GITHUB_PATH"
-          curl -L -o "$RUNNER_TEMP/ggml-tiny.bin" https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin
+          curl -fL -o "$RUNNER_TEMP/ggml-tiny.bin" https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin
           echo "VAE_WHISPER_TEST_MODEL=$RUNNER_TEMP/ggml-tiny.bin" >> "$GITHUB_ENV"
       - name: whisper-cli 와 작은 모델 (윈도우)
         if: runner.os == 'Windows'
@@ -54,7 +61,7 @@ jobs:
           Expand-Archive "$env:RUNNER_TEMP\whisper-bin-x64.zip" -DestinationPath "$env:RUNNER_TEMP\whisper"
           $exe = Get-ChildItem -Recurse "$env:RUNNER_TEMP\whisper" -Filter whisper-cli.exe | Select-Object -First 1
           Add-Content -Path $env:GITHUB_PATH -Value $exe.DirectoryName
-          curl.exe -L -o "$env:RUNNER_TEMP\ggml-tiny.bin" https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin
+          curl.exe -fL -o "$env:RUNNER_TEMP\ggml-tiny.bin" https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin
           Add-Content -Path $env:GITHUB_ENV -Value "VAE_WHISPER_TEST_MODEL=$env:RUNNER_TEMP\ggml-tiny.bin"
       - run: npm ci
       - run: npx tsc --noEmit

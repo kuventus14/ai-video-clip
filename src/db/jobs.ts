@@ -237,7 +237,7 @@ export class Jobs {
     if (!job) return
     if (isRunning(job.status)) throw new Error('실행 중인 작업은 지울 수 없어요')
     this.db.prepare('DELETE FROM jobs WHERE id = ?').run(id)
-    fs.rmSync(path.join(this.dataDir, 'jobs', id), { recursive: true, force: true })
+    fs.rmSync(path.join(this.dataDir, 'jobs', id), { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }) // 윈도우는 열려 있거나 백신이 보는 파일을 잠깐 못 지운다
   }
 
   private setClause(patch: Patch): { sql: string; values: (string | number | null)[] } {

@@ -152,9 +152,9 @@ describe('cleanEnv — claude 를 부를 때 자식 프로세스 환경(플랫�
     expect(e.FOO).toBeUndefined()
     expect(e.CLAUDECODE).toBeUndefined()
   })
-  test('리눅스: 정해 둔 위치 뒤에 지금 PATH 도 이어서(nvm 등으로 깔린 node 를 찾게)', () => {
+  test('리눅스: 지금 PATH 를 앞에 두고 정해 둔 위치를 뒤에 이어서(nvm 의 node 가 오래된 /usr/bin/node 에 가리지 않게)', () => {
     const e = cleanEnv({}, { platform: 'linux', env: { ...base, HOME: '/home/me' }, home: '/home/me' })
-    expect(e.PATH).toBe('/usr/local/bin:/home/me/.npm-global/bin:/home/me/.local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/ignored:/usr/bin')
+    expect(e.PATH).toBe('/ignored:/usr/bin:/usr/local/bin:/home/me/.npm-global/bin:/home/me/.local/bin:/usr/bin:/bin:/usr/sbin:/sbin')
     expect(e.HOME).toBe('/home/me')
   })
   test('윈도우: 필수 변수(SystemRoot·USERPROFILE·APPDATA·TEMP·PATHEXT 등)를 넘기고 PATH 는 ";" 로 잇는다', () => {

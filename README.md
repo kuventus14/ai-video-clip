@@ -20,6 +20,8 @@ uv tool install yt-dlp
 
 ```powershell
 winget install OpenJS.NodeJS Gyan.FFmpeg yt-dlp.yt-dlp Git.Git
+# (새 PowerShell 창을 연 뒤) 기본 설정에서는 npm 이 "스크립트 실행이 비활성화돼 있습니다" 로 막힐 수 있어요. 그러면 한 번만:
+#   Set-ExecutionPolicy -Scope CurrentUser RemoteSigned      (또는 명령 프롬프트(cmd)에서 실행)
 npm i -g hyperframes
 irm https://claude.ai/install.ps1 | iex     # Claude Code 설치 (설치 뒤 새 PowerShell 에서 claude 를 한 번 실행해 로그인)
 ```
@@ -48,7 +50,7 @@ npm run app       # 그다음 http://127.0.0.1:4848
 
 - **배경음악·효과음 파일은 저작권 때문에 들어 있지 않아요.** 음악 없이도 그대로 쓸 수 있고, 넣는 법은 `assets/sound/README.md` 에 있어요.
 - 소리를 또렷하게 하는 기능은 선택 설치예요(아래 "목소리 보정 설치").
-- **어디까지 확인했나:** 맥·윈도우·리눅스의 자동 시험(GitHub Actions)이 매번 돌아요 — 실제 ffmpeg, hyperframes 의 `check` 와 draft 렌더, 실제 `whisper-cli`(작은 모델) 호출, **앱 전체 켜기**(빌드 → 화면 서버 → 처리 프로그램 → 영상 올리기 → ffprobe 확인 → 끄기)까지 세 컴퓨터에서 통과해요. 개발자가 손으로 써 본 건 맥뿐이에요. **윈도우·리눅스에서 아직 직접 확인하지 못한 것:** 진짜 Claude Code 로 AI 를 부르는 단계, yt-dlp 로 비슷한 영상 찾기, 목소리 보정(`deep-filter`), 큰 음성 인식 모델로 긴 영상 처리. 막히면 `npm run setup` 의 안내와 진행 기록을 알려 주세요.
+- **어디까지 확인했나:** 맥·윈도우·리눅스의 자동 시험(GitHub Actions)이 매번 돌아요. 세 컴퓨터 모두 실제 ffmpeg, hyperframes 의 `check` 와 draft 렌더, **앱 전체 켜기**(빌드 → 화면 서버 → 처리 프로그램 → 영상 올리기 → ffprobe 확인 → 끝내기)를 통과해요. 실제 `whisper-cli`(작은 모델) 호출은 윈도우·리눅스에서 돌려요. 윈도우에서 "끝내기"는 시험이 프로세스 트리를 직접 끄는 방식이라 `Ctrl+C` 경로 자체는 검증하지 못했어요. 개발자가 손으로 써 본 건 맥뿐이에요. **윈도우·리눅스에서 아직 직접 확인하지 못한 것:** 진짜 Claude Code 로 AI 를 부르는 단계, yt-dlp 로 비슷한 영상 찾기, 목소리 보정(`deep-filter`), 큰 음성 인식 모델로 긴 영상 처리, 사용자 폴더 이름에 한글·공백이 있는 컴퓨터(CI 의 폴더 이름은 영어예요). 막히면 `npm run setup` 의 안내와 진행 기록을 알려 주세요.
 - 영상 올리기 → 분석 → 자막·레퍼런스 → 승인 → 제작 → 확정 순서는 아래 "화면 사용 순서"에 있어요. 라이선스는 MIT 예요(`LICENSE`).
 
 ## 실행 (한 줄)
@@ -88,7 +90,7 @@ chmod +x deep-filter
 ```powershell
 New-Item -ItemType Directory -Force "$HOME\.local\share\deep-filter" | Out-Null; cd "$HOME\.local\share\deep-filter"
 gh release download v0.5.6 -R Rikorose/DeepFilterNet -p "deep-filter-0.5.6-x86_64-pc-windows-msvc.exe" -O deep-filter.exe
-(Get-FileHash -Algorithm SHA256 deep-filter.exe).Hash   # 75E11FA16445F560CB6B021521DDB89E89270D13B83089705D98776F58FD7915 와 같아야 해요
+if ((Get-FileHash -Algorithm SHA256 deep-filter.exe).Hash -ne '75E11FA16445F560CB6B021521DDB89E89270D13B83089705D98776F58FD7915') { throw '받은 파일의 해시가 달라요 — 지우고 다시 받으세요' } else { '해시 확인 OK' }
 ```
 
 **리눅스(x86_64)** — 터미널

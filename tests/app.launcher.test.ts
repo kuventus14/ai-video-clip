@@ -1,9 +1,10 @@
+import { EventEmitter } from 'node:events'
 import fs from 'node:fs'
 import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, test } from 'vitest'
-import { createSignalHandler, isPortFree, killTree, latestMtimeMs, linePrefixer, needsBuild, nextBinPath, parseAppArgs } from '../scripts/app-lib.mjs'
+import { childSpawnOptions, createHangupHandler, createSignalHandler, forwardSignals, isPortFree, killTree, latestMtimeMs, linePrefixer, needsBuild, nextBinPath, parseAppArgs } from '../scripts/app-lib.mjs'
 
 describe('linePrefixer', () => {
   it('줄마다 접두어를 붙이고, 줄 중간에 끊겨 온 조각은 이어 붙인다', () => {
@@ -170,5 +171,38 @@ describe('nextBinPath — next 를 node 로 직접 실행하는 파일', () => {
   test('.bin 의 셸 스크립트(윈도우는 .cmd)가 아니라 next 패키지 안의 JS 파일을 가리킨다', () => {
     expect(nextBinPath('/app')).toBe(path.join('/app', 'node_modules', 'next', 'dist', 'bin', 'next'))
     expect(fs.existsSync(nextBinPath(path.resolve(import.meta.dirname, '..')))).toBe(true)
+  })
+})
+
+describe('forwardSignals — 감싼 프로그램이 받은 종료 신호를 자식(next)에게 넘긴다', () => {
+  test('SIGTERM·SIGINT·SIGHUP 를 받으면 같은 신호로 자식을 끝낸다(안 그러면 포트를 잡은 채 남는다)', () => {
+    const proc = new EventEmitter()
+    const killed: string[] = []
+    forwardSignals({ kill: (s?: string) => void killed.push(String(s)) }, proc)
+    proc.emit('SIGTERM')
+    proc.emit('SIGINT')
+    proc.emit('SIGHUP')
+    expect(killed).toEqual(['SIGTERM', 'SIGINT', 'SIGHUP'])
+  })
+})
+
+describe('childSpawnOptions — 자식 프로세스를 띄우는 방식', () => {
+  test('맥·리눅스: 자기 프로세스 그룹(detached)에 둔다', () => {
+    expect(childSpawnOptions('darwin')).toEqual({ detached: true, windowsHide: true })
+    expect(childSpawnOptions('linux')).toEqual({ detached: true, windowsHide: true })
+  })
+  test('윈도우: detached 는 콘솔 없는 프로세스라 Next 가 만드는 하위 프로세스마다 검은 창이 뜬다 — 쓰지 않는다', () => {
+    expect(childSpawnOptions('win32')).toEqual({ detached: false, windowsHide: true })
+  })
+})
+
+describe('createHangupHandler — 터미널·콘솔 창을 닫을 때(SIGHUP)', () => {
+  test('자식을 트리째 끝내고 종료한다(보이지 않는 채로 포트를 잡고 남지 않게)', () => {
+    const killed: number[] = []
+    const exits: number[] = []
+    const handle = createHangupHandler({ listChildren: () => [{ pid: 11 }, { pid: 22 }], kill: (pid: number) => void killed.push(pid), exit: (c: number) => void exits.push(c) })
+    handle()
+    expect(killed).toEqual([11, 22])
+    expect(exits).toEqual([1])
   })
 })

@@ -3,6 +3,7 @@ import nodePath from 'node:path'
 import { z } from 'zod'
 import { clampGainDb, loadCatalog, SOUND_NOT_REMIXABLE, SoundError, soundChoiceProblem, trackPath, type BgmTrack, type Catalog, type SfxMode, type SfxRole, type SfxTrack } from '../shared/sound.ts'
 import { run as realRun, ToolError } from './exec.ts'
+import { renameWithRetry } from './platform.ts'
 import type { SoundBalance } from './soundBalance.ts'
 import type { Span } from './types.ts'
 
@@ -324,7 +325,7 @@ export async function remixSound(
   const tmp = nodePath.join(i.outDir, 'result.tmp.mp4') // ffmpeg 는 확장자로 출력 형식을 정한다
   try {
     await mix({ videoPath: dry, outPath: tmp, durationSec: recipe.durationSec, hasAudio: recipe.hasAudio, voice: recipe.voice, bgm: bgm ? { file: trackPath(catalog, bgm), lufs: bgm.lufs } : undefined, sfx, ...gains })
-    fs.renameSync(tmp, nodePath.join(i.outDir, 'result.mp4'))
+    renameWithRetry(tmp, nodePath.join(i.outDir, 'result.mp4')) // 윈도우는 결과를 보고 있는 동안(열려 있는 파일) 잠깐 못 바꿀 수 있다
   } catch (e) {
     fs.rmSync(tmp, { force: true })
     throw e

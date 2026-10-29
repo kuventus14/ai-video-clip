@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { installHint, prepareSpawn, resolveTool, searchPathFor, spawnPlan, withPath } from '../src/core/platform.ts'
+import { installHint, prepareSpawn, renameWithRetry, resolveTool, searchPathFor, spawnArgs, spawnPlan, withPath } from '../src/core/platform.ts'
 
 describe('searchPathFor — 도구를 찾을 PATH', () => {
   test('맥: 기존 PATH 뒤에 Homebrew 등 흔한 위치를 ":" 로 잇는다(예전과 같다)', () => {
@@ -119,5 +119,48 @@ describe('spawnPlan — node 스크립트', () => {
     for (const platform of ['win32', 'darwin', 'linux'] as const) {
       expect(spawnPlan('/x/fake-claude.mjs', ['-p', 'a b'], platform)).toEqual({ command: process.execPath, args: ['/x/fake-claude.mjs', '-p', 'a b'], shell: false })
     }
+  })
+})
+
+describe('spawnPlan — .cmd 인자 따옴표의 빈틈', () => {
+  test('따옴표로 감싼 인자가 역슬래시로 끝나면 역슬래시를 두 배로 한다(안 그러면 닫는 따옴표가 이스케이프된다)', () => {
+    expect(spawnPlan('C:\\t.cmd', ['C:\\내 폴더\\'], 'win32').args).toEqual(['"C:\\내 폴더\\\\"'])
+  })
+  test('줄바꿈이 든 인자는 cmd.exe 가 안전하게 못 넘기므로 거절한다', () => {
+    expect(() => spawnPlan('C:\\t.cmd', ['a\nb'], 'win32')).toThrow(/줄바꿈/)
+    expect(spawnPlan('C:\\t.exe', ['a\nb'], 'win32').args).toEqual(['a\nb']) // .exe 는 영향 없음
+  })
+})
+
+describe('resolveTool — PATHEXT 중 실행 파일 확장자만', () => {
+  test('.JS·.VBS 같은 스크립트 확장자는 찾지 않는다 — 앞선 폴더의 foo.js 가 foo.exe 를 가리면 안 된다', () => {
+    const has = (...f: string[]) => (p: string) => f.includes(p)
+    expect(resolveTool('foo', 'C:\\a;C:\\b', { platform: 'win32', pathext: '.JS;.VBS;.EXE', isExecutable: has('C:\\a\\foo.js', 'C:\\a\\foo.vbs', 'C:\\b\\foo.exe') })).toBe('C:\\b\\foo.exe')
+  })
+})
+
+describe('spawnArgs — shell 로 실행할 때는 한 줄 글자로(Node 24 의 DEP0190 경고를 피한다)', () => {
+  test('shell 이면 명령과 인자를 한 글자로 이어 args 를 비운다, 아니면 그대로', () => {
+    expect(spawnArgs({ command: 'C:\\t.cmd', args: ['render', '"a b"'], shell: true })).toEqual(['C:\\t.cmd render "a b"', []])
+    expect(spawnArgs({ command: 'ffmpeg', args: ['-i', 'a b'], shell: false })).toEqual(['ffmpeg', ['-i', 'a b']])
+  })
+})
+
+describe('renameWithRetry — 윈도우는 열려 있거나 백신이 보는 파일을 잠깐 못 바꾼다', () => {
+  const err = (code: string) => Object.assign(new Error(code), { code })
+  test('EPERM·EBUSY 는 몇 번 다시 해 보고 성공하면 끝', () => {
+    let n = 0
+    renameWithRetry('a', 'b', { rename: () => { if (++n < 3) throw err(n === 1 ? 'EPERM' : 'EBUSY') }, sleep: () => {} })
+    expect(n).toBe(3)
+  })
+  test('다른 오류(ENOENT 등)는 바로 던진다', () => {
+    let n = 0
+    expect(() => renameWithRetry('a', 'b', { rename: () => { n++; throw err('ENOENT') }, sleep: () => {} })).toThrow('ENOENT')
+    expect(n).toBe(1)
+  })
+  test('계속 안 되면 정해진 횟수 뒤 마지막 오류를 던진다', () => {
+    let n = 0
+    expect(() => renameWithRetry('a', 'b', { rename: () => { n++; throw err('EPERM') }, sleep: () => {}, attempts: 4 })).toThrow('EPERM')
+    expect(n).toBe(4)
   })
 })

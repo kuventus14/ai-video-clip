@@ -1,3 +1,6 @@
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import { describe, expect, test } from 'vitest'
 import { transcribe } from '../src/core/transcribe.ts'
 import { ensureFixtures } from './helpers/fixtures.ts'
@@ -13,5 +16,26 @@ describe.skipIf(!model)('whisper-cli 실제 호출', () => {
     expect(t.durationSec).toBeGreaterThan(0)
     expect(Array.isArray(t.words)).toBe(true)
     expect(Array.isArray(t.segments)).toBe(true)
+  }, 180_000)
+
+  // 윈도우의 whisper-cli 는 인자를 시스템 코드 페이지로 읽는다는 보고가 있다 — 사용자 폴더·모델 폴더에 한글이 있어도 도는지 CI 에서 직접 본다.
+  test('한글이 든 임시 폴더·모델 폴더와 한글 힌트(--prompt)에서도 돈다', async () => {
+    const fx = await ensureFixtures()
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), '한글 폴더 '))
+    const koModel = path.join(base, '모델.bin')
+    fs.copyFileSync(model!, koModel)
+    const keys = ['TEMP', 'TMP', 'TMPDIR'] as const
+    const saved = Object.fromEntries(keys.map((k) => [k, process.env[k]]))
+    for (const k of keys) process.env[k] = base // os.tmpdir() 가 이 폴더를 쓰게
+    try {
+      const t = await transcribe(fx.landscape, { modelPath: koModel, language: 'ko', prompt: '롱아이언, 백스윙' })
+      expect(t.durationSec).toBeGreaterThan(0)
+    } finally {
+      for (const k of keys) {
+        if (saved[k] === undefined) delete process.env[k]
+        else process.env[k] = saved[k]
+      }
+      fs.rmSync(base, { recursive: true, force: true })
+    }
   }, 180_000)
 })

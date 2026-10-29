@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process'
 import path from 'node:path'
-import { killProcessTree, prepareSpawn, searchPathFor, withPath } from './platform.ts'
+import { killProcessTree, prepareSpawn, searchPathFor, spawnArgs, withPath } from './platform.ts'
 
 /** GUI·서비스로 실행돼도 도구를 찾을 수 있게 흔한 설치 위치를 덧붙인 기본 PATH. */
 export function defaultSearchPath(): string {
@@ -32,8 +32,9 @@ export function run(file: string, args: string[], opts: RunOpts = {}): Promise<{
   const tool = path.basename(file)
   const env = opts.env ?? withPath(process.env, defaultSearchPath())
   const plan = prepareSpawn(file, args, env) // 윈도우는 "hyperframes" 처럼 이름만 주면 .cmd 를 못 찾으므로 PATH(PATHEXT 포함)에서 먼저 찾는다
+  const [command, commandArgs] = spawnArgs(plan)
   return new Promise((resolve, reject) => {
-    const child = spawn(plan.command, plan.args, {
+    const child = spawn(command, commandArgs, {
       cwd: opts.cwd,
       env,
       stdio: ['pipe', 'pipe', 'pipe'],

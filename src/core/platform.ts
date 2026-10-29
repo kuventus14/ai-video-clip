@@ -46,12 +46,15 @@ function realIsExecutable(platform: NodeJS.Platform) {
   }
 }
 
+const EXECUTABLE_EXTS = ['.com', '.exe', '.bat', '.cmd']
+
 /** PATH 에서 실행 파일을 찾는다. 윈도우는 확장자 없이 불러도 PATHEXT(.exe·.cmd 등) 순서로 찾는다. 없으면 null. */
 export function resolveTool(name: string, searchPath: string, o: { platform?: NodeJS.Platform; pathext?: string; isExecutable?: (file: string) => boolean } = {}): string | null {
   const platform = o.platform ?? process.platform
   const p = pathFor(platform)
   const isExec = o.isExecutable ?? realIsExecutable(platform)
-  const exts = platform === 'win32' ? (o.pathext ?? process.env.PATHEXT ?? '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean) : []
+  // PATHEXT 에는 .JS·.VBS 같은 스크립트도 들어 있다 — 그런 것이 .exe 를 가리지 않게 실행 파일 확장자만 본다
+  const exts = platform === 'win32' ? (o.pathext ?? process.env.PATHEXT ?? '.COM;.EXE;.BAT;.CMD').split(';').filter((e) => EXECUTABLE_EXTS.includes(e.toLowerCase())) : []
   const hasExt = exts.some((e) => name.toLowerCase().endsWith(e.toLowerCase()))
   const names = platform === 'win32' && !hasExt ? exts.map((e) => name + e.toLowerCase()) : [name]
   for (const dir of searchPath.split(delimiterFor(platform))) {
@@ -77,18 +80,26 @@ export function withPath(env: Env, searchPath: string, platform: NodeJS.Platform
   return out as unknown as NodeJS.ProcessEnv
 }
 
-/** cmd.exe 로 넘길 때 공백·따옴표·특수문자가 든 글자를 따옴표로 감싼다. */
-const quoteCmd = (s: string): string => (s === '' ? '""' : /[\s"&|<>^()%!]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s)
+/** cmd.exe 로 넘길 때 공백·따옴표·특수문자가 든 글자를 따옴표로 감싼다. 따옴표 안에서 역슬래시로 끝나면 닫는 따옴표가 이스케이프되지 않게 두 배로 한다. */
+const quoteCmd = (s: string): string => (s === '' ? '""' : /[\s"&|<>^()%!]/.test(s) ? `"${s.replace(/"/g, '""').replace(/(\\+)$/, '$1$1')}"` : s)
 
 /**
  * 어떻게 실행할까. 윈도우의 .cmd/.bat(npm 전역 설치 도구가 이 모양)는 Node 가 shell 없이는 실행을 거절하므로 shell 로 실행하고 인자를 따옴표로 감싼다.
- * shortcut: cmd.exe 는 인자 안의 줄바꿈과 %변수% 를 안전하게 막지 못한다 — .cmd 도구에는 한 줄짜리 인자만 넘길 것, .exe 는 영향 없음.
+ * shortcut: cmd.exe 는 인자 안의 %변수% 를 안전하게 막지 못한다(줄바꿈은 아래에서 거절한다) — .cmd 도구에는 앱이 정한 인자만 넘길 것, .exe 는 영향 없음.
  */
 export function spawnPlan(file: string, args: string[], platform: NodeJS.Platform = process.platform): { command: string; args: string[]; shell: boolean } {
   // node 스크립트(.js·.mjs·.cjs)는 node 로 연다 — 윈도우는 셔뱅(#!)을 못 읽어서 직접 실행이 안 된다. VAE_CLAUDE_BIN 에 감싸는 스크립트를 쓸 수 있다.
   if (/\.(mjs|cjs|js)$/i.test(file)) return { command: process.execPath, args: [file, ...args], shell: false }
-  if (platform === 'win32' && /\.(cmd|bat)$/i.test(file)) return { command: quoteCmd(file), args: args.map(quoteCmd), shell: true }
+  if (platform === 'win32' && /\.(cmd|bat)$/i.test(file)) {
+    if (args.some((a) => /[\r\n]/.test(a))) throw new Error('.cmd 도구에는 줄바꿈이 든 인자를 넘길 수 없어요')
+    return { command: quoteCmd(file), args: args.map(quoteCmd), shell: true }
+  }
   return { command: file, args, shell: false }
+}
+
+/** spawn 에 넘길 (명령, 인자). shell 이면 Node 24 의 DEP0190 경고("shell 과 인자를 같이 쓰면 위험")를 피하려고 한 줄 글자로 이어 준다 — Node 가 이어 붙이는 것과 같다. */
+export function spawnArgs(plan: { command: string; args: string[]; shell: boolean }): [string, string[]] {
+  return plan.shell ? [[plan.command, ...plan.args].join(' '), []] : [plan.command, plan.args]
 }
 
 /** 이름만 준 명령을 (윈도우는 PATH·PATHEXT 로) 찾아서 실행 방식까지 정한다. spawn 하기 직전에 부른다. */
@@ -128,7 +139,7 @@ export function installHint(tool: Tool, platform: NodeJS.Platform = process.plat
   }
 }
 
-/** 프로세스와 그 자식들을 끝낸다. 윈도우는 process.kill 이 자식을 안 끝내서 taskkill 의 /T(트리)를 쓴다. */
+/** 프로세스를 끝낸다. 윈도우는 taskkill 의 /T(트리)로 자식까지 끝내고, 맥·리눅스는 그 pid 만 끝낸다(자식까지 끝내려면 호출한 쪽이 프로세스 그룹을 쓴다 — scripts/app-lib.mjs 의 killTree). */
 export function killProcessTree(pid: number | undefined, platform: NodeJS.Platform = process.platform): void {
   if (pid === undefined) return
   try {
@@ -136,5 +147,24 @@ export function killProcessTree(pid: number | undefined, platform: NodeJS.Platfo
     else process.kill(pid, 'SIGKILL')
   } catch {
     // 이미 끝났다
+  }
+}
+
+/**
+ * 파일 이름 바꾸기. 윈도우는 열려 있거나 백신이 보는 파일을 잠깐 못 바꿔서(EPERM·EBUSY·EACCES) 몇 번 다시 해 본다.
+ * 다른 오류는 바로 던진다. 옵션은 시험에서 바꿔 끼우는 용도.
+ */
+export function renameWithRetry(from: string, to: string, o: { rename?: (a: string, b: string) => void; sleep?: (ms: number) => void; attempts?: number } = {}): void {
+  const rename = o.rename ?? fs.renameSync
+  const sleep = o.sleep ?? ((ms: number) => void Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms))
+  const attempts = o.attempts ?? 6
+  for (let n = 1; ; n++) {
+    try {
+      return rename(from, to)
+    } catch (e) {
+      const code = (e as NodeJS.ErrnoException).code
+      if (n >= attempts || (code !== 'EPERM' && code !== 'EBUSY' && code !== 'EACCES')) throw e
+      sleep(100 * n)
+    }
   }
 }

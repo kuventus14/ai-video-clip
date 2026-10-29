@@ -130,3 +130,28 @@ export function killTree(pid, { platform = process.platform, spawnSync: spawnSyn
 export function nextBinPath(root) {
   return path.join(root, 'node_modules', 'next', 'dist', 'bin', 'next')
 }
+
+/**
+ * 이 프로그램이 받은 종료 신호를 자식에게 그대로 넘긴다. 감싸는 프로그램(web.mjs)이 신호를 못 받아 먼저 죽으면
+ * 자식(next)은 포트를 잡은 채 남는다(예전에는 셸이 next 를 exec 해서 신호를 직접 받았다).
+ */
+export function forwardSignals(child, proc = process, signals = ['SIGTERM', 'SIGINT', 'SIGHUP']) {
+  for (const s of signals) proc.on(s, () => child.kill(s))
+}
+
+/**
+ * 자식 프로세스를 띄우는 방식. 맥·리눅스는 자기 프로세스 그룹(detached)에 둬서 Ctrl+C 가 런처에만 오게 한다.
+ * 윈도우의 detached 는 "콘솔 없는 프로세스"(DETACHED_PROCESS)라서 windowsHide 가 무시되고, 자식이 띄우는 도구마다 검은 콘솔 창이 뜬다 —
+ * 윈도우는 detached 없이 숨김 콘솔(windowsHide)로 띄우고 종료는 killTree(taskkill /T)가 맡는다.
+ */
+export function childSpawnOptions(platform = process.platform) {
+  return { detached: platform !== 'win32', windowsHide: true }
+}
+
+/** 터미널·콘솔 창을 닫을 때(SIGHUP): 자식을 트리째 끝내고 종료한다. 안 그러면 보이지 않는 채로 포트를 잡고 남는다. */
+export function createHangupHandler({ listChildren, kill, exit }) {
+  return () => {
+    for (const c of listChildren()) kill(c.pid)
+    exit(1)
+  }
+}

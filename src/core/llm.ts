@@ -4,9 +4,8 @@
 import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
-import path from 'node:path'
 import type { ZodType } from 'zod'
-import { envValue, killProcessTree, pathFor, prepareSpawn, searchPathFor, withPath } from './platform.ts'
+import { envValue, killProcessTree, pathFor, prepareSpawn, searchPathFor, spawnArgs, withPath } from './platform.ts'
 
 export class LlmError extends Error {
   kind: 'spawn' | 'timeout' | 'invalid-json' | 'schema'
@@ -35,7 +34,7 @@ const WINDOWS_KEYS = ['SystemRoot', 'SystemDrive', 'windir', 'USERPROFILE', 'HOM
 
 /**
  * claude 를 부를 때 자식 프로세스에 줄 환경. 아무 변수나 넘기지 않고 화이트리스트로 새로 짓는다.
- * 맥은 정해 둔 위치만 PATH 로 쓰고(예전 그대로), 리눅스·윈도우는 지금 PATH 도 이어 붙인다(nvm·Git for Windows 등으로 깔린 도구를 찾게).
+ * 맥은 정해 둔 위치만 PATH 로 쓰고(예전 그대로), 리눅스·윈도우는 지금 PATH 도 함께 쓴다(nvm·Git for Windows 등으로 깔린 도구를 찾게).
  */
 export function cleanEnv(extra: Record<string, string> = {}, o: { platform?: NodeJS.Platform; env?: Record<string, string | undefined>; home?: string } = {}): NodeJS.ProcessEnv {
   const platform = o.platform ?? process.platform
@@ -54,7 +53,8 @@ export function cleanEnv(extra: Record<string, string> = {}, o: { platform?: Nod
   env.LANG ||= 'ko_KR.UTF-8'
   const p = pathFor(platform)
   const fixed = ['/usr/local/bin', ...(platform === 'darwin' ? ['/opt/homebrew/bin'] : []), p.join(home, '.npm-global/bin'), p.join(home, '.local/bin'), '/usr/bin', '/bin', '/usr/sbin', '/sbin']
-  env.PATH = (platform === 'darwin' ? fixed : [...fixed, ...(src.PATH ?? '').split(':').filter(Boolean)]).join(':')
+  // 맥은 정해 둔 위치만(예전 그대로). 리눅스는 지금 PATH 를 앞에 둔다 — 정해 둔 /usr/bin 의 오래된 node 가 nvm 으로 깐 node 를 가리지 않게
+  env.PATH = (platform === 'darwin' ? fixed : [...(src.PATH ?? '').split(':').filter(Boolean), ...fixed]).join(':')
   return { ...env, ...extra } as unknown as NodeJS.ProcessEnv
 }
 
@@ -75,7 +75,8 @@ function runClaude(o: AskOpts): Promise<string> {
 
     const env = cleanEnv(o.env)
     const plan = prepareSpawn(process.env.VAE_CLAUDE_BIN || 'claude', args, env)
-    const child = spawn(plan.command, plan.args, { cwd: os.tmpdir(), env, stdio: ['pipe', 'pipe', 'pipe'], shell: plan.shell, windowsHide: true })
+    const [command, commandArgs] = spawnArgs(plan)
+    const child = spawn(command, commandArgs, { cwd: os.tmpdir(), env, stdio: ['pipe', 'pipe', 'pipe'], shell: plan.shell, windowsHide: true })
     let buf = ''
     let stderr = ''
     let result: { is_error?: boolean; result?: unknown } | null = null

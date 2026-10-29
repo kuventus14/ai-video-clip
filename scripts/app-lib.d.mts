@@ -17,3 +17,6 @@ export function killTree(
   o?: { platform?: NodeJS.Platform; spawnSync?: (...args: unknown[]) => unknown; kill?: (...args: unknown[]) => unknown },
 ): void
 export function nextBinPath(root: string): string
+export function forwardSignals(child: { kill: (signal?: string) => unknown }, proc?: { on: (signal: string, listener: () => void) => unknown }, signals?: string[]): void
+export function childSpawnOptions(platform?: NodeJS.Platform): { detached: boolean; windowsHide: boolean }
+export function createHangupHandler(o: { listChildren: () => Iterable<{ pid?: number }>; kill: (pid: number) => void; exit: (code: number) => void }): () => void
