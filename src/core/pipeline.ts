@@ -398,6 +398,8 @@ export interface ProduceInput {
   audio?: AudioMode
   bgm?: string | null
   sfx?: SfxMode
+  /** true 면 결과 폴더에 다시 섞기용 dry.mp4·mix.json 을 남기고(소리를 안 쓰면 옛 파일을 지운다). 웹 앱의 워커만 켠다 — CLI 의 --out 폴더에는 사용자 파일이 있을 수 있어 건드리지 않는다 */
+  remixFiles?: boolean
   keepWork?: boolean
   onStage?: StageCallback
   /**
@@ -646,13 +648,13 @@ export async function produceEdit(i: ProduceInput, overrides: Partial<PipelineDe
     }
     const finalQa: QaReport = { ...qa, findings: [...qa.findings, ...extraFindings, ...cropFindings, ...suggestionFindings] }
     const resultPath = path.join(outDir, 'result.mp4')
-    // 소리만 다시 섞을 수 있게 소리 없는 렌더와 섞는 방법을 남긴다. 이번에 소리를 안 썼다면 같은 폴더의 옛 파일을 지운다(다시 섞기가 열리면 안 된다).
+    // 소리만 다시 섞을 수 있게 소리 없는 렌더와 섞는 방법을 남긴다(remixFiles 일 때만). 이번에 소리를 안 썼다면 같은 폴더의 옛 파일을 지운다(다시 섞기가 열리면 안 된다).
     const dryOut = path.join(outDir, 'dry.mp4')
     const recipeOut = path.join(outDir, 'mix.json')
-    if (dryPath && mixRecipe) {
+    if (i.remixFiles && dryPath && mixRecipe) {
       fs.copyFileSync(dryPath, dryOut)
       fs.writeFileSync(recipeOut, JSON.stringify(mixRecipe))
-    } else {
+    } else if (i.remixFiles) {
       fs.rmSync(dryOut, { force: true })
       fs.rmSync(recipeOut, { force: true })
     }

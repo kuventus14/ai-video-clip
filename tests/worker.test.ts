@@ -468,6 +468,16 @@ describe('produce 단계 — 소리만 다시 섞기(remixPending)', () => {
     expect(fs.readFileSync(j.resultPath!, 'utf8')).toBe('OLD')
     expect((after.report as { sound: { balance: { bgmGainDb: number } } }).sound.balance.bgmGainDb).toBe(0) // 리포트는 안 바뀐다
   })
+  test('섞기 도구(ffmpeg)의 원문은 화면 문구에 싣지 않고 진행 기록에만 남긴다', async () => {
+    const j = remixJob()
+    const stderr = 'Error opening input file /Users/someone/assets/sound/bgm/x.mp3: No such file or directory'
+    await runOnce(jobs, fakes({ remixSound: async () => { throw new SoundError('배경음악·효과음을 입히지 못했어요.', stderr) } }).deps)
+    const after = jobs.get(j.id)!
+    expect(after.errorMessage).toContain('입히지 못했어요')
+    expect(after.errorMessage).not.toContain('/Users/')
+    expect(after.errorMessage).not.toContain('No such file')
+    expect(after.log.some((l) => l.message.includes('No such file or directory'))).toBe(true)
+  })
   test('예상하지 못한 오류도 결과 화면으로 돌아오고, 도구 원문은 진행 기록에만 남는다', async () => {
     const j = remixJob()
     await runOnce(jobs, fakes({ remixSound: async () => { throw new Error('EACCES /Users/someone/secret') } }).deps)
@@ -514,7 +524,7 @@ describe('produce 단계', () => {
     expect(after.report).toMatchObject({ qa: { passed: true } })
     expect(after.attempts).toBe(2)
     expect(fs.existsSync(after.thumbPath!)).toBe(true)
-    expect(f.calls.produce[0]).toMatchObject({ quality: 'delivery', captions: 'off', outDir: path.join(jobs.jobDir(j.id), 'out') })
+    expect(f.calls.produce[0]).toMatchObject({ quality: 'delivery', captions: 'off', outDir: path.join(jobs.jobDir(j.id), 'out'), remixFiles: true }) // 다시 섞기에 필요한 파일을 남기게 한다
     expect(after.log.some((l) => l.message.includes('렌더링'))).toBe(true)
   })
 

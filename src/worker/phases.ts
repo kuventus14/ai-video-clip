@@ -53,9 +53,11 @@ export function stageText(s: Stage, detail?: string): string {
 
 /** 사용자에게 그대로 보여 줄 수 있는 오류는 메시지를, 그 밖의 오류는 일반 안내를 돌려준다. */
 export function describeError(e: unknown): { message: string; detail?: string } {
-  if (e instanceof InputError || e instanceof ReferenceFetchError || e instanceof LlmError || e instanceof SearchError || e instanceof VoiceError || e instanceof SoundError || e instanceof TempoError) {
+  if (e instanceof InputError || e instanceof ReferenceFetchError || e instanceof LlmError || e instanceof SearchError || e instanceof VoiceError || e instanceof TempoError) {
     return { message: e.message }
   }
+  // 섞기 도구(ffmpeg)의 원문에는 경로와 영어 오류가 섞여 있다 — 화면에는 안내만, 원문은 진행 기록에 남긴다
+  if (e instanceof SoundError) return { message: e.message, detail: e.detail }
   // 도구(ffprobe·ffmpeg 등)의 원문에는 이 컴퓨터의 파일 경로와 영어 오류가 섞여 있다 — 화면에는 안내만, 원문은 진행 기록에 남긴다
   if (e instanceof ToolError) {
     const message = e.tool === 'ffprobe' ? '영상을 읽을 수 없어요. 손상됐거나 영상이 아닌 파일일 수 있어요.' : `${e.tool} 가 실패했어요. 같은 일이 반복되면 진행 기록의 자세한 내용을 알려 주세요.`
@@ -173,7 +175,7 @@ export async function producePhase(ctx: PhaseContext): Promise<void> {
   const outDir = path.join(dir, 'out')
   // 승인 화면에서 문구를 고쳤다면 계획 대본 위에 덮어서 넘긴다(상한을 넘는 값은 정리된다). 고치지 않았으면 엔진이 prepared.script 를 그대로 쓴다.
   const script = job.scriptEdits && prepared.script ? applyScriptEdits(prepared.script, job.scriptEdits, { durationSec: analysis.info.durationSec, fallbackTitle: analysis.summary.genre || analysis.summary.topic }) : undefined
-  const result = await d.produceEdit({ analysis, prepared, outDir, script, cutTranscript: job.captionTrack !== null ? cutTranscriptFor(raw.transcript, job.captionTrack) : raw.transcript, quality: job.quality, captions: job.captionsMode, captionPosition: job.captionPosition ?? undefined, audio: job.audioMode, bgm: job.bgmId, sfx: job.sfxMode, onStage })
+  const result = await d.produceEdit({ analysis, prepared, outDir, script, cutTranscript: job.captionTrack !== null ? cutTranscriptFor(raw.transcript, job.captionTrack) : raw.transcript, quality: job.quality, captions: job.captionsMode, captionPosition: job.captionPosition ?? undefined, audio: job.audioMode, bgm: job.bgmId, sfx: job.sfxMode, remixFiles: true, onStage })
 
   let thumbPath: string | null = null
   try {

@@ -191,7 +191,7 @@ export async function mixSound(i: MixInput, deps: { run?: typeof realRun } = {})
     await run('ffmpeg', buildMixArgs(i), { timeoutMs: FFMPEG_TIMEOUT_MS })
   } catch (e) {
     const detail = e instanceof ToolError ? e.stderr.trim().split('\n').slice(-2).join(' ') : (e as Error).message
-    throw new SoundError(`배경음악·효과음을 입히지 못했어요. 같은 일이 반복되면 진행 기록을 알려 주세요. (${detail})`)
+    throw new SoundError('배경음악·효과음을 입히지 못했어요. 같은 일이 반복되면 진행 기록의 자세한 내용을 알려 주세요.', detail)
   }
   return i.outPath
 }

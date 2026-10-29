@@ -262,6 +262,16 @@ describe('측정과 섞기 — 실제 ffmpeg (합성 소리)', () => {
     await expect(p).rejects.toThrow(SoundError)
     await expect(p).rejects.toThrow(/배경음악·효과음/)
   })
+  test('ffmpeg 원문(경로·영어)은 메시지에 싣지 않고 detail 에만 둔다 — 화면에는 한국어 안내만 나가게', async () => {
+    const e = await mixSound({ videoPath: fx.landscape, outPath: f('mix-fail2.mp4'), durationSec: 5, hasAudio: true, voice: { lufs: -20, peakDb: -3 }, bgm: { file: f('nope.wav'), lufs: -14 }, sfx: [] }).then(
+      () => { throw new Error('실패해야 하는 섞기가 성공했다') },
+      (x: unknown) => x as SoundError,
+    )
+    expect(e).toBeInstanceOf(SoundError)
+    expect(e.message).not.toContain('nope.wav')
+    expect(e.message).not.toContain(os.tmpdir())
+    expect(e.detail).toContain('nope.wav')
+  })
 })
 
 const BGM: BgmTrack = { kind: 'bgm', id: 'calm-1', file: 'bgm/calm-1.mp3', title: '잔잔한 곡', author: '작가', sourceUrl: 'https://pixabay.com/music/x', license: 'Pixabay License', durationSec: 90, lufs: -14, peakDb: -1, mood: 'calm' }

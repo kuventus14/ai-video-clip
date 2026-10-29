@@ -29,9 +29,12 @@ export function canRemix(resultPath: string | null): boolean {
 
 /** 사용자에게 그대로 보여 줘도 되는 음원 관련 오류(목록이 깨졌거나 고른 파일이 없을 때 등). */
 export class SoundError extends Error {
-  constructor(message: string) {
+  /** 도구(ffmpeg 등)의 원문. 화면에는 싣지 않고 진행 기록에만 남긴다 */
+  readonly detail?: string
+  constructor(message: string, detail?: string) {
     super(message)
     this.name = 'SoundError'
+    this.detail = detail
   }
 }
 

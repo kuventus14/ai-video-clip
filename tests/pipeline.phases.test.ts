@@ -334,7 +334,7 @@ describe('produceEdit', () => {
         const s = setup()
         const { analysis, prepared } = await prepare(s)
         const outDir = path.join(work, 'keep')
-        await produceEdit({ analysis, prepared, outDir, bgm: 'calm-1', sfx: 'on', onStage: s.onStage }, s.deps)
+        await produceEdit({ analysis, prepared, outDir, bgm: 'calm-1', sfx: 'on', remixFiles: true, onStage: s.onStage }, s.deps)
         expect(fs.readdirSync(outDir).sort()).toEqual(['dry.mp4', 'mix.json', 'report.json', 'result.mp4'])
         expect(fs.readFileSync(path.join(outDir, 'dry.mp4'), 'utf8')).toBe('mp4') // 섞기 전 렌더
         expect(fs.readFileSync(path.join(outDir, 'result.mp4'), 'utf8')).toBe('mixed')
@@ -350,8 +350,24 @@ describe('produceEdit', () => {
         })
         const { analysis, prepared } = await prepare(s)
         const outDir = path.join(work, 'lastdry')
-        await produceEdit({ analysis, prepared, outDir, bgm: 'calm-1', onStage: s.onStage }, s.deps)
+        await produceEdit({ analysis, prepared, outDir, bgm: 'calm-1', remixFiles: true, onStage: s.onStage }, s.deps)
         expect(fs.readFileSync(path.join(outDir, 'dry.mp4'), 'utf8')).toBe('render-2.mp4')
+      })
+      test('remixFiles 를 안 주면(CLI) dry.mp4·mix.json 을 만들지도 지우지도 않는다 — 사용자가 고른 --out 폴더의 파일은 건드리지 않는다', async () => {
+        const s = setup()
+        const { analysis, prepared } = await prepare(s)
+        const outDir = path.join(work, 'cli')
+        fs.mkdirSync(outDir, { recursive: true })
+        fs.writeFileSync(path.join(outDir, 'dry.mp4'), 'MINE')
+        fs.writeFileSync(path.join(outDir, 'mix.json'), 'MINE')
+        await produceEdit({ analysis, prepared, outDir, bgm: 'calm-1', sfx: 'on', onStage: s.onStage }, s.deps)
+        expect(fs.readFileSync(path.join(outDir, 'dry.mp4'), 'utf8')).toBe('MINE')
+        expect(fs.readFileSync(path.join(outDir, 'mix.json'), 'utf8')).toBe('MINE')
+        await produceEdit({ analysis, prepared, outDir, onStage: s.onStage }, s.deps) // 소리를 안 써도 지우지 않는다
+        expect(fs.readFileSync(path.join(outDir, 'dry.mp4'), 'utf8')).toBe('MINE')
+        const fresh = path.join(work, 'cli2')
+        await produceEdit({ analysis, prepared, outDir: fresh, bgm: 'calm-1', onStage: s.onStage }, s.deps)
+        expect(fs.readdirSync(fresh).sort()).toEqual(['report.json', 'result.mp4']) // 쓸 수 없는 두 번째 영상 복사본도 만들지 않는다
       })
       test('report.json 의 sound.balance 에 지금 값과 AI 추천 값·이유가 있다', async () => {
         const s = setup()
@@ -368,7 +384,7 @@ describe('produceEdit', () => {
         fs.mkdirSync(outDir, { recursive: true })
         fs.writeFileSync(path.join(outDir, 'dry.mp4'), 'OLD')
         fs.writeFileSync(path.join(outDir, 'mix.json'), '{}')
-        await produceEdit({ analysis, prepared, outDir, onStage: s.onStage }, s.deps)
+        await produceEdit({ analysis, prepared, outDir, remixFiles: true, onStage: s.onStage }, s.deps)
         expect(fs.readdirSync(outDir).sort()).toEqual(['report.json', 'result.mp4'])
       })
     })
