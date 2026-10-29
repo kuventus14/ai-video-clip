@@ -25,3 +25,8 @@ Rulings:
 - `.cmd` 실행은 shell 로(npm 전역 도구가 .cmd). 앱이 정한 인자만 넘기고 사용자 글은 넘기지 않음(claude 프롬프트는 stdin, claude 는 .exe).
 Deferred minors:
 - taskkill 을 PATH 가 아니라 %SystemRoot%\System32 로 지정; 런처의 Ctrl+C 안내문("처리 중인 작업이 있으면 끝날 때까지 기다려요")이 윈도우에서는 사실과 다름, 포트 안내는 PowerShell 문법만; `NOT_NEEDED` 가 env.ts·setup.ts 에 중복, `envValue`·`getEnv` 중복; `.gitattributes` 에 앞으로 생길 .cmd/.bat/.ps1 은 CRLF; Linux 용 claude 설치 명령(install.sh) 안내; cleanEnv 에 프록시·CA 변수(HTTP(S)_PROXY, NODE_EXTRA_CA_CERTS, CLAUDE_CONFIG_DIR) 없음(맥도 같음); CI 의 `npm i -g hyperframes`·whisper 릴리스(b5454)·HF 모델 해시 검사 없음; whisper-bin-x64.zip 은 VC++ 런타임이 필요할 수 있음(미확인); 윈도우에서 Claude Code 가 --tools '' 여도 git-bash 를 찾는지 미확인.
+
+## 병합 뒤 추가 확인 (사용자 요청 "윈도우에서 아직 확인하지 못한 것 확인해 줄 수 없어?", 2026-10-29, 브랜치 windows-verify)
+워크플로 `.github/workflows/external-check.yml`(수동 실행 또는 windows-verify 브랜치 push, windows-latest + ubuntu-latest), 시험 `tests/external.test.ts`(VAE_EXTERNAL=1)·`tests/app.ui.e2e.test.ts`(VAE_UI_E2E=1, playwright 는 CI 에서 `npm i --no-save`).
+Windows 결과(Linux 도 같게 통과): yt-dlp 2026.10.26 실제 검색 40개 · deep-filter 0.5.6(README 명령 그대로 설치+해시 OK)으로 `enhanceVoice` 3.6초, 길이 유지, 소리 있음 · Claude Code 2.1.312 를 `~/.local/bin` PATH 추가 없이 우리 코드가 찾아 `cleanEnv` 로 실행, 로그인 없이 호출하면 "Not logged in · Please run /login"(실행·인자 `--tools ''`·git-bash 문제 없음) · Chromium 으로 /new 에서 영상 올리기 → "분석 시작" 활성, 화면 오류 0개, 캡처(한글 글꼴 포함)가 맥과 같음.
+못 한 것: 로그인한 AI 응답(토큰 필요 — CI 에 넣지 않음), 한국어 로캘(시스템 언어를 못 바꿈), Ctrl+C 경로, 사람이 쓰는 것.
