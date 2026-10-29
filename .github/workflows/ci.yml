@@ -1,0 +1,35 @@
+name: CI
+
+# 맥·윈도우·리눅스에서 같은 시험을 돌려 "맥에서만 되는" 코드가 들어오는 것을 막는다.
+# 음성 인식(whisper)·hyperframes 렌더·AI(claude) 를 실제로 부르는 전체 흐름은 여기서 돌리지 않는다(시험은 가짜 도구와 ffmpeg 로 확인).
+on:
+  push:
+    branches: [main, cross-platform]
+  pull_request:
+
+jobs:
+  test:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: ffmpeg 설치 (리눅스)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: ffmpeg 설치 (맥)
+        if: runner.os == 'macOS'
+        run: brew install ffmpeg
+      - name: ffmpeg 설치 (윈도우)
+        if: runner.os == 'Windows'
+        run: choco install ffmpeg -y --no-progress
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npx vitest run
