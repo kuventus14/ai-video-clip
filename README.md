@@ -51,6 +51,26 @@ npm run app
 
 브라우저에서 **http://127.0.0.1:4848** 을 여세요. 화면(웹 서버)과 처리 프로그램(워커)이 함께 켜지고, 로그 앞에 `[web]` / `[worker]` 가 붙어요. 끄려면 `Ctrl+C` — 처리 중인 작업이 있으면 끝날 때까지 기다리고, 한 번 더 누르면 바로 꺼져요(그 작업은 다음에 "중단됐어요"로 보여요). 처음 켜거나 소스가 바뀐 뒤에는 화면을 한 번 빌드해요(1~2분). 개발할 때는 `npm run app:dev`. **윈도우에서는** 신호로 "끝까지 기다렸다 끄기"를 할 수 없어서 `Ctrl+C` 한 번에 바로 꺼지고, 처리 중이던 작업은 다음에 켤 때 "중단됐어요"로 표시돼요(다시 시도하면 돼요). 다른 포트로 켜려면 맥·리눅스는 `VAE_PORT=4949 npm run app`, 윈도우 PowerShell 은 `$env:VAE_PORT=4949; npm run app`.
 
+## Claude Code 스킬로 쓰기 (autoframes)
+
+화면 대신 **Claude Code 에게 말로 시켜서** 쓸 수도 있어요. `skills/autoframes` 를 Claude Code 의 스킬로 넣으면, "이 영상을 릴스로 편집해 줘"처럼 말할 때 Claude 가 이 앱을 대신 운전해요 — 프로그램 설치 점검, 앱 켜기, 영상 올리기, 자막 확인·수정, 계획 승인, 제작, 검수 결과 확인, 소리 크기 조절, 확정·수정 요청·다른 버전까지요. 사용자가 정해야 하는 세 곳(자막 확인 → 계획 승인 → 결과 확인)에서는 멈춰서 물어봐요. 아직 없는 기능(강조 검토, 박힌 자막 읽기, 긴 영상 줄이기, 자동 업로드)은 없다고 먼저 말해요.
+
+저장소를 받은 뒤 스킬 폴더를 Claude Code 의 스킬 폴더로 복사하세요(복사 뒤 Claude Code 를 새로 시작해야 보여요):
+
+```bash
+# 맥·리눅스
+mkdir -p ~/.claude/skills && cp -R skills/autoframes ~/.claude/skills/
+```
+
+```powershell
+# 윈도우 (PowerShell)
+New-Item -ItemType Directory -Force "$HOME\.claude\skills" | Out-Null; Copy-Item -Recurse -Force skills\autoframes "$HOME\.claude\skills\autoframes"
+```
+
+- 스킬은 편집 엔진이 아니라 **운전석**이에요. 엔진(이 저장소의 앱)은 그대로이고, 스킬은 앱의 로컬 API 를 부르는 작은 도구(`skills/autoframes/scripts/autoframes.mjs`)로 결과를 짧게 요약해서 읽어요 — 긴 대본을 대화창에 올리지 않아 사용량이 크게 늘지 않게요.
+- 저장소가 홈 폴더 아래(`~/ai-video-clip` 등)에 없으면 환경변수 `AUTOFRAMES_HOME` 에 저장소 경로를 주세요. 저장소가 아직 없으면 스킬이 설치부터 도와줘요.
+- 화면(웹)과 스킬은 같은 앱·같은 데이터를 써요. 스킬로 만든 작업도 화면의 기록에 보여요.
+
 ## 화면 사용 순서
 
 1. **새 영상** — 영상을 끌어다 놓거나 고르세요(mp4·mov·m4v·webm·mkv·avi, 1초~10분). 올리는 중에도 설명(선택)을 쓰고 **용도**를 고를 수 있어요. 용도는 올린 영상을 보고 자동 인식하지만, 직접 고른 값이 항상 우선이에요. 레퍼런스가 있다면 링크나 파일로 넣어도 돼요. → **분석 시작**
