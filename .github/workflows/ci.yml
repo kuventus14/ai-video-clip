@@ -32,6 +32,33 @@ jobs:
         run: choco install ffmpeg -y --no-progress
       - name: hyperframes 설치 (시험이 hyperframes check·렌더를 실제로 부른다)
         run: npm i -g hyperframes
+      - name: whisper-cli 와 작은 모델 (리눅스)
+        if: runner.os == 'Linux'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download b5454 -R ggml-org/whisper.cpp -p whisper-bin-ubuntu-x64.tar.gz -D "$RUNNER_TEMP"
+          mkdir -p "$RUNNER_TEMP/whisper" && tar -xzf "$RUNNER_TEMP/whisper-bin-ubuntu-x64.tar.gz" -C "$RUNNER_TEMP/whisper"
+          dir=$(dirname "$(find "$RUNNER_TEMP/whisper" -name whisper-cli -type f | head -1)")
+          chmod +x "$dir"/whisper-cli
+          echo "$dir" >> "$GITHUB_PATH"
+          curl -L -o "$RUNNER_TEMP/ggml-tiny.bin" https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin
+          echo "VAE_WHISPER_TEST_MODEL=$RUNNER_TEMP/ggml-tiny.bin" >> "$GITHUB_ENV"
+      - name: whisper-cli 와 작은 모델 (윈도우)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download b5454 -R ggml-org/whisper.cpp -p whisper-bin-x64.zip -D $env:RUNNER_TEMP
+          Expand-Archive "$env:RUNNER_TEMP\whisper-bin-x64.zip" -DestinationPath "$env:RUNNER_TEMP\whisper"
+          $exe = Get-ChildItem -Recurse "$env:RUNNER_TEMP\whisper" -Filter whisper-cli.exe | Select-Object -First 1
+          Add-Content -Path $env:GITHUB_PATH -Value $exe.DirectoryName
+          curl.exe -L -o "$env:RUNNER_TEMP\ggml-tiny.bin" https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin
+          Add-Content -Path $env:GITHUB_ENV -Value "VAE_WHISPER_TEST_MODEL=$env:RUNNER_TEMP\ggml-tiny.bin"
       - run: npm ci
       - run: npx tsc --noEmit
-      - run: npx vitest run
+      - name: 시험 (앱 전체 켜 보기 포함)
+        run: npx vitest run
+        env:
+          VAE_E2E: '1'

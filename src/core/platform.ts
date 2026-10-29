@@ -114,7 +114,11 @@ export function installHint(tool: Tool, platform: NodeJS.Platform = process.plat
     case 'hyperframes':
       return 'npm i -g hyperframes'
     case 'whisper-cli':
-      return mac ? 'brew install whisper-cpp' : win ? `${WHISPER_RELEASES} 에서 Windows 용 zip 을 받아 whisper-cli.exe 가 있는 폴더를 PATH 에 추가하세요` : `${WHISPER_RELEASES} 를 받아 빌드한 뒤 whisper-cli 를 PATH 에 두세요`
+      return mac
+        ? 'brew install whisper-cpp'
+        : win
+          ? `${WHISPER_RELEASES} 에서 b 로 시작하는 릴리스(예: b5454)의 whisper-bin-x64.zip 을 받아 풀고, whisper-cli.exe 가 있는 폴더를 PATH 에 추가하세요`
+          : `${WHISPER_RELEASES} 에서 b 로 시작하는 릴리스의 whisper-bin-ubuntu-x64.tar.gz 를 받아 풀고 whisper-cli 를 PATH 에 두세요(또는 직접 빌드)`
     case 'yt-dlp':
       return win ? 'winget install yt-dlp.yt-dlp' : 'uv tool install yt-dlp'
     case 'claude':
