@@ -24,7 +24,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       VAE_EXTERNAL: '1'
       VAE_UI_E2E: '1'
-      VAE_SCREENSHOT_DIR: ${{ runner.temp }}/screens
+      VAE_SCREENSHOT_DIR: ${{ github.workspace }}/screens
     steps:
       - uses: actions/checkout@v4
         with:
@@ -105,5 +105,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: screens-${{ matrix.os }}
-          path: ${{ runner.temp }}/screens
+          path: screens
           if-no-files-found: ignore
