@@ -237,6 +237,24 @@ export function captionLineProblems(lines: CaptionLine[], durationSec: number): 
   })
 }
 
+/** 줄을 인식된 말 앞·뒤로 이만큼(초) 이상 늘리면 그 늘린 곳을 컷이 지키고 자막도 거기에 뜬다 */
+const EXTEND_MIN_SEC = 0.3
+
+/**
+ * 줄이 인식된 말 바깥으로 0.3초 이상 늘어난 앞·뒤 조각. 줄과 겹치는 인식된 말이 없으면 [] (줄 전체가 인식이 놓친 구간이다).
+ * 컷(cutTranscriptFor)이 지키는 조각과 자막(applyCaptionTrack)이 걸치는 조각이 같도록 한곳에서 정한다.
+ */
+function extensionPieces(words: Word[], l: CaptionLine): Interval[] {
+  const hit = words.filter((x) => x.start < l.end && x.end > l.start)
+  if (hit.length === 0) return []
+  const first = Math.min(...hit.map((x) => x.start))
+  const last = Math.max(...hit.map((x) => x.end))
+  const out: Interval[] = []
+  if (first - l.start >= EXTEND_MIN_SEC) out.push({ start: l.start, end: first })
+  if (l.end - last >= EXTEND_MIN_SEC) out.push({ start: last, end: l.end })
+  return out
+}
+
 /**
  * 사용자가 만든 자막 트랙을 입힌 transcript(원본은 바꾸지 않는다). 트랙이 null 이면 입력 그대로(예전 편집 경로를 쓰라는 뜻).
  * - 원래 인식한 줄과 글자·시작·끝(±0.06초)이 같은 줄은 **원래 단어를 그대로**(시각·신뢰도 포함) 쓴다.
@@ -267,37 +285,37 @@ export function applyCaptionTrack<T extends ReviewTranscript>(t: T, track: Capti
       })
       .map((x) => ({ ...x, start: Math.max(x.start, l.start), end: Math.min(x.end, l.end) }))
       .filter((x) => x.end > x.start)
-    words.push(...spreadWords(l.text, own, { start: l.start, end: l.end }))
+    // 말한 구간에 컷이 지키는 늘린 조각(말 앞·뒤 0.3초 이상)을 더해 자막을 놓는다 — 줄 시각을 늘리면 자막도 그 시간에 뜬다
+    const extra: Word[] = extensionPieces(t.words, l).map((p) => ({ text: '', start: p.start, end: p.end, confidence: 1 }))
+    words.push(...spreadWords(l.text, [...own, ...extra], { start: l.start, end: l.end }))
   }
   words.sort((a, b) => a.start - b.start)
   return { ...t, words, segments: segmentWords(words), hasSpeech: words.length > 0 }
 }
 
-/** 컷이 지켜 줄 "말" 로 쓰이는 가짜 단어(사용자가 넣은 줄 구간) */
-const protect = (l: CaptionLine, start: number, end: number): Word => ({ text: lineText(l), start, end, confidence: 1 })
+/**
+ * 컷이 지켜 줄 "말" 로 쓰이는 가짜 단어(사용자가 넣은 줄 구간). 글자는 일부러 뜻 없는 표식이다 — 컷에는 군더더기("아!")·되풀이(retake)를
+ * 글자로 찾는 규칙이 있어서, 줄의 글자를 그대로 넣으면 진짜 말이나 넣은 줄이 그 규칙에 걸려 지워진다.
+ */
+const protect = (start: number, end: number): Word => ({ text: '·', start, end, confidence: 1 })
 
 /**
  * 컷을 계산할 인식 결과: 원래 단어 전부(자막을 지워도 영상은 그대로) + 사용자가 **인식이 놓친 곳에 넣은** 줄 구간(말이 있는 영상만).
  * 인식된 말과 겹치는 줄은 말 앞·뒤로 0.3초 이상 늘린 부분만 더 지킨다(줄 안의 말 사이 쉬는 구간은 지키지 않는다 — 무음 컷은 그대로).
+ * 문장(segments)은 원래 인식 그대로 둔다 — 가짜 단어로 다시 묶으면 같은 글자가 이웃 문장으로 보여 되풀이로 지워진다.
  */
 export function cutTranscriptFor<T extends ReviewTranscript>(t: T, track: CaptionLine[] | null | undefined): T {
   // 말이 없는 영상은 컷이 아무것도 자르지 않는다. 줄을 넣었다고 "말 있음"으로 바꾸면 줄 밖의 조용한 구간이 전부 잘려 나간다.
   if (track === null || track === undefined || !t.hasSpeech) return t
   const extra: Word[] = []
   for (const l of track.filter(validLine)) {
-    const hit = t.words.filter((x) => x.start < l.end && x.end > l.start)
-    if (hit.length === 0) {
-      extra.push(protect(l, l.start, l.end))
-      continue
-    }
-    const first = Math.min(...hit.map((x) => x.start))
-    const last = Math.max(...hit.map((x) => x.end))
-    if (first - l.start >= 0.3) extra.push(protect(l, l.start, first))
-    if (l.end - last >= 0.3) extra.push(protect(l, last, l.end))
+    const pieces = extensionPieces(t.words, l)
+    const hit = t.words.some((x) => x.start < l.end && x.end > l.start)
+    for (const p of hit ? pieces : [{ start: l.start, end: l.end }]) extra.push(protect(p.start, p.end))
   }
   if (extra.length === 0) return t
   const words = [...t.words, ...extra].sort((a, b) => a.start - b.start)
-  return { ...t, words, segments: segmentWords(words), hasSpeech: true }
+  return { ...t, words, hasSpeech: true }
 }
 
 /** 인식된 말이 있는데 자막 줄이 없는 구간: 원래 줄 중 트랙의 줄과 30% 이상 겹치지 않는 것. 트랙이 null 이면 없다. */

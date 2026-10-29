@@ -145,6 +145,41 @@ describe('cutTranscriptFor — 컷이 사용자가 넣은 자막 구간을 지�
     expect(cutTranscriptFor(T, [L(3.4, 5, '이게 섀도우 생활을')]).words).toEqual(WORDS)
   })
 
+  // 최종 리뷰 지적: 보호용 가짜 단어가 컷의 다른 규칙(retake·filler)에 걸려 진짜 말이나 넣은 줄을 지우던 문제
+  describe('가짜 보호 단어가 컷의 retake·filler 규칙에 걸리지 않는다', () => {
+    const SPOKEN = { ...tr([w('오늘은', 5, 5.6), w('요리를', 5.7, 6.2), w('합니다.', 6.3, 6.9)]), language: 'ko', durationSec: 10 }
+    const cuts = (t: typeof SPOKEN, silences: { start: number; end: number }[]) => planCuts({ transcript: t, silences, durationSec: 10, padSec: 0.25 })
+
+    test('문장부호로 끝나는 세 낱말 이상 줄의 끝을 말 바깥으로 늘려도 진짜 말은 지워지지 않고 늘린 곳까지 남는다', () => {
+      const plan = cuts(cutTranscriptFor(SPOKEN, [L(5, 7.5, '오늘은 요리를 합니다.')]), [{ start: 0, end: 4.8 }, { start: 6.9, end: 10 }])
+      expect(plan.removed.some((r) => r.start < 6.9 && r.end > 5)).toBe(false)
+      expect(plan.kept.some((k) => k.start <= 5 && k.end >= 7.5 - 1e-6)).toBe(true)
+    })
+    test('인식이 놓친 무음 구간에 넣은 짧은 감탄사 줄("아!")도 군더더기로 잘리지 않는다', () => {
+      const base = { ...tr([w('안녕하세요', 0, 0.8), w('반갑습니다', 0.9, 1.7), w('오늘은', 5, 5.5)]), language: 'ko', durationSec: 10 }
+      const plan = cuts(cutTranscriptFor(base, [L(3.0, 3.6, '아!')]) as typeof SPOKEN, [{ start: 1.8, end: 4.9 }])
+      expect(plan.removed.some((r) => r.start < 3.6 && r.end > 3.0)).toBe(false)
+    })
+    test('컷 계산용 문장(segments)은 원래 인식 그대로다 — 보호 단어가 문장을 만들지 않는다', () => {
+      expect(cutTranscriptFor(SPOKEN, [L(5, 7.5, '오늘은 요리를 합니다.')]).segments).toEqual(SPOKEN.segments)
+    })
+  })
+
+  describe('줄을 말 바깥으로 늘리면 자막도 그 시간에 뜬다 (0.3초 이상 늘린 때만 — 컷이 그 구간을 지키는 때)', () => {
+    const SPOKEN = tr([w('오늘은', 5, 5.6), w('요리를', 5.7, 6.2), w('합니다.', 6.3, 6.9)])
+    test('앞·뒤로 1초 넘게 늘리면 첫 단어는 줄 시작에서, 마지막 단어는 줄 끝에서 끝난다', () => {
+      const out = applyCaptionTrack(SPOKEN, [L(4.0, 8.0, '오늘은 요리를 합니다.')])
+      expect(out.words[0]!.start).toBeCloseTo(4.0, 2)
+      expect(out.words.at(-1)!.end).toBeCloseTo(8.0, 2)
+      for (let k = 1; k < out.words.length; k++) expect(out.words[k]!.start).toBeGreaterThanOrEqual(out.words[k - 1]!.end - 1e-6)
+    })
+    test('0.3초 미만으로 늘린 건 그대로 말한 구간에만 놓인다(컷이 지키지 않는 곳에 자막만 띄우지 않는다)', () => {
+      const out = applyCaptionTrack(SPOKEN, [L(4.8, 7.1, '오늘은 요리를 합니다.')])
+      expect(out.words[0]!.start).toBeCloseTo(5.0, 2)
+      expect(out.words.at(-1)!.end).toBeCloseTo(6.9, 2)
+    })
+  })
+
   describe('말이 없는 영상(음악만·소리 없음)에 자막을 넣어도 영상은 잘리지 않는다', () => {
     const quiet = { ...tr([]), language: 'ko', durationSec: 10 }
     test('인식된 단어가 하나도 없으면 줄을 넣어도 그대로 돌려준다 — "말 없음" 이어야 컷이 아무것도 안 자른다', () => {
