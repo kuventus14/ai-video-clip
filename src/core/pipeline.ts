@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import { loadBrandBand, type BrandBand } from './brandBand.ts'
 import { buildProject, chooseReframeMode, renderProject } from './compose.ts'
 import { detectSilences, planCuts } from './cuts.ts'
 import { deriveAppliedStyle, interpretRequest, planCardLines, type EditPlan } from './interpret.ts'
@@ -410,6 +411,8 @@ export interface ProduceInput {
    * 영상은 달라지지 않게 원래 인식 결과를 준다 — 지운 줄의 구간이 무음으로 잘려 나가면 안 된다.
    */
   cutTranscript?: Transcript
+  /** 채널 띠(위: 제목, 아래: 채널명). 주지 않으면 assets/brand/brand.json 을 읽고(세로 용도에만), null 이면 띠 없이 만든다 */
+  brand?: BrandBand | null
 }
 
 /** 3단계: 컷 → (사람 추적) → 자막 → 만들기·검수·재작업 → result.mp4 와 report.json */
@@ -433,6 +436,7 @@ export async function produceEdit(i: ProduceInput, overrides: Partial<PipelineDe
   // 편집 대본이 있으면 대본의 제목·훅 질문이 옛 제목 카드를 대신한다
   const script = i.script ?? prepared.script
   if (script) delete style.hookTitle
+  const brand = i.brand === undefined ? loadBrandBand(purpose) : (i.brand ?? undefined)
 
   try {
     // 6) 컷
@@ -539,6 +543,7 @@ export async function produceEdit(i: ProduceInput, overrides: Partial<PipelineDe
         reframe,
         style,
         script: renderScript,
+        brand,
       })
       stage('render', `${quality} 화질`)
       const rendered = await d.renderProject(built.projectDir, { outPath: path.join(work, `render-${attempt}.mp4`), quality })
