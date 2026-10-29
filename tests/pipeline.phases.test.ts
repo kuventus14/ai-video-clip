@@ -369,6 +369,25 @@ describe('produceEdit', () => {
         await produceEdit({ analysis, prepared, outDir: fresh, bgm: 'calm-1', onStage: s.onStage }, s.deps)
         expect(fs.readdirSync(fresh).sort()).toEqual(['report.json', 'result.mp4']) // 쓸 수 없는 두 번째 영상 복사본도 만들지 않는다
       })
+      test('사용자가 직접 조절한 크기(soundGain)가 있으면 그 값으로 입히고, AI 추천은 그대로 남긴다(리포트·되돌리기용)', async () => {
+        const s = setup()
+        const { analysis, prepared } = await prepare(s)
+        const outDir = path.join(work, 'override')
+        await produceEdit({ analysis, prepared, outDir, bgm: 'calm-1', sfx: 'on', soundGain: { bgmGainDb: 3, sfxGainDb: -4 }, remixFiles: true, onStage: s.onStage }, s.deps)
+        expect(s.balances).toHaveLength(1) // 새 내용에 대한 AI 추천도 새로 받는다
+        expect(s.sounds[0]!.gains).toEqual({ bgmGainDb: 3, sfxGainDb: -4 })
+        const report = JSON.parse(fs.readFileSync(path.join(outDir, 'report.json'), 'utf8'))
+        expect(report.sound.balance).toEqual({ bgmGainDb: 3, sfxGainDb: -4, aiBgmGainDb: -2, aiSfxGainDb: 1, reason: '말이 많아요' })
+        expect(JSON.parse(fs.readFileSync(path.join(outDir, 'mix.json'), 'utf8')).ai).toEqual({ bgmGainDb: -2, sfxGainDb: 1, reason: '말이 많아요' })
+      })
+      test('조절값은 이번에 쓰는 소리에만 적용한다 — 음악을 안 쓰면 음악 값은 0, 효과음을 끄면 효과음 값은 0, 범위 밖은 잘라 쓴다', async () => {
+        const s = setup()
+        const { analysis, prepared } = await prepare(s)
+        await produceEdit({ analysis, prepared, outDir: path.join(work, 'override2'), sfx: 'on', soundGain: { bgmGainDb: 3, sfxGainDb: 99 }, onStage: s.onStage }, s.deps)
+        expect(s.sounds[0]!.gains).toEqual({ bgmGainDb: 0, sfxGainDb: 6 })
+        await produceEdit({ analysis, prepared, outDir: path.join(work, 'override3'), bgm: 'calm-1', soundGain: { bgmGainDb: 3, sfxGainDb: 5 }, onStage: s.onStage }, s.deps)
+        expect(s.sounds[1]!.gains).toEqual({ bgmGainDb: 3, sfxGainDb: 0 })
+      })
       test('report.json 의 sound.balance 에 지금 값과 AI 추천 값·이유가 있다', async () => {
         const s = setup()
         const { analysis, prepared } = await prepare(s)

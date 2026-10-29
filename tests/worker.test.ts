@@ -438,7 +438,7 @@ describe('produce 단계 — 소리만 다시 섞기(remixPending)', () => {
     expect(f.calls.produce).toHaveLength(0)
     expect(f.calls.remix).toEqual([{ outDir: path.join(jobs.jobDir(j.id), 'out'), gains: { bgmGainDb: 3, sfxGainDb: -2 } }])
     const after = jobs.get(j.id)!
-    expect(after).toMatchObject({ status: 'awaiting_confirm', remixPending: false, soundGain: null, errorMessage: null, attempts: 2, resultPath: j.resultPath })
+    expect(after).toMatchObject({ status: 'awaiting_confirm', remixPending: false, errorMessage: null, attempts: 2, resultPath: j.resultPath })
   })
   test('리포트의 sound.balance 가 새 값으로 바뀌고 검수 결과 등 나머지는 그대로다 (DB 와 out/report.json 모두)', async () => {
     const j = remixJob()
@@ -462,7 +462,7 @@ describe('produce 단계 — 소리만 다시 섞기(remixPending)', () => {
     const f = fakes({ remixSound: async () => { throw new SoundError('배경음악·효과음을 입히지 못했어요.') } })
     await runOnce(jobs, f.deps)
     const after = jobs.get(j.id)!
-    expect(after).toMatchObject({ status: 'awaiting_confirm', remixPending: false, soundGain: null, resultPath: j.resultPath, failedPhase: null })
+    expect(after).toMatchObject({ status: 'awaiting_confirm', remixPending: false, resultPath: j.resultPath, failedPhase: null })
     expect(after.errorMessage).toContain('입히지 못했어요')
     expect(after.errorMessage).toContain('기존 결과')
     expect(fs.readFileSync(j.resultPath!, 'utf8')).toBe('OLD')
@@ -500,6 +500,31 @@ describe('produce 단계 — 소리만 다시 섞기(remixPending)', () => {
     expect(f.calls.remix).toHaveLength(1)
     expect(f.calls.produce).toHaveLength(0)
   })
+  test('직접 조절한 크기(soundGain)가 있는 작업을 새로 만들면 그 값을 엔진에 넘긴다 — 자막을 고쳐 다시 계획해도 조절이 사라지지 않게', async () => {
+    const j = job('queued_produce', { soundGain: { bgmGainDb: 3, sfxGainDb: -2 } })
+    writeAnalysis(j.id)
+    fs.writeFileSync(path.join(jobs.jobDir(j.id), 'prepared.json'), JSON.stringify(PREPARED))
+    const f = fakes()
+    await runOnce(jobs, f.deps)
+    expect(f.calls.produce[0]!.soundGain).toEqual({ bgmGainDb: 3, sfxGainDb: -2 })
+  })
+  test('다시 섞기가 끝나도 적용한 크기(soundGain)는 남는다 — 실패해도 사용자가 원한 값으로 남는다', async () => {
+    const ok = remixJob()
+    await runOnce(jobs, fakes().deps)
+    expect(jobs.get(ok.id)!.soundGain).toEqual({ bgmGainDb: 3, sfxGainDb: -2 })
+    const bad = remixJob()
+    await runOnce(jobs, fakes({ remixSound: async () => { throw new SoundError('배경음악·효과음을 입히지 못했어요.') } }).deps)
+    expect(jobs.get(bad.id)).toMatchObject({ status: 'awaiting_confirm', remixPending: false, soundGain: { bgmGainDb: 3, sfxGainDb: -2 } })
+  })
+  test('소리는 다시 섞였는데 out/report.json 을 못 고쳐도(깨진 파일) 실패라고 하지 않는다 — 결과 화면에는 새 값이 보이고, 못 고친 것만 진행 기록에 남는다', async () => {
+    const j = remixJob()
+    fs.writeFileSync(path.join(jobs.jobDir(j.id), 'out', 'report.json'), '{깨진 파일')
+    await runOnce(jobs, fakes({ remixSound: async (i) => ({ sfxCount: 2, balance: { ...i.gains, aiBgmGainDb: -1, aiSfxGainDb: 1, reason: '말이 많아요' } }) }).deps)
+    const after = jobs.get(j.id)!
+    expect(after).toMatchObject({ status: 'awaiting_confirm', errorMessage: null, remixPending: false })
+    expect((after.report as { sound: { balance: { bgmGainDb: number } } }).sound.balance.bgmGainDb).toBe(3)
+    expect(after.log.some((l) => l.message.includes('report.json'))).toBe(true)
+  })
   test('remixPending 이 꺼져 있으면 예전처럼 영상을 만든다', async () => {
     const j = job('queued_produce', { soundGain: { bgmGainDb: 3, sfxGainDb: -2 } })
     writeAnalysis(j.id)
@@ -525,6 +550,7 @@ describe('produce 단계', () => {
     expect(after.attempts).toBe(2)
     expect(fs.existsSync(after.thumbPath!)).toBe(true)
     expect(f.calls.produce[0]).toMatchObject({ quality: 'delivery', captions: 'off', outDir: path.join(jobs.jobDir(j.id), 'out'), remixFiles: true }) // 다시 섞기에 필요한 파일을 남기게 한다
+    expect(f.calls.produce[0]!.soundGain).toBeUndefined() // 조절한 적 없으면 AI 추천을 쓴다
     expect(after.log.some((l) => l.message.includes('렌더링'))).toBe(true)
   })
 

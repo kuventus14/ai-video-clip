@@ -27,6 +27,19 @@ export function canRemix(resultPath: string | null): boolean {
   return fs.existsSync(path.join(dir, 'dry.mp4')) && fs.existsSync(path.join(dir, 'mix.json'))
 }
 
+/** 확정한 작업은 다시 섞을 수 없으니 소리 없는 렌더(dry.mp4)와 섞는 방법(mix.json)을 지운다. 지우지 못해도 확정은 막지 않는다. */
+export function removeRemixFiles(resultPath: string | null): void {
+  if (!resultPath) return
+  const dir = path.dirname(resultPath)
+  for (const f of ['dry.mp4', 'mix.json']) {
+    try {
+      fs.rmSync(path.join(dir, f), { force: true })
+    } catch {
+      // 디스크를 덜 아끼게 될 뿐이다
+    }
+  }
+}
+
 /** 사용자에게 그대로 보여 줘도 되는 음원 관련 오류(목록이 깨졌거나 고른 파일이 없을 때 등). */
 export class SoundError extends Error {
   /** 도구(ffmpeg 등)의 원문. 화면에는 싣지 않고 진행 기록에만 남긴다 */

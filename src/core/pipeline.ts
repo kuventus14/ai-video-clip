@@ -14,6 +14,7 @@ import { fetchReference } from './reference.ts'
 import { buildTimeline, groupWordsIntoCues, hookRepeatsOpening, remapKeyframes, remapWords, shiftCues, subtractSpans } from './timeline.ts'
 import { echoesPrompt, transcribe } from './transcribe.ts'
 import { applySound, type MixRecipe, type SoundReport } from './sound.ts'
+import { clampGainDb } from '../shared/soundGain.ts'
 import { balanceSound, speechRatio, type SoundBalance } from './soundBalance.ts'
 import { directEdit, extractReferenceFrames } from './director.ts'
 import { cropToContent, detectContentRect } from './letterbox.ts'
@@ -400,6 +401,8 @@ export interface ProduceInput {
   sfx?: SfxMode
   /** true 면 결과 폴더에 다시 섞기용 dry.mp4·mix.json 을 남기고(소리를 안 쓰면 옛 파일을 지운다). 웹 앱의 워커만 켠다 — CLI 의 --out 폴더에는 사용자 파일이 있을 수 있어 건드리지 않는다 */
   remixFiles?: boolean
+  /** 사용자가 결과 화면에서 직접 조절해 둔 음악·효과음 크기(dB). 있으면 AI 추천 대신 이 값으로 입히고(쓰지 않는 소리는 0), AI 추천은 되돌리기용으로 남긴다 */
+  soundGain?: { bgmGainDb: number; sfxGainDb: number }
   keepWork?: boolean
   onStage?: StageCallback
   /**
@@ -519,6 +522,10 @@ export async function produceEdit(i: ProduceInput, overrides: Partial<PipelineDe
     const balance: SoundBalance = wantsSound
       ? await d.balanceSound({ summary, speechRatio: speechRatio(i.cutTranscript ?? transcript, info.durationSec), bgmId: i.bgm ?? null, sfxOn: i.sfx === 'on' })
       : { bgmGainDb: 0, sfxGainDb: 0, reason: '' }
+    // 사용자가 직접 조절한 크기가 있으면 그 값으로 입힌다(이번에 쓰는 소리에만). AI 추천(balance)은 리포트·되돌리기용으로 그대로 둔다.
+    const gains = i.soundGain
+      ? { bgmGainDb: i.bgm ? clampGainDb(i.soundGain.bgmGainDb) : 0, sfxGainDb: i.sfx === 'on' ? clampGainDb(i.soundGain.sfxGainDb) : 0 }
+      : { bgmGainDb: balance.bgmGainDb, sfxGainDb: balance.sfxGainDb }
     for (;;) {
       stage('build')
       const built = await d.buildProject({
@@ -557,10 +564,10 @@ export async function produceEdit(i: ProduceInput, overrides: Partial<PipelineDe
           hasAudio: info.hasAudio,
           hasSpeech: (i.cutTranscript ?? transcript).hasSpeech, // 자막을 다 지워도 말이 있는 영상이다(음악 크기를 목소리에 맞춰 잰다)
           speed: effSpeed,
-          gains: { bgmGainDb: balance.bgmGainDb, sfxGainDb: balance.sfxGainDb },
+          gains,
         })
         renderedPath = mixed.path
-        soundReport = { ...mixed.report, balance: { bgmGainDb: balance.bgmGainDb, sfxGainDb: balance.sfxGainDb, aiBgmGainDb: balance.bgmGainDb, aiSfxGainDb: balance.sfxGainDb, reason: balance.reason } }
+        soundReport = { ...mixed.report, balance: { ...gains, aiBgmGainDb: balance.bgmGainDb, aiSfxGainDb: balance.sfxGainDb, reason: balance.reason } }
         mixRecipe = { ...mixed.recipe, ai: balance }
       }
 

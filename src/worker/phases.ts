@@ -147,19 +147,27 @@ export async function planPhase({ jobs, d, job, dir, onStage }: PhaseContext): P
  */
 async function remixPhase({ jobs, d, job, dir, onStage }: PhaseContext): Promise<void> {
   const outDir = path.join(dir, 'out')
+  let sound: Awaited<ReturnType<typeof d.remixSound>>
   try {
     onStage('mix', '크기를 바꿔 소리만 다시 섞는 중')
-    const sound = await d.remixSound({ outDir, gains: job.soundGain ?? { bgmGainDb: 0, sfxGainDb: 0 } })
-    const reportFile = path.join(outDir, 'report.json')
-    const written = readJson<Record<string, unknown>>(reportFile)
-    if (written) writeJson(reportFile, { ...written, sound })
-    const report = job.report && typeof job.report === 'object' ? { ...job.report, sound } : job.report
-    jobs.transition(job.id, ['producing'], 'awaiting_confirm', { report, remixPending: false, soundGain: null, errorMessage: null, stage: null })
+    sound = await d.remixSound({ outDir, gains: job.soundGain ?? { bgmGainDb: 0, sfxGainDb: 0 } })
   } catch (e) {
     const { message, detail } = describeError(e)
     if (detail) jobs.log(job.id, 'error', detail)
     jobs.log(job.id, 'mix', `소리 다시 섞기에 실패했어요 — ${message}`)
-    jobs.transition(job.id, ['producing'], 'awaiting_confirm', { remixPending: false, soundGain: null, errorMessage: `소리를 다시 섞지 못했어요. ${message} 기존 결과는 그대로예요.`, stage: null })
+    // 사용자가 원한 크기(soundGain)는 그대로 둔다 — 지금 영상에는 안 쓰였지만 이후 새로 만들 때는 그 값을 쓴다
+    jobs.transition(job.id, ['producing'], 'awaiting_confirm', { remixPending: false, errorMessage: `소리를 다시 섞지 못했어요. ${message} 기존 결과는 그대로예요.`, stage: null })
+    return
+  }
+  // 소리는 이미 바뀌었다 — 화면이 보는 기록(DB)을 먼저 고치고, 결과 폴더의 report.json 은 고치지 못해도 실패로 보지 않는다
+  const report = job.report && typeof job.report === 'object' ? { ...job.report, sound } : job.report
+  jobs.transition(job.id, ['producing'], 'awaiting_confirm', { report, remixPending: false, errorMessage: null, stage: null })
+  try {
+    const reportFile = path.join(outDir, 'report.json')
+    const written = readJson<Record<string, unknown>>(reportFile)
+    if (written) writeJson(reportFile, { ...written, sound })
+  } catch (e) {
+    jobs.log(job.id, 'mix', `결과 폴더의 report.json 을 새 소리 크기로 고치지 못했어요 (${e instanceof Error ? e.message : String(e)})`)
   }
 }
 
@@ -175,7 +183,7 @@ export async function producePhase(ctx: PhaseContext): Promise<void> {
   const outDir = path.join(dir, 'out')
   // 승인 화면에서 문구를 고쳤다면 계획 대본 위에 덮어서 넘긴다(상한을 넘는 값은 정리된다). 고치지 않았으면 엔진이 prepared.script 를 그대로 쓴다.
   const script = job.scriptEdits && prepared.script ? applyScriptEdits(prepared.script, job.scriptEdits, { durationSec: analysis.info.durationSec, fallbackTitle: analysis.summary.genre || analysis.summary.topic }) : undefined
-  const result = await d.produceEdit({ analysis, prepared, outDir, script, cutTranscript: job.captionTrack !== null ? cutTranscriptFor(raw.transcript, job.captionTrack) : raw.transcript, quality: job.quality, captions: job.captionsMode, captionPosition: job.captionPosition ?? undefined, audio: job.audioMode, bgm: job.bgmId, sfx: job.sfxMode, remixFiles: true, onStage })
+  const result = await d.produceEdit({ analysis, prepared, outDir, script, cutTranscript: job.captionTrack !== null ? cutTranscriptFor(raw.transcript, job.captionTrack) : raw.transcript, quality: job.quality, captions: job.captionsMode, captionPosition: job.captionPosition ?? undefined, audio: job.audioMode, bgm: job.bgmId, sfx: job.sfxMode, remixFiles: true, soundGain: job.soundGain ?? undefined, onStage })
 
   let thumbPath: string | null = null
   try {

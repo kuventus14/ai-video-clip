@@ -52,3 +52,14 @@ Final: Ruling: progress bar jumps back to "제작" / history list shows "제작 
 Final: Ruling: "AI 추천: 기본 크기 그대로" also shows when the AI call failed — documented in tests as intended, advisory only — cost if wrong: the line over-states that the AI judged "keep default"
 Final: Ruling: web dirname(resultPath) vs worker jobDir/out can only disagree if the data folder is moved; then media link and remix both become unavailable together — cost if wrong: none seen
 Final: Ruling: Next.js 16 route conventions — new route copies existing routes' shape and `next build` passes — cost if wrong: none seen
+Post-review (사용자 요청 2026-10-29 "앞의 6개 고쳐줘" — 보류 minor 중 6개를 고침, 시험 1196개·tsc 통과):
+Post-review: fixed minor 3 — 결과 영상 주소의 ?v= 를 updatedAt 대신 결과 파일 수정 시각으로(toJobDto) → 확정해도 재생이 처음으로 안 돌아감, 소리만 다시 섞으면 주소가 바뀜. 화면 확인: 같은 <video> 요소·주소·5초 위치 유지
+Post-review: fixed minor 4 — decideSoundBalance 의 askClaude 에 timeoutMs 60초
+Post-review: fixed minor 6 — 확정하면 dry.mp4·mix.json 삭제(removeRemixFiles, 못 지워도 확정은 막지 않음). 화면 확인: 확정 뒤 out/ 에 report.json·result.mp4 만 남음
+Post-review: fixed minor 7 — JobDto.soundAdjust.sfxCount(리포트의 효과음 개수) → 0 이면 효과음 슬라이더·AI 추천 줄에서 효과음을 뺌. 화면 확인: 음악 슬라이더만 보임
+Post-review: fixed minor 8 — 직접 조절한 크기(job.soundGain)를 approve 가 지우지 않고(remixPending 만 끔) producePhase 가 produceEdit(soundGain)으로 넘김 → 새 제작은 그 값으로 입히고(쓰는 소리에만, 범위 밖은 자름) AI 추천은 새로 받아 리포트·되돌리기용으로 남김
+Post-review: fixed minor 1 — remixPhase 를 나눠서 remixSound 실패만 "기존 결과는 그대로" 로 안내; 소리가 바뀐 뒤에는 DB 리포트를 먼저 고치고 out/report.json 을 못 고치면(깨진 파일 등) 진행 기록에만 남김
+Post-review: Ruling: 다시 섞기가 성공해도 실패해도 job.soundGain 은 지우지 않는다 — 실패해도 사용자가 원한 값이라 이후 새로 만들 때 쓰는 게 의도에 맞음(지금 영상엔 안 쓰였음) — 비용: 실패 직후 결과 화면 값과 soundGain 이 다름
+Post-review: Ruling: 새 제작에서 AI 호출은 조절값이 있어도 한다 — 새 내용에 대한 추천을 "AI 추천으로 되돌리기"에 쓰려고 — 비용: 호출 1번(60초 제한)
+Post-review: Ruling: other-version(새 작업)은 조절값을 물려받지 않는다 — 용도가 달라 새 영상이라서 — 비용: 새 작업은 AI 추천부터
+Still deferred (minor 5·10·11 + 말 비율): 5 mix.json 에 곡 음량·효과음 최대치 미저장(sound:measure 로 다시 재면 되돌리기가 어긋남), 10 실제 ffmpeg 로 remixSound 를 끝까지 도는 자동 시험 없음, 11 media.ts stat→open 경합, speechRatio 는 원본 길이 기준

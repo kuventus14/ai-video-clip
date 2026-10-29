@@ -658,10 +658,10 @@ describe('remix — 소리 크기만 바꿔 다시 섞기', () => {
     expect((await call(remix, j.id, BODY, { host: 'evil.example.com' })).status).toBe(403)
     expect((await call(remix, j.id, BODY, { origin: 'http://evil.example.com' })).status).toBe(403)
   })
-  test('다시 승인(approve)하면 예전 소리 크기와 다시 섞기 표시는 지워진다', async () => {
+  test('다시 승인(approve)하면 다시 섞기 표시는 지워지지만, 직접 조절한 소리 크기는 새 제작에 쓰려고 남긴다', async () => {
     const j = job('awaiting_plan', { soundGain: { bgmGainDb: 3, sfxGainDb: -2 }, remixPending: true })
     expect((await call(approve, j.id, {})).status).toBe(200)
-    expect(read(j.id)).toMatchObject({ status: 'queued_produce', soundGain: null, remixPending: false })
+    expect(read(j.id)).toMatchObject({ status: 'queued_produce', soundGain: { bgmGainDb: 3, sfxGainDb: -2 }, remixPending: false })
   })
 
   describe('JobDto.soundAdjust', () => {
@@ -672,7 +672,7 @@ describe('remix — 소리 크기만 바꿔 다시 섞기', () => {
     })
     test('파일이 있으면 available, 지금 값과 AI 추천 값·이유를 리포트에서 가져온다', () => {
       const j = withResult({ report: REPORT })
-      expect(toJobDto(read(j.id)).soundAdjust).toEqual({ available: true, reason: null, bgmGainDb: 3, sfxGainDb: -2, aiBgmGainDb: -1, aiSfxGainDb: 1, aiReason: '말이 많아요' })
+      expect(toJobDto(read(j.id)).soundAdjust).toEqual({ available: true, reason: null, bgmGainDb: 3, sfxGainDb: -2, aiBgmGainDb: -1, aiSfxGainDb: 1, aiReason: '말이 많아요', sfxCount: 2 })
     })
     test('리포트에 balance 가 없으면 값은 모두 0', () => {
       const j = withResult({ report: { qa: { passed: true, findings: [] } } })
@@ -690,10 +690,63 @@ describe('remix — 소리 크기만 바꿔 다시 섞기', () => {
       expect(toJobDto(read(withResult({ remixPending: false }, true, 'producing').id)).remixing).toBe(false) // 새로 만드는 중
       expect(toJobDto(read(withResult({ remixPending: true }, true, 'awaiting_confirm').id)).remixing).toBe(false)
     })
+    test('sfxCount: 리포트의 효과음 개수(0이면 화면이 효과음 슬라이더를 숨긴다), 리포트에 없으면 null', () => {
+      expect(toJobDto(read(withResult({ report: { qa: { passed: true, findings: [] }, sound: { sfxCount: 0 } } }).id)).soundAdjust?.sfxCount).toBe(0)
+      expect(toJobDto(read(withResult({ report: REPORT }).id)).soundAdjust?.sfxCount).toBe(2)
+      expect(toJobDto(read(withResult({ report: { qa: { passed: true, findings: [] } } }).id)).soundAdjust?.sfxCount).toBeNull()
+    })
     test('효과음만 켠 작업도 조절 대상이다', () => {
       const j = withResult({ bgmId: null, sfxMode: 'on' })
       expect(toJobDto(read(j.id)).soundAdjust).not.toBeNull()
     })
+  })
+})
+
+describe('결과 영상 주소의 버전(?v=)', () => {
+  function withFile(): Job {
+    const j = job('awaiting_confirm')
+    const out = path.join(getContext().jobs.jobDir(j.id), 'out')
+    fs.mkdirSync(out, { recursive: true })
+    fs.writeFileSync(path.join(out, 'result.mp4'), 'mp4')
+    return getContext().jobs.update(j.id, { resultPath: path.join(out, 'result.mp4') })
+  }
+  test('확정해도 주소가 그대로다 — 재생 중인 영상이 처음으로 돌아가지 않는다', async () => {
+    const j = withFile()
+    const before = toJobDto(read(j.id)).media.result
+    expect((await call(confirm, j.id)).status).toBe(200)
+    expect(toJobDto(read(j.id)).media.result).toBe(before)
+  })
+  test('결과 파일이 바뀌면(소리만 다시 섞기) 주소가 바뀐다 — 브라우저가 옛 영상을 보여 주지 않는다', () => {
+    const j = withFile()
+    const before = toJobDto(read(j.id)).media.result
+    const t = new Date(Date.now() + 5000)
+    fs.utimesSync(read(j.id).resultPath!, t, t)
+    expect(toJobDto(read(j.id)).media.result).not.toBe(before)
+  })
+})
+
+describe('confirm — 다시 섞기용 파일 정리', () => {
+  function withRemixFiles(): { j: Job; out: string } {
+    const j = job('awaiting_confirm', { bgmId: 'calm-1' })
+    const out = path.join(getContext().jobs.jobDir(j.id), 'out')
+    fs.mkdirSync(out, { recursive: true })
+    for (const f of ['result.mp4', 'dry.mp4', 'mix.json', 'report.json']) fs.writeFileSync(path.join(out, f), f)
+    return { j: getContext().jobs.update(j.id, { resultPath: path.join(out, 'result.mp4') }), out }
+  }
+  test('확정하면 dry.mp4·mix.json 을 지운다(확정한 작업은 다시 섞을 수 없다). 결과와 리포트는 그대로', async () => {
+    const { j, out } = withRemixFiles()
+    expect((await call(confirm, j.id)).status).toBe(200)
+    expect(fs.readdirSync(out).sort()).toEqual(['report.json', 'result.mp4'])
+  })
+  test('확정에 실패하면(이미 확정·결과 전) 파일은 그대로 둔다', async () => {
+    const { j, out } = withRemixFiles()
+    getContext().jobs.update(j.id, { status: 'producing' })
+    expect((await call(confirm, j.id)).status).toBe(409)
+    expect(fs.readdirSync(out).sort()).toEqual(['dry.mp4', 'mix.json', 'report.json', 'result.mp4'])
+  })
+  test('파일이 애초에 없어도(옛 작업·소리 없는 작업) 확정된다', async () => {
+    const j = job('awaiting_confirm')
+    expect((await call(confirm, j.id)).status).toBe(200)
   })
 })
 

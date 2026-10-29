@@ -48,7 +48,8 @@ function GainSlider({ label, value, onChange, disabled }: { label: string; value
  */
 export function SoundAdjust({ job, onChanged }: { job: JobDto; onChanged: (next: JobDto) => void }) {
   const sa = job.soundAdjust
-  const uses = { bgm: job.bgmId !== null, sfx: job.sfxMode === 'on' }
+  // 효과음을 켰어도 넣을 곳이 없어 0개면 슬라이더는 아무것도 바꾸지 못한다
+  const uses = { bgm: job.bgmId !== null, sfx: job.sfxMode === 'on' && sa?.sfxCount !== 0 }
   const [bgm, setBgm] = useState(sa?.bgmGainDb ?? 0)
   const [sfx, setSfx] = useState(sa?.sfxGainDb ?? 0)
   const [busy, setBusy] = useState(false)

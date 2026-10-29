@@ -270,7 +270,7 @@ describe('미디어 (Range)', () => {
   test('DTO 의 media 에는 파일이 있는 것만 URL 로 들어간다', async () => {
     const id = await jobWithResult()
     const dto = (await (await jobGet(new Request(url(`/api/jobs/${id}`)), params(id))).json()) as JobDto
-    expect(dto.media).toEqual({ result: `/api/jobs/${id}/media/result` })
+    expect(dto.media).toEqual({ result: expect.stringMatching(new RegExp(`^/api/jobs/${id}/media/result\\?v=\\d+$`)) }) // 파일이 바뀌면 주소가 바뀌게 수정 시각을 붙인다
   })
 })
 

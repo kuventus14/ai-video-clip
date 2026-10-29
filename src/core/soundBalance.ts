@@ -14,6 +14,8 @@ export interface SoundBalance {
 /** AI 가 정할 수 있는 범위. 유저 슬라이더(-12 ~ +6)보다 좁게 — AI 는 소리를 직접 듣지 못해서 크게 틀리면 안 된다 */
 const AI_RANGE = { min: -6, max: 4 }
 const REASON_MAX = 60
+/** 추천일 뿐이라 AI 가 멈추면 오래 기다리지 않고 기본 규칙(0)으로 간다 */
+const ASK_TIMEOUT_MS = 60_000
 const NONE: SoundBalance = { bgmGainDb: 0, sfxGainDb: 0, reason: '' }
 
 /** 길이 중 말하는 구간의 비율(0..1). 겹친 구간은 한 번만 센다. */
@@ -64,7 +66,7 @@ export async function decideSoundBalance(
   if (!i.bgm && !i.sfxOn) return NONE
   const ask = deps.ask ?? askClaude
   try {
-    const raw = extractJson(await ask({ prompt: buildPrompt(i), effort: 'low' }))
+    const raw = extractJson(await ask({ prompt: buildPrompt(i), effort: 'low', timeoutMs: ASK_TIMEOUT_MS }))
     if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return NONE
     const r = raw as Record<string, unknown>
     return {

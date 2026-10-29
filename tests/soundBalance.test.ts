@@ -10,8 +10,8 @@ const BGM = { title: '잔잔한 곡', mood: 'calm' }
 
 /** 가짜 AI: 받은 요청을 기록하고, 정해 둔 글(또는 오류)로 답한다 */
 function fakeAsk(reply: string | Error) {
-  const calls: { prompt: string; effort?: string }[] = []
-  const ask = (async (o: { prompt: string; effort?: string }) => {
+  const calls: { prompt: string; effort?: string; timeoutMs?: number }[] = []
+  const ask = (async (o: { prompt: string; effort?: string; timeoutMs?: number }) => {
     calls.push(o)
     if (reply instanceof Error) throw reply
     return reply
@@ -70,6 +70,11 @@ describe('decideSoundBalance — AI 가 음악·효과음 크기 오프셋을 �
     expect(p).toContain('기본 규칙')
     expect(p).toContain('dB')
     expect(f.calls[0]!.effort).toBe('low')
+  })
+  test('AI 가 멈춰도 제작이 오래 서 있지 않게 60초 안에 포기한다(추천일 뿐이라 0 으로 돌아가면 된다)', async () => {
+    const f = fakeAsk('{"bgmGainDb":0,"sfxGainDb":0,"reason":""}')
+    await decideSoundBalance(input(), { ask: f.ask })
+    expect(f.calls[0]!.timeoutMs).toBe(60_000)
   })
   test('음악을 안 쓰면 프롬프트에 음악 분위기를 묻지 않는다', async () => {
     const f = fakeAsk('{"bgmGainDb":0,"sfxGainDb":0,"reason":""}')

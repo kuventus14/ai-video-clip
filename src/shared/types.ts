@@ -103,6 +103,8 @@ export interface SoundAdjustDto {
   aiBgmGainDb: number
   aiSfxGainDb: number
   aiReason: string
+  /** 영상에 들어간 효과음 개수. 0 이면 효과음 슬라이더는 쓸모가 없다. 리포트에 없으면 null(모름) */
+  sfxCount: number | null
 }
 
 /** 레퍼런스 추천 목록의 한 항목 */

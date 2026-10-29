@@ -46,7 +46,7 @@ function Player({ job }: { job: JobDto }) {
         {job.media.thumb ? <img src={job.media.thumb} alt="" aria-hidden="true" className="pointer-events-none absolute inset-0 size-full scale-125 object-cover opacity-45 blur-[60px] saturate-150" /> : null}
         <video
           ref={video}
-          src={`${job.media.result}?v=${encodeURIComponent(job.updatedAt)}`} // 소리만 다시 섞으면 같은 주소의 파일이 바뀐다 — 브라우저가 옛 영상을 보여 주지 않게
+          src={job.media.result}
           poster={job.media.thumb}
           controls
           preload="metadata"

@@ -32,7 +32,7 @@ describe('isChanged — 지금 영상에 쓰인 값과 슬라이더 값이 다�
 
 describe('aiSummary — "AI 추천" 한 줄', () => {
   const sa = (over: Partial<SoundAdjustDto> = {}): SoundAdjustDto => ({
-    available: true, reason: null, bgmGainDb: 0, sfxGainDb: 0, aiBgmGainDb: -1, aiSfxGainDb: 1.5, aiReason: '말이 많아요', ...over,
+    available: true, reason: null, bgmGainDb: 0, sfxGainDb: 0, aiBgmGainDb: -1, aiSfxGainDb: 1.5, aiReason: '말이 많아요', sfxCount: 2, ...over,
   })
   it('쓰는 소리만 값과 이유를 보인다', () => {
     expect(aiSummary(sa(), { bgm: true, sfx: true })).toBe('AI 추천: 음악 작게 −1dB · 효과음 크게 +1.5dB — 말이 많아요')

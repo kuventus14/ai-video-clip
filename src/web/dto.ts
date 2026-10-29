@@ -79,6 +79,8 @@ function toResultInfo(report: unknown): JobDto['resultInfo'] {
 const BalanceSchema = z.object({
   sound: z.object({ balance: z.object({ bgmGainDb: z.number(), sfxGainDb: z.number(), aiBgmGainDb: z.number(), aiSfxGainDb: z.number(), reason: z.string() }) }),
 })
+/** 영상에 들어간 효과음 개수. 리포트에 없으면 null */
+const SfxCountSchema = z.object({ sound: z.object({ sfxCount: z.number() }) })
 function toSoundAdjust(job: Job): SoundAdjustDto | null {
   if (!job.bgmId && job.sfxMode !== 'on') return null
   const available = canRemix(job.resultPath)
@@ -92,6 +94,16 @@ function toSoundAdjust(job: Job): SoundAdjustDto | null {
     aiBgmGainDb: b?.aiBgmGainDb ?? 0,
     aiSfxGainDb: b?.aiSfxGainDb ?? 0,
     aiReason: b?.reason ?? '',
+    sfxCount: (() => { const c = SfxCountSchema.safeParse(job.report); return c.success ? c.data.sound.sfxCount : null })(),
+  }
+}
+
+/** 파일의 수정 시각(ms, 정수). 파일이 없으면 null */
+const resultMtime = (p: string | null): number | null => {
+  try {
+    return p ? Math.floor(fs.statSync(p).mtimeMs) : null
+  } catch {
+    return null
   }
 }
 
@@ -102,7 +114,9 @@ export function toJobDto(job: Job): JobDto {
   const summary = SummarySchema.safeParse(job.summary)
   const media: JobDto['media'] = {}
   if (exists(job.sourcePath)) media.source = `/api/jobs/${job.id}/media/source`
-  if (exists(job.resultPath)) media.result = `/api/jobs/${job.id}/media/result`
+  // 결과 파일의 수정 시각을 주소에 붙인다 — 소리만 다시 섞어 파일이 바뀌면 브라우저가 옛 영상을 보여 주지 않고, 확정처럼 파일이 안 바뀌는 변화에는 재생이 끊기지 않는다
+  const resultVersion = resultMtime(job.resultPath)
+  if (resultVersion !== null) media.result = `/api/jobs/${job.id}/media/result?v=${resultVersion}`
   if (exists(job.thumbPath)) media.thumb = `/api/jobs/${job.id}/media/thumb`
 
   const ref = job.referenceSource
