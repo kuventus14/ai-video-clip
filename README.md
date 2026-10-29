@@ -8,25 +8,15 @@
 
 **필요한 것:** Node.js 22 이상, ffmpeg, whisper-cli(음성 인식), hyperframes(렌더링), yt-dlp(레퍼런스 검색), 그리고 **[Claude Code](https://claude.com/claude-code) 설치와 로그인** — AI가 필요한 단계마다 `claude` 명령을 쓰고, **사용량은 로그인한 본인 계정에서 나가요**. 영상 한 편에 AI 호출이 여러 번 들어가요. 메모리 8GB 이상을 권해요.
 
-**맥** (터미널)
+### 내 컴퓨터에 맞는 설치 안내
 
-```bash
-brew install ffmpeg whisper-cpp node uv
-npm i -g hyperframes
-uv tool install yt-dlp
-```
+| 컴퓨터 | 설치 안내 |
+|---|---|
+| **맥** | [맥에서 설치하기](docs/install-mac.md) |
+| **윈도우 10/11** | [윈도우에서 설치하기](docs/install-windows.md) |
+| **리눅스** | 바로 아래 |
 
-**윈도우** (PowerShell) — Claude Code 는 Git for Windows 가 있어야 해요
-
-```powershell
-winget install OpenJS.NodeJS Gyan.FFmpeg yt-dlp.yt-dlp Git.Git
-# (새 PowerShell 창을 연 뒤) 기본 설정에서는 npm 이 "스크립트 실행이 비활성화돼 있습니다" 로 막힐 수 있어요. 그러면 한 번만:
-#   Set-ExecutionPolicy -Scope CurrentUser RemoteSigned      (또는 명령 프롬프트(cmd)에서 실행)
-npm i -g hyperframes
-irm https://claude.ai/install.ps1 | iex     # Claude Code 설치 (설치 뒤 새 PowerShell 에서 claude 를 한 번 실행해 로그인)
-```
-
-whisper-cli 는 설치 프로그램이 없어요. [whisper.cpp 릴리스](https://github.com/ggml-org/whisper.cpp/releases)에서 **이름이 b 로 시작하는 릴리스**(예: `b5454`)의 `whisper-bin-x64.zip` 을 받아 풀고, `whisper-cli.exe` 가 든 폴더를 PATH 에 추가하세요(윈도우 설정 → 환경 변수). winget 으로 설치한 도구는 **새 PowerShell 창**을 열어야 보여요.
+맥·윈도우 안내에는 프로그램 설치부터 앱 켜기, 목소리 보정 설치, 막혔을 때까지 한 파일에 있어요.
 
 **리눅스** (터미널)
 
@@ -36,7 +26,7 @@ npm i -g hyperframes
 uv tool install yt-dlp     # uv 와 Node.js 22 이상은 각자 설치
 ```
 
-whisper-cli 는 위 릴리스 페이지의 `whisper-bin-ubuntu-x64.tar.gz` 를 풀어 `whisper-cli` 를 PATH 에 두거나 직접 빌드하세요.
+whisper-cli 는 [whisper.cpp 릴리스](https://github.com/ggml-org/whisper.cpp/releases)에서 **이름이 b 로 시작하는 릴리스**(예: `b5454`)의 `whisper-bin-ubuntu-x64.tar.gz` 를 풀어 `whisper-cli` 를 PATH 에 두거나 직접 빌드하세요.
 
 **공통** — 도구를 다 깔았으면:
 
@@ -76,22 +66,7 @@ npm run app
 
 계획 승인 화면의 **소리 → 목소리 또렷하게**는 AI 소음 제거 도구 [DeepFilterNet](https://github.com/Rikorose/DeepFilterNet)의 `deep-filter`(실행 파일 1개, 약 27MB)를 써요. 설치하지 않으면 "원본 그대로"만 쓸 수 있고, 목소리 또렷하게를 고르면 설치하라고 알려 줘요.
 
-**맥(애플 칩)** — 터미널
-
-```bash
-mkdir -p ~/.local/share/deep-filter && cd ~/.local/share/deep-filter
-gh release download v0.5.6 -R Rikorose/DeepFilterNet -p 'deep-filter-0.5.6-aarch64-apple-darwin' -O deep-filter
-echo "4601e7f4e4c03e59a4c5b5000216ef3add3e808799cfccd95e14e83ea4611081  deep-filter" | shasum -a 256 -c -
-chmod +x deep-filter
-```
-
-**윈도우** — PowerShell (`gh` 는 `winget install GitHub.cli`, 또는 [릴리스 페이지](https://github.com/Rikorose/DeepFilterNet/releases/tag/v0.5.6)에서 `deep-filter-0.5.6-x86_64-pc-windows-msvc.exe` 를 받아 아래 위치에 `deep-filter.exe` 로 저장)
-
-```powershell
-New-Item -ItemType Directory -Force "$HOME\.local\share\deep-filter" | Out-Null; cd "$HOME\.local\share\deep-filter"
-gh release download v0.5.6 -R Rikorose/DeepFilterNet -p "deep-filter-0.5.6-x86_64-pc-windows-msvc.exe" -O deep-filter.exe
-if ((Get-FileHash -Algorithm SHA256 deep-filter.exe).Hash -ne '75E11FA16445F560CB6B021521DDB89E89270D13B83089705D98776F58FD7915') { throw '받은 파일의 해시가 달라요 — 지우고 다시 받으세요' } else { '해시 확인 OK' }
-```
+**맥·윈도우**는 각자의 설치 안내 파일(위 표)의 "목소리 보정 설치" 단계를 따르세요 — 설치 명령과 해시 확인이 들어 있어요.
 
 **리눅스(x86_64)** — 터미널
 
