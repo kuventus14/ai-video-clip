@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { beforeAll, describe, expect, test } from 'vitest'
-import { parseWhisperJson, transcribe } from '../src/core/transcribe.ts'
+import { echoesPrompt, parseWhisperJson, transcribe } from '../src/core/transcribe.ts'
 import { ensureFixtures, type Fixtures } from './helpers/fixtures.ts'
 
 const SAMPLE = path.join(os.homedir(), 'Desktop/롱아이언_릴스_편집본.mp4')
@@ -63,6 +63,32 @@ describe('parseWhisperJson', () => {
   test('언어는 결과에서 읽고, 없으면 ko', () => {
     expect(parseWhisperJson({ result: { language: 'en' }, transcription: [] }, 1).language).toBe('en')
     expect(parseWhisperJson({ transcription: [] }, 1).language).toBe('ko')
+  })
+})
+
+describe('echoesPrompt — 인식기가 힌트 문구를 그대로 받아 적었나', () => {
+  const words = (...texts: string[]) => ({ words: texts.map((text, i) => ({ text, start: i, end: i + 0.5, confidence: 0.9 })) })
+  const PROMPT = '롱아이언 스윙 설명 영상'
+
+  test('힌트와 같은 글(괄호·띄어쓰기·문장부호가 달라도)이면 메아리다 — 실제로 본 환각', () => {
+    expect(echoesPrompt(words('(롱아이언', '스윙', '설명)'), PROMPT)).toBe(true)
+    expect(echoesPrompt(words('롱아이언스윙설명영상.'), PROMPT)).toBe(true)
+  })
+
+  test('힌트의 일부만 받아 적거나 힌트를 되풀이해도 메아리다', () => {
+    expect(echoesPrompt(words('롱아이언', '스윙'), PROMPT)).toBe(true)
+    expect(echoesPrompt(words('롱아이언', '스윙', '설명', '영상', '롱아이언', '스윙', '설명', '영상'), PROMPT)).toBe(true)
+  })
+
+  test('실제 말(힌트에 없는 단어가 하나라도 있다)은 메아리가 아니다', () => {
+    expect(echoesPrompt(words('이렇게', '되면서', '롱아이언', '올라오고'), PROMPT)).toBe(false)
+    expect(echoesPrompt(words('롱아이언', '스윙', '해보세요'), PROMPT)).toBe(false)
+  })
+
+  test('인식된 단어가 없거나(말 없음) 힌트가 비면 메아리가 아니다', () => {
+    expect(echoesPrompt(words(), PROMPT)).toBe(false)
+    expect(echoesPrompt(words('...', '"'), PROMPT)).toBe(false) // 글자가 하나도 없는 조각
+    expect(echoesPrompt(words('롱아이언'), '  ')).toBe(false)
   })
 })
 

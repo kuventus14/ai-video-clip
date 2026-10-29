@@ -12,7 +12,7 @@ import { computeCropPath, cropReversalsPerSec, type CropPath } from './reframe.t
 import { analyzeReference, detectSceneCuts, FEASIBILITY, type StyleSpec } from './styleSpec.ts'
 import { fetchReference } from './reference.ts'
 import { buildTimeline, groupWordsIntoCues, hookRepeatsOpening, remapKeyframes, remapWords, shiftCues, subtractSpans } from './timeline.ts'
-import { transcribe } from './transcribe.ts'
+import { echoesPrompt, transcribe } from './transcribe.ts'
 import { applySound, type SoundReport } from './sound.ts'
 import { directEdit, extractReferenceFrames } from './director.ts'
 import { cropToContent, detectContentRect } from './letterbox.ts'
@@ -277,10 +277,17 @@ export async function analyzeInput(i: AnalyzeInput, overrides: Partial<PipelineD
     }
   }
 
-  // 음성 인식 (설명이 있으면 처음부터 용어 힌트로)
+  // 음성 인식 (설명이 있으면 처음부터 용어 힌트로. 인식기가 힌트를 받아 적었으면 힌트 없이 다시 한다)
   const description = (i.description ?? '').trim()
   stage('transcribe')
-  let transcript: Transcript = await d.transcribe(src, description ? { prompt: description.slice(0, HINT_MAX_CHARS) } : undefined)
+  let transcript: Transcript
+  if (description) {
+    const prompt = description.slice(0, HINT_MAX_CHARS)
+    const hinted = await d.transcribe(src, { prompt })
+    transcript = echoesPrompt(hinted, prompt) ? await d.transcribe(src) : hinted
+  } else {
+    transcript = await d.transcribe(src)
+  }
 
   // 레퍼런스: 분석하고 곧바로 지운다
   let spec: StyleSpec | undefined
@@ -298,7 +305,9 @@ export async function analyzeInput(i: AnalyzeInput, overrides: Partial<PipelineD
   const lowCount = transcript.words.filter((w) => w.confidence < LOW_CONFIDENCE).length
   if (transcript.hasSpeech && !description && lowCount >= HINT_RETRANSCRIBE_MIN_LOW_WORDS) {
     stage('transcribe', '전문 용어 힌트로 다시 인식해요')
-    transcript = await d.transcribe(src, { prompt: hintFromSummary(summary) })
+    const prompt = hintFromSummary(summary)
+    const retried = await d.transcribe(src, { prompt })
+    if (!echoesPrompt(retried, prompt)) transcript = retried // 힌트를 받아 적었으면 처음(힌트 없는) 결과를 쓴다
   }
 
   return { version: 1, description: description || undefined, sourcePath: src, info, transcript, summary, purposeGuess, referenceInfo: refInfo, spec }

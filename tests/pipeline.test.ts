@@ -571,4 +571,31 @@ describe('runEdit — 전사 용어 힌트', () => {
     await run()
     expect(rec.transcribeCalls).toHaveLength(1)
   })
+
+  // 인식기가 말이 약한 영상에서 힌트 문구를 자막처럼 받아 적는 일이 있다(실제로 본 것: 설명 "롱아이언 스윙 설명 영상" → 자막 "(롱아이언 스윙 설명)")
+  const echo = (...texts: string[]): Transcript => ({ ...TR, words: texts.map((t, i) => word(t, i)), segments: [{ text: texts.join(' '), start: 0, end: texts.length }] })
+
+  test('설명을 힌트로 줬는데 결과가 설명을 받아 적은 것이면, 힌트 없이 다시 전사해서 그 결과를 쓴다', async () => {
+    const calls: { prompt?: string }[] = []
+    const { deps } = setup({ transcribe: async (_p, opts) => (calls.push({ prompt: opts?.prompt }), opts?.prompt ? echo('(골프', '롱아이언', '레슨)') : TR) })
+    const a = await analyzeInput({ videoPath: '/in/영상.mp4', workDir: work, description: '골프 롱아이언 레슨' }, deps)
+    expect(calls).toEqual([{ prompt: '골프 롱아이언 레슨' }, { prompt: undefined }])
+    expect(a.transcript).toEqual(TR)
+  })
+
+  test('설명을 힌트로 줘서 실제 말이 나왔으면 다시 전사하지 않는다', async () => {
+    const calls: { prompt?: string }[] = []
+    const { deps } = setup({ transcribe: async (_p, opts) => (calls.push({ prompt: opts?.prompt }), TR) })
+    const a = await analyzeInput({ videoPath: '/in/영상.mp4', workDir: work, description: '골프 롱아이언 레슨' }, deps)
+    expect(calls).toHaveLength(1)
+    expect(a.transcript).toEqual(TR)
+  })
+
+  test('요약의 용어 힌트로 다시 전사한 결과가 힌트를 받아 적은 것이면, 처음 결과를 그대로 쓴다', async () => {
+    const calls: { prompt?: string }[] = []
+    const { deps } = setup({ transcribe: async (_p, opts) => (calls.push({ prompt: opts?.prompt }), opts?.prompt ? echo('롱아이언', '골프', '레슨') : lowTr) })
+    const a = await analyzeInput({ videoPath: '/in/영상.mp4', workDir: work }, deps)
+    expect(calls).toHaveLength(2) // 처음(힌트 없음) + 요약 힌트로 한 번 — 메아리라서 더 하지 않는다
+    expect(a.transcript).toEqual(lowTr)
+  })
 })

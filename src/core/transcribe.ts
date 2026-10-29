@@ -62,6 +62,19 @@ export function parseWhisperJson(json: unknown, durationSec: number): Transcript
   }
 }
 
+const lettersOnly = (s: string) => s.replace(/[^\p{L}\p{N}]/gu, '')
+
+/**
+ * 인식 결과가 힌트(prompt) 문구를 그대로 받아 적은 것인가. whisper 는 말이 약하거나 없는 영상에서 힌트를 자막처럼 내놓는다
+ * (예: 힌트 "롱아이언 스윙 설명 영상" → 자막 "(롱아이언 스윙 설명)"). 글자만 남겨 비교해서, 인식된 단어가 모두 힌트 안에 있으면 메아리로 본다.
+ * 실제 말이 우연히 힌트 단어만으로 이뤄졌다면 잘못 걸리지만, 그때 치르는 값은 힌트 없이 한 번 더 인식하는 것뿐이다.
+ */
+export function echoesPrompt(t: Pick<Transcript, 'words'>, prompt: string): boolean {
+  const hint = lettersOnly(prompt)
+  const heard = t.words.map((w) => lettersOnly(w.text)).filter(Boolean)
+  return hint !== '' && heard.length > 0 && heard.every((w) => hint.includes(w))
+}
+
 export async function transcribe(
   videoPath: string,
   opts: { language?: string; modelPath?: string; /** 분야 용어 힌트(예: "롱아이언, 백스윙") — 전문 용어 오인식을 줄인다 */ prompt?: string; run?: typeof run } = {},
