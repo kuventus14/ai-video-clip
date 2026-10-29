@@ -105,13 +105,8 @@ export async function analysisPhase({ jobs, d, job, dir, onStage }: PhaseContext
   // 인식 결과가 새로 만들어졌으니 예전 결과의 줄 번호로 고쳐 둔 자막 편집은 더는 맞지 않는다
   if (job.transcriptEdits || job.captionTrack !== null) jobs.update(job.id, { transcriptEdits: null, captionTrack: null })
 
-  // 말이 없는 영상은 확인할 자막이 없으니 레퍼런스가 이미 있으면 곧바로 계획으로 간다.
-  if (job.referenceSource && !analysis.transcript.hasSpeech) {
-    jobs.transition(job.id, ['analyzing'], 'queued_plan', { summary: analysis.summary, purposeGuess: analysis.purposeGuess, stage: null })
-    return
-  }
-
-  // 그 밖에는 awaiting_reference 에서 멈춰 자막을 확인하게 한다(레퍼런스를 미리 넣었어도). 레퍼런스가 없을 때만 추천을 찾는다.
+  // awaiting_reference 에서 멈춰 자막을 확인·편집하게 한다(레퍼런스를 미리 넣었어도, 말이 없는 영상이어도 — 거기에 자막을 직접 넣을 수 있다).
+  // 레퍼런스가 없을 때만 추천을 찾는다.
   // 검색이 실패해도(인터넷 없음 등) 작업은 막지 않는다 — 링크·파일을 직접 넣을 수 있다.
   let recommendations: Job['recommendations'] = []
   if (!job.referenceSource) {

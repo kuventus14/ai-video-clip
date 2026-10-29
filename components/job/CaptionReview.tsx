@@ -68,7 +68,8 @@ export function CaptionReview({ review, lines, onChange, videoSrc, disabled }: {
     setPendingFocus(null)
   }, [pendingFocus, lines])
 
-  if (!review.hasSpeech && lines.length === 0) return null
+  // 인식된 말이 없는 영상(음악만·소리 없음)도 편집기를 보인다 — 자막을 직접 넣을 수 있다
+  const quiet = !review.hasSpeech && original.length === 0
 
   const problems = lineProblems(lines, review.durationSec)
   const gaps = gapsOf(lines, review.durationSec)
@@ -124,7 +125,11 @@ export function CaptionReview({ review, lines, onChange, videoSrc, disabled }: {
   return (
     <Card
       title="자막 편집"
-      description="영상의 모든 자막을 고칠 수 있어요. 글자·시작과 끝 시각을 고치고, 줄을 나누거나 합치거나 지우고, 인식이 놓친 구간에는 새 줄을 넣어요. 시각을 누르면 그 부분을 들어 볼 수 있어요. 고치지 않고 계속해도 돼요."
+      description={
+        quiet
+          ? '인식된 말이 없어요(음악만 있거나 소리가 없는 영상). 자막이 필요하면 줄을 추가해 직접 넣어 주세요. 안 넣고 계속해도 돼요.'
+          : '영상의 모든 자막을 고칠 수 있어요. 글자·시작과 끝 시각을 고치고, 줄을 나누거나 합치거나 지우고, 인식이 놓친 구간에는 새 줄을 넣어요. 시각을 누르면 그 부분을 들어 볼 수 있어요. 고치지 않고 계속해도 돼요.'
+      }
       action={changed ? <span className="rounded-chip bg-accent-soft px-2.5 py-1 text-[12px] font-semibold text-accent-ink">고침 있음</span> : null}
     >
       <div className="flex flex-col gap-5">

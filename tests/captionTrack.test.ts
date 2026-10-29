@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import { applyCaptionTrack, CAPTION_LINE_LIMITS, captionLineProblems, captionLinesOf, captionLinesWithEdits, cutTranscriptFor, normalizeCaptionLines, removedSpans, segmentWords } from '../src/shared/captionReview.ts'
+import { planCuts } from '../src/core/cuts.ts'
 import type { ReviewTranscript, ReviewWord } from '../src/shared/captionReview.ts'
 import type { CaptionLine } from '../src/shared/types.ts'
 
@@ -142,6 +143,25 @@ describe('cutTranscriptFor — 컷이 사용자가 넣은 자막 구간을 지�
   })
   test('트랙에서 지운 줄의 원래 단어도 컷 계산에는 남는다(자막을 지워도 영상은 그대로)', () => {
     expect(cutTranscriptFor(T, [L(3.4, 5, '이게 섀도우 생활을')]).words).toEqual(WORDS)
+  })
+
+  describe('말이 없는 영상(음악만·소리 없음)에 자막을 넣어도 영상은 잘리지 않는다', () => {
+    const quiet = { ...tr([]), language: 'ko', durationSec: 10 }
+    test('인식된 단어가 하나도 없으면 줄을 넣어도 그대로 돌려준다 — "말 없음" 이어야 컷이 아무것도 안 자른다', () => {
+      expect(cutTranscriptFor(quiet, [L(5, 8, '새로 넣은 자막')])).toBe(quiet)
+    })
+    test('컷 계산까지 이어 보면: 전부 무음인 10초 영상에 줄 하나를 넣어도 10초가 그대로 남는다', () => {
+      const plan = planCuts({ transcript: cutTranscriptFor(quiet, [L(5, 8, '새로 넣은 자막')]), silences: [{ start: 0, end: 10 }], durationSec: 10, padSec: 0.25 })
+      expect(plan.keptDurationSec).toBe(10)
+      expect(plan.removed).toEqual([])
+    })
+    test('자막은 그대로 입혀진다 — 줄 전체 구간에 단어가 놓인다(말이 없어 겹치는 단어가 없다)', () => {
+      const out = applyCaptionTrack(quiet, [L(5, 8, '새로 넣은 자막')])
+      expect(out.hasSpeech).toBe(true)
+      expect(out.words.map((x) => x.text)).toEqual(['새로', '넣은', '자막'])
+      expect(out.words[0]!.start).toBeCloseTo(5, 5)
+      expect(out.words.at(-1)!.end).toBeCloseTo(8, 5)
+    })
   })
 })
 

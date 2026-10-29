@@ -277,11 +277,12 @@ export function applyCaptionTrack<T extends ReviewTranscript>(t: T, track: Capti
 const protect = (l: CaptionLine, start: number, end: number): Word => ({ text: lineText(l), start, end, confidence: 1 })
 
 /**
- * 컷을 계산할 인식 결과: 원래 단어 전부(자막을 지워도 영상은 그대로) + 사용자가 **인식이 놓친 곳에 넣은** 줄 구간.
+ * 컷을 계산할 인식 결과: 원래 단어 전부(자막을 지워도 영상은 그대로) + 사용자가 **인식이 놓친 곳에 넣은** 줄 구간(말이 있는 영상만).
  * 인식된 말과 겹치는 줄은 말 앞·뒤로 0.3초 이상 늘린 부분만 더 지킨다(줄 안의 말 사이 쉬는 구간은 지키지 않는다 — 무음 컷은 그대로).
  */
 export function cutTranscriptFor<T extends ReviewTranscript>(t: T, track: CaptionLine[] | null | undefined): T {
-  if (track === null || track === undefined) return t
+  // 말이 없는 영상은 컷이 아무것도 자르지 않는다. 줄을 넣었다고 "말 있음"으로 바꾸면 줄 밖의 조용한 구간이 전부 잘려 나간다.
+  if (track === null || track === undefined || !t.hasSpeech) return t
   const extra: Word[] = []
   for (const l of track.filter(validLine)) {
     const hit = t.words.filter((x) => x.start < l.end && x.end > l.start)

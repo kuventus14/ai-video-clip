@@ -185,11 +185,11 @@ describe('analysis 단계', () => {
     expect(f.calls.search).toHaveLength(0)
   })
 
-  test('말이 없는 영상(고칠 자막이 없음)은 레퍼런스가 있으면 지금처럼 곧바로 queued_plan', async () => {
+  test('말이 없는 영상도 레퍼런스가 있으면 awaiting_reference 에서 멈춘다 — 자막을 직접 넣을 수 있게', async () => {
     const j = job('queued_analysis', { referenceSource: 'https://youtu.be/abc' })
     const f = fakes({ analyzeInput: async () => ({ ...ANALYSIS, transcript: { ...ANALYSIS.transcript, hasSpeech: false } }) })
     await runOnce(jobs, f.deps)
-    expect(jobs.get(j.id)!.status).toBe('queued_plan')
+    expect(jobs.get(j.id)!.status).toBe('awaiting_reference')
     expect(f.calls.search).toHaveLength(0)
   })
 
@@ -333,6 +333,33 @@ describe('자막 트랙 적용 (plan·produce)', () => {
     fs.writeFileSync(path.join(jobs.jobDir(k.id), 'prepared.json'), JSON.stringify(PREPARED))
     await runOnce(jobs, f.deps)
     expect(f.calls.produce[0]!.cutTranscript!.words.map((x) => x.text)).toEqual(['이렇게', '되면서', '이게', '섀도우'])
+  })
+
+  describe('말이 없는 영상에 사용자가 자막을 넣은 경우', () => {
+    const QUIET: Analysis = { ...ANALYSIS, transcript: { language: 'ko', durationSec: 56.8, hasSpeech: false, words: [], segments: [] } }
+    const writeQuiet = (id: string) => fs.writeFileSync(path.join(jobs.jobDir(id), 'analysis.json'), JSON.stringify(QUIET))
+    const TRACK_Q = [L(5, 8, '여기서 공을 보세요')]
+
+    test('plan: 넣은 줄이 단어가 된 transcript 를 감독에게 넘긴다', async () => {
+      const j = job('queued_plan', { captionTrack: TRACK_Q })
+      writeQuiet(j.id)
+      const f = fakes()
+      await runOnce(jobs, f.deps)
+      const t = f.calls.prepare[0]!.analysis.transcript
+      expect(t.hasSpeech).toBe(true)
+      expect(t.words.map((x) => x.text)).toEqual(['여기서', '공을', '보세요'])
+    })
+
+    test('produce: 자막은 입히되 컷 계산용 transcript 는 말 없음 그대로다(컷이 줄 밖을 자르지 않는다)', async () => {
+      const j = job('queued_produce', { captionTrack: TRACK_Q })
+      writeQuiet(j.id)
+      fs.writeFileSync(path.join(jobs.jobDir(j.id), 'prepared.json'), JSON.stringify(PREPARED))
+      const f = fakes()
+      await runOnce(jobs, f.deps)
+      const input = f.calls.produce[0]!
+      expect(input.analysis.transcript.words.map((x) => x.text)).toEqual(['여기서', '공을', '보세요'])
+      expect(input.cutTranscript).toMatchObject({ words: [], hasSpeech: false })
+    })
   })
 
   test('(Review Focus 1) 분석을 다시 하면 예전 인식 줄에 맞춘 트랙도 비운다', async () => {
