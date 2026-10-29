@@ -48,6 +48,8 @@ export const plan = (id: string, input: PlanInput) => request<JobDto>('POST', jo
 export const approve = (id: string, input: ApproveInput = {}) => request<JobDto>('POST', jobUrl(id, '/approve'), { body: input })
 export const confirm = (id: string) => request<JobDto>('POST', jobUrl(id, '/confirm'))
 export const retry = (id: string) => request<JobDto>('POST', jobUrl(id, '/retry'))
+/** 결과 화면에서 음악·효과음 크기(dB)를 바꿔 소리만 다시 섞는다 */
+export const remix = (id: string, gains: { bgmGainDb: number; sfxGainDb: number }) => request<JobDto>('POST', jobUrl(id, '/remix'), { body: gains })
 export const otherVersion = (id: string) => request<JobDto>('POST', jobUrl(id, '/other-version'))
 export const removeJob = (id: string) => request<{ ok: true }>('DELETE', jobUrl(id))
 

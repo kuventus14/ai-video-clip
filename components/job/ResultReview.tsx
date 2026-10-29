@@ -14,6 +14,7 @@ import { Card } from '../ui/Card.tsx'
 import { cx } from '../ui/cx.ts'
 import { Field, Textarea } from '../ui/Field.tsx'
 import { ReportPanel } from './ReportPanel.tsx'
+import { SoundAdjust } from './SoundAdjust.tsx'
 
 const SEVERITY_DOT = { high: 'bg-bad', medium: 'bg-warn', info: 'bg-info' } as const
 const SEVERITY_WORD = { high: '중요', medium: '확인', info: '참고' } as const
@@ -45,7 +46,7 @@ function Player({ job }: { job: JobDto }) {
         {job.media.thumb ? <img src={job.media.thumb} alt="" aria-hidden="true" className="pointer-events-none absolute inset-0 size-full scale-125 object-cover opacity-45 blur-[60px] saturate-150" /> : null}
         <video
           ref={video}
-          src={job.media.result}
+          src={`${job.media.result}?v=${encodeURIComponent(job.updatedAt)}`} // 소리만 다시 섞으면 같은 주소의 파일이 바뀐다 — 브라우저가 옛 영상을 보여 주지 않게
           poster={job.media.thumb}
           controls
           preload="metadata"
@@ -164,7 +165,10 @@ export function ResultReview({ job, onChanged, onEditCaptions }: { job: JobDto; 
       ) : null}
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
-        <Player job={job} />
+        <div className="flex min-w-0 flex-col gap-6">
+          <Player job={job} />
+          {confirmed || !job.soundAdjust ? null : <SoundAdjust job={job} onChanged={onChanged} />}
+        </div>
 
         <aside className="flex flex-col gap-4">
           <div className="rounded-panel bg-panel p-6">

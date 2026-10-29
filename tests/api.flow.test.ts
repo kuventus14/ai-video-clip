@@ -684,6 +684,12 @@ describe('remix — 소리 크기만 바꿔 다시 섞기', () => {
       expect(dto.available).toBe(false)
       expect(dto.reason).toMatch(/다시 섞을 수 없어요/)
     })
+    test('remixing: 다시 섞기를 기다리거나 하는 중일 때만 참 — 진행 화면이 "제작은 2~3배 걸려요" 대신 짧은 안내를 보인다', () => {
+      expect(toJobDto(read(withResult({ remixPending: true }, true, 'queued_produce').id)).remixing).toBe(true)
+      expect(toJobDto(read(withResult({ remixPending: true }, true, 'producing').id)).remixing).toBe(true)
+      expect(toJobDto(read(withResult({ remixPending: false }, true, 'producing').id)).remixing).toBe(false) // 새로 만드는 중
+      expect(toJobDto(read(withResult({ remixPending: true }, true, 'awaiting_confirm').id)).remixing).toBe(false)
+    })
     test('효과음만 켠 작업도 조절 대상이다', () => {
       const j = withResult({ bgmId: null, sfxMode: 'on' })
       expect(toJobDto(read(j.id)).soundAdjust).not.toBeNull()

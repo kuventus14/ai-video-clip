@@ -83,6 +83,8 @@ export interface JobDto {
   resultInfo: { durationSec: number; width: number; height: number } | null
   /** 결과 화면의 음악·효과음 크기 조절 카드. 음악도 효과음도 쓰지 않은 작업은 null */
   soundAdjust: SoundAdjustDto | null
+  /** 결과 화면에서 소리 크기를 바꿔 소리만 다시 섞는 중(또는 순서를 기다리는 중). 영상을 새로 만드는 중이 아니다 */
+  remixing: boolean
   media: { source?: string; result?: string; thumb?: string }
   log: { t: string; stage: string; message: string }[]
   error: string | null

@@ -9,6 +9,7 @@ import { StageGraphic } from './StageGraphic.tsx'
 
 /** 단계별로 "지금 무엇을 하는지"와 얼마나 걸릴지 알려 주는 문장 */
 function expectation(job: JobDto): string {
+  if (job.remixing) return '화면은 다시 만들지 않고 소리만 바꿔요. 몇 초면 끝나요.'
   switch (job.status) {
     case 'queued_probe':
     case 'probing':
@@ -47,7 +48,7 @@ export function ProgressPanel({ job }: { job: JobDto }) {
   const title = queued ? '순서를 기다리는 중이에요' : (job.stage ?? STATUS_LABEL[job.status])
   const lines = job.log.slice(-RECENT_LOG)
 
-  const stages = phaseStages(job.status)
+  const stages = job.remixing ? [] : phaseStages(job.status) // 소리만 다시 섞을 땐 제작 단계 목록(렌더링 등)이 맞지 않아 숨긴다
   const found = currentStageIndex(job.status, job.stage)
   const current = queued ? -1 : Math.max(found, 0)
 

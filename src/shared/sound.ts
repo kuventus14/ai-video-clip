@@ -15,15 +15,7 @@ export type SfxRole = (typeof SFX_ROLES)[number]
 export const ALLOWED_LICENSES = ['CC0', 'Pixabay License', 'Mixkit Free License'] as const
 export type License = (typeof ALLOWED_LICENSES)[number]
 
-/** 배경음악·효과음 크기를 기본 규칙에서 얼마나 키우거나 줄일지(dB). 화면 슬라이더와 서버 검사가 같은 범위를 쓴다. */
-export const SOUND_GAIN_RANGE = { min: -12, max: 6 } as const
-
-/** 숫자가 아니면 0, 범위 밖은 끝값으로 자르고 0.5 단위로 반올림한다. */
-export function clampGainDb(n: unknown): number {
-  if (typeof n !== 'number' || !Number.isFinite(n)) return 0
-  const r = Math.round(Math.min(SOUND_GAIN_RANGE.max, Math.max(SOUND_GAIN_RANGE.min, n)) * 2) / 2
-  return r === 0 ? 0 : r // -0 을 0 으로
-}
+export { clampGainDb, SOUND_GAIN_RANGE } from './soundGain.ts'
 
 /** 소리만 다시 섞을 수 없는 작업(옛 작업)에 보이는 안내 */
 export const SOUND_NOT_REMIXABLE = '이 작업은 소리만 다시 섞을 수 없어요. 새로 만든 작업부터 가능해요.'

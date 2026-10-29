@@ -137,6 +137,7 @@ export function toJobDto(job: Job): JobDto {
     report: toReportDto(job.report),
     resultInfo: toResultInfo(job.report),
     soundAdjust: toSoundAdjust(job),
+    remixing: job.remixPending && (job.status === 'queued_produce' || job.status === 'producing'),
     media,
     log: job.log.slice(-30),
     error: job.errorMessage,
