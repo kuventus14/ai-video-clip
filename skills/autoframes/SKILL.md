@@ -17,6 +17,7 @@ description: 영상 1개를 올리면 레퍼런스(유튜브·인스타 링크�
 
 ## 1. 시작하기
 
+0. 이 스킬의 도구는 Node.js 로 돌아가요. `node -v` 가 22 이상이 아니면(없거나 낮으면) **먼저 Node.js 를 설치**해요(허락받고: 맥 `brew install node`, 윈도우 `winget install OpenJS.NodeJS`, 리눅스는 <https://nodejs.org>). 설치 뒤 새 터미널에서 이어가요.
 1. `AF where` — 저장소 경로가 나오면 2번으로. **못 찾으면 설치부터** 도와요:
    - 사용자 OS 를 확인하고(`node -p process.platform`), `git clone https://github.com/kuventus14/ai-video-clip.git ~/ai-video-clip` 으로 받은 뒤, 저장소의 `docs/install-mac.md` / `docs/install-windows.md`(리눅스는 `README.md`)를 읽고 순서대로 따라 해요.
    - `brew`·`winget`·`apt` 같은 **시스템 프로그램을 설치하기 전에는 한 줄로 알리고 허락**을 받으세요. Claude 로그인·토큰은 사용자가 직접 해요(대신 입력하지 않아요).
