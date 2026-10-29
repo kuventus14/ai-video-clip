@@ -419,6 +419,88 @@ describe('plan 단계', () => {
   })
 })
 
+describe('produce 단계 — 소리만 다시 섞기(remixPending)', () => {
+  /** 결과가 나와 있고 사용자가 소리 크기를 바꿔 다시 섞기를 요청한 작업 */
+  function remixJob(patch: Parameters<Jobs['update']>[1] = {}) {
+    const j = job('queued_produce', { remixPending: true, soundGain: { bgmGainDb: 3, sfxGainDb: -2 }, bgmId: 'calm-1', ...patch })
+    const out = path.join(jobs.jobDir(j.id), 'out')
+    fs.mkdirSync(out, { recursive: true })
+    fs.writeFileSync(path.join(out, 'result.mp4'), 'OLD')
+    const old = { qa: { passed: true, findings: [] }, unchecked: ['싱크'], sound: { sfxCount: 2, balance: { bgmGainDb: 0, sfxGainDb: 0, aiBgmGainDb: -1, aiSfxGainDb: 1, reason: '말이 많아요' } } }
+    fs.writeFileSync(path.join(out, 'report.json'), JSON.stringify(old))
+    return jobs.update(j.id, { resultPath: path.join(out, 'result.mp4'), report: old, attempts: 2 })
+  }
+
+  test('영상을 다시 만들지 않고 remixSound 만 부른다 — 분석·계획 파일을 읽지 않고, 결과 경로·썸네일은 그대로', async () => {
+    const j = remixJob() // analysis.json·prepared.json 이 없어도 된다
+    const f = fakes()
+    await runOnce(jobs, f.deps)
+    expect(f.calls.produce).toHaveLength(0)
+    expect(f.calls.remix).toEqual([{ outDir: path.join(jobs.jobDir(j.id), 'out'), gains: { bgmGainDb: 3, sfxGainDb: -2 } }])
+    const after = jobs.get(j.id)!
+    expect(after).toMatchObject({ status: 'awaiting_confirm', remixPending: false, soundGain: null, errorMessage: null, attempts: 2, resultPath: j.resultPath })
+  })
+  test('리포트의 sound.balance 가 새 값으로 바뀌고 검수 결과 등 나머지는 그대로다 (DB 와 out/report.json 모두)', async () => {
+    const j = remixJob()
+    await runOnce(jobs, fakes({ remixSound: async (i) => ({ sfxCount: 2, balance: { ...i.gains, aiBgmGainDb: -1, aiSfxGainDb: 1, reason: '말이 많아요' } }) }).deps)
+    const expectSound = { sfxCount: 2, balance: { bgmGainDb: 3, sfxGainDb: -2, aiBgmGainDb: -1, aiSfxGainDb: 1, reason: '말이 많아요' } }
+    const db = jobs.get(j.id)!.report as { qa: unknown; unchecked: string[]; sound: unknown }
+    expect(db.sound).toEqual(expectSound)
+    expect(db.qa).toEqual({ passed: true, findings: [] })
+    expect(db.unchecked).toEqual(['싱크'])
+    const file = JSON.parse(fs.readFileSync(path.join(jobs.jobDir(j.id), 'out', 'report.json'), 'utf8'))
+    expect(file.sound).toEqual(expectSound)
+    expect(file.unchecked).toEqual(['싱크'])
+  })
+  test('진행 기록에 "다시 섞는 중" 단계가 남는다', async () => {
+    const j = remixJob()
+    await runOnce(jobs, fakes({ remixSound: async (i) => ({ sfxCount: 0, balance: { ...i.gains, aiBgmGainDb: 0, aiSfxGainDb: 0, reason: '' } }) }).deps)
+    expect(jobs.get(j.id)!.log.some((l) => l.message.includes('다시 섞'))).toBe(true)
+  })
+  test('실패하면(SoundError) 결과 확인 화면으로 돌아오고 기존 결과는 그대로, 안내 문구가 남으며 표시는 꺼진다', async () => {
+    const j = remixJob()
+    const f = fakes({ remixSound: async () => { throw new SoundError('배경음악·효과음을 입히지 못했어요.') } })
+    await runOnce(jobs, f.deps)
+    const after = jobs.get(j.id)!
+    expect(after).toMatchObject({ status: 'awaiting_confirm', remixPending: false, soundGain: null, resultPath: j.resultPath, failedPhase: null })
+    expect(after.errorMessage).toContain('입히지 못했어요')
+    expect(after.errorMessage).toContain('기존 결과')
+    expect(fs.readFileSync(j.resultPath!, 'utf8')).toBe('OLD')
+    expect((after.report as { sound: { balance: { bgmGainDb: number } } }).sound.balance.bgmGainDb).toBe(0) // 리포트는 안 바뀐다
+  })
+  test('예상하지 못한 오류도 결과 화면으로 돌아오고, 도구 원문은 진행 기록에만 남는다', async () => {
+    const j = remixJob()
+    await runOnce(jobs, fakes({ remixSound: async () => { throw new Error('EACCES /Users/someone/secret') } }).deps)
+    const after = jobs.get(j.id)!
+    expect(after.status).toBe('awaiting_confirm')
+    expect(after.errorMessage).not.toContain('/Users/')
+    expect(after.log.some((l) => l.message.includes('EACCES'))).toBe(true)
+  })
+  test('다음에 성공하면 이전 오류 문구가 지워진다', async () => {
+    const j = remixJob({ errorMessage: '이전 실패' })
+    await runOnce(jobs, fakes().deps)
+    expect(jobs.get(j.id)!.errorMessage).toBeNull()
+  })
+  test('실행 중 프로그램이 죽어 failed(produce)가 된 작업은 다시 시도하면 remix 경로로 간다 (표시가 남아 있다)', async () => {
+    const j = remixJob()
+    jobs.update(j.id, { status: 'failed', failedPhase: 'produce', errorMessage: '중단' })
+    jobs.transition(j.id, ['failed'], 'queued_produce', { errorMessage: null, failedPhase: null })
+    const f = fakes()
+    await runOnce(jobs, f.deps)
+    expect(f.calls.remix).toHaveLength(1)
+    expect(f.calls.produce).toHaveLength(0)
+  })
+  test('remixPending 이 꺼져 있으면 예전처럼 영상을 만든다', async () => {
+    const j = job('queued_produce', { soundGain: { bgmGainDb: 3, sfxGainDb: -2 } })
+    writeAnalysis(j.id)
+    fs.writeFileSync(path.join(jobs.jobDir(j.id), 'prepared.json'), JSON.stringify(PREPARED))
+    const f = fakes()
+    await runOnce(jobs, f.deps)
+    expect(f.calls.produce).toHaveLength(1)
+    expect(f.calls.remix).toHaveLength(0)
+  })
+})
+
 describe('produce 단계', () => {
   test('결과·리포트·썸네일을 저장하고 awaiting_confirm 으로 보낸다 (화질·자막 설정을 전달)', async () => {
     const j = job('queued_produce', { quality: 'delivery', captionsMode: 'off' })

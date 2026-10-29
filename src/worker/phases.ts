@@ -139,8 +139,32 @@ export async function planPhase({ jobs, d, job, dir, onStage }: PhaseContext): P
   jobs.transition(job.id, ['planning'], 'awaiting_plan', { plan: prepared.plan, planCard: prepared.planCard, purpose: prepared.purpose, captionPosition: prepared.captionPosition, script: prepared.script ?? null, scriptEdits: null, errorMessage: null, stage: null })
 }
 
+/**
+ * 결과 화면에서 음악·효과음 크기를 바꿨을 때: 영상은 다시 만들지 않고 소리만 다시 섞는다.
+ * 실패해도 기존 결과(result.mp4)는 그대로이므로 실패 화면이 아니라 결과 확인 화면으로 돌려보내고 이유만 알린다.
+ */
+async function remixPhase({ jobs, d, job, dir, onStage }: PhaseContext): Promise<void> {
+  const outDir = path.join(dir, 'out')
+  try {
+    onStage('mix', '크기를 바꿔 소리만 다시 섞는 중')
+    const sound = await d.remixSound({ outDir, gains: job.soundGain ?? { bgmGainDb: 0, sfxGainDb: 0 } })
+    const reportFile = path.join(outDir, 'report.json')
+    const written = readJson<Record<string, unknown>>(reportFile)
+    if (written) writeJson(reportFile, { ...written, sound })
+    const report = job.report && typeof job.report === 'object' ? { ...job.report, sound } : job.report
+    jobs.transition(job.id, ['producing'], 'awaiting_confirm', { report, remixPending: false, soundGain: null, errorMessage: null, stage: null })
+  } catch (e) {
+    const { message, detail } = describeError(e)
+    if (detail) jobs.log(job.id, 'error', detail)
+    jobs.log(job.id, 'mix', `소리 다시 섞기에 실패했어요 — ${message}`)
+    jobs.transition(job.id, ['producing'], 'awaiting_confirm', { remixPending: false, soundGain: null, errorMessage: `소리를 다시 섞지 못했어요. ${message} 기존 결과는 그대로예요.`, stage: null })
+  }
+}
+
 /** 편집·렌더링·검수를 해서 결과 영상과 리포트를 만든다. */
-export async function producePhase({ jobs, d, job, dir, onStage }: PhaseContext): Promise<void> {
+export async function producePhase(ctx: PhaseContext): Promise<void> {
+  if (ctx.job.remixPending) return remixPhase(ctx)
+  const { jobs, d, job, dir, onStage } = ctx
   const raw = readJson<Analysis>(path.join(dir, 'analysis.json'))
   const prepared = readJson<Prepared>(path.join(dir, 'prepared.json'))
   if (!raw || !prepared) throw new Error('분석·계획 결과를 찾을 수 없어요')
