@@ -1,26 +1,54 @@
 # 영상 자동 편집
 
-영상 1개를 올리고 따라 하고 싶은 레퍼런스를 고르면, 컷·자막·제목 카드·구도를 레퍼런스처럼 맞춰 자동으로 편집하고, 자막 오타·화질·오디오까지 검수한 결과를 돌려줍니다. 내 맥에서만 도는 웹앱이에요(로그인 없음). 설계: `docs/superpowers/specs/`, 계획: `docs/superpowers/plans/`.
+영상 1개를 올리고 따라 하고 싶은 레퍼런스를 고르면, 컷·자막·제목 카드·구도를 레퍼런스처럼 맞춰 자동으로 편집하고, 자막 오타·화질·오디오까지 검수한 결과를 돌려줍니다. 내 컴퓨터(맥·윈도우·리눅스)에서만 도는 웹앱이에요(로그인 없음). 설계: `docs/superpowers/specs/`, 계획: `docs/superpowers/plans/`.
 
 ## 처음 시작하기
 
-이 앱은 웹사이트가 아니라 **내 맥에서 직접 돌리는 프로그램**이에요. 영상은 내 컴퓨터 밖으로 나가지 않고, 레퍼런스 검색과 AI 호출에만 인터넷을 써요.
+이 앱은 웹사이트가 아니라 **내 컴퓨터에서 직접 돌리는 프로그램**이에요(맥·윈도우 10/11·리눅스). 영상은 내 컴퓨터 밖으로 나가지 않고, 레퍼런스 검색과 AI 호출에만 인터넷을 써요.
 
-**필요한 것:** 맥(애플 칩 권장, 메모리 8GB 이상), Node.js 22 이상, **[Claude Code](https://claude.com/claude-code) 설치와 로그인** — AI가 필요한 단계마다 `claude` 명령을 쓰고, **사용량은 로그인한 본인 계정에서 나가요**. 영상 한 편에 AI 호출이 여러 번 들어가요. 그리고 아래 프로그램들:
+**필요한 것:** Node.js 22 이상, ffmpeg, whisper-cli(음성 인식), hyperframes(렌더링), yt-dlp(레퍼런스 검색), 그리고 **[Claude Code](https://claude.com/claude-code) 설치와 로그인** — AI가 필요한 단계마다 `claude` 명령을 쓰고, **사용량은 로그인한 본인 계정에서 나가요**. 영상 한 편에 AI 호출이 여러 번 들어가요. 메모리 8GB 이상을 권해요.
+
+**맥** (터미널)
 
 ```bash
 brew install ffmpeg whisper-cpp node uv
 npm i -g hyperframes
 uv tool install yt-dlp
-git clone https://github.com/kuventus14/ai-video-clip.git && cd ai-video-clip
+```
+
+**윈도우** (PowerShell) — Claude Code 는 Git for Windows 가 있어야 해요
+
+```powershell
+winget install OpenJS.NodeJS Gyan.FFmpeg yt-dlp.yt-dlp Git.Git
+npm i -g hyperframes
+irm https://claude.ai/install.ps1 | iex     # Claude Code 설치 (설치 뒤 새 PowerShell 에서 claude 를 한 번 실행해 로그인)
+```
+
+whisper-cli 는 설치 프로그램이 없어요. [whisper.cpp 릴리스](https://github.com/ggml-org/whisper.cpp/releases)에서 **이름이 b 로 시작하는 릴리스**(예: `b5454`)의 `whisper-bin-x64.zip` 을 받아 풀고, `whisper-cli.exe` 가 든 폴더를 PATH 에 추가하세요(윈도우 설정 → 환경 변수). winget 으로 설치한 도구는 **새 PowerShell 창**을 열어야 보여요.
+
+**리눅스** (터미널)
+
+```bash
+sudo apt install ffmpeg
+npm i -g hyperframes
+uv tool install yt-dlp     # uv 와 Node.js 22 이상은 각자 설치
+```
+
+whisper-cli 는 위 릴리스 페이지의 `whisper-bin-ubuntu-x64.tar.gz` 를 풀어 `whisper-cli` 를 PATH 에 두거나 직접 빌드하세요.
+
+**공통** — 도구를 다 깔았으면:
+
+```bash
+git clone https://github.com/kuventus14/ai-video-clip.git
+cd ai-video-clip
 npm install
-npm run setup     # 빠진 게 있으면 설치 방법을 알려 줘요(음성 인식 모델을 받는 명령도 나와요)
+npm run setup     # 빠진 게 있으면 이 컴퓨터에 맞는 설치 방법을 알려 줘요(음성 인식 모델을 받는 명령도 나와요)
 npm run app       # 그다음 http://127.0.0.1:4848
 ```
 
 - **배경음악·효과음 파일은 저작권 때문에 들어 있지 않아요.** 음악 없이도 그대로 쓸 수 있고, 넣는 법은 `assets/sound/README.md` 에 있어요.
 - 소리를 또렷하게 하는 기능은 선택 설치예요(아래 "목소리 보정 설치").
-- 맥에서만 확인했어요. 윈도우·리눅스는 안 돼요(목소리 보정 도구와 일부 처리가 맥 전용이에요).
+- **어디까지 확인했나:** 맥·윈도우·리눅스의 자동 시험(GitHub Actions)이 매번 돌아요 — 실제 ffmpeg, hyperframes 의 `check` 와 draft 렌더, 실제 `whisper-cli`(작은 모델) 호출, **앱 전체 켜기**(빌드 → 화면 서버 → 처리 프로그램 → 영상 올리기 → ffprobe 확인 → 끄기)까지 세 컴퓨터에서 통과해요. 개발자가 손으로 써 본 건 맥뿐이에요. **윈도우·리눅스에서 아직 직접 확인하지 못한 것:** 진짜 Claude Code 로 AI 를 부르는 단계, yt-dlp 로 비슷한 영상 찾기, 목소리 보정(`deep-filter`), 큰 음성 인식 모델로 긴 영상 처리. 막히면 `npm run setup` 의 안내와 진행 기록을 알려 주세요.
 - 영상 올리기 → 분석 → 자막·레퍼런스 → 승인 → 제작 → 확정 순서는 아래 "화면 사용 순서"에 있어요. 라이선스는 MIT 예요(`LICENSE`).
 
 ## 실행 (한 줄)
@@ -29,7 +57,7 @@ npm run app       # 그다음 http://127.0.0.1:4848
 npm run app
 ```
 
-브라우저에서 **http://127.0.0.1:4848** 을 여세요. 화면(웹 서버)과 처리 프로그램(워커)이 함께 켜지고, 로그 앞에 `[web]` / `[worker]` 가 붙어요. 끄려면 `Ctrl+C` — 처리 중인 작업이 있으면 끝날 때까지 기다리고, 한 번 더 누르면 바로 꺼져요(그 작업은 다음에 "중단됐어요"로 보여요). 처음 켜거나 소스가 바뀐 뒤에는 화면을 한 번 빌드해요(1~2분). 개발할 때는 `npm run app:dev`.
+브라우저에서 **http://127.0.0.1:4848** 을 여세요. 화면(웹 서버)과 처리 프로그램(워커)이 함께 켜지고, 로그 앞에 `[web]` / `[worker]` 가 붙어요. 끄려면 `Ctrl+C` — 처리 중인 작업이 있으면 끝날 때까지 기다리고, 한 번 더 누르면 바로 꺼져요(그 작업은 다음에 "중단됐어요"로 보여요). 처음 켜거나 소스가 바뀐 뒤에는 화면을 한 번 빌드해요(1~2분). 개발할 때는 `npm run app:dev`. **윈도우에서는** 신호로 "끝까지 기다렸다 끄기"를 할 수 없어서 `Ctrl+C` 한 번에 바로 꺼지고, 처리 중이던 작업은 다음에 켤 때 "중단됐어요"로 표시돼요(다시 시도하면 돼요). 다른 포트로 켜려면 맥·리눅스는 `VAE_PORT=4949 npm run app`, 윈도우 PowerShell 은 `$env:VAE_PORT=4949; npm run app`.
 
 ## 화면 사용 순서
 
@@ -46,6 +74,8 @@ npm run app
 
 계획 승인 화면의 **소리 → 목소리 또렷하게**는 AI 소음 제거 도구 [DeepFilterNet](https://github.com/Rikorose/DeepFilterNet)의 `deep-filter`(실행 파일 1개, 약 27MB)를 써요. 설치하지 않으면 "원본 그대로"만 쓸 수 있고, 목소리 또렷하게를 고르면 설치하라고 알려 줘요.
 
+**맥(애플 칩)** — 터미널
+
 ```bash
 mkdir -p ~/.local/share/deep-filter && cd ~/.local/share/deep-filter
 gh release download v0.5.6 -R Rikorose/DeepFilterNet -p 'deep-filter-0.5.6-aarch64-apple-darwin' -O deep-filter
@@ -53,10 +83,27 @@ echo "4601e7f4e4c03e59a4c5b5000216ef3add3e808799cfccd95e14e83ea4611081  deep-fil
 chmod +x deep-filter
 ```
 
-마지막 줄 앞의 검사에서 `deep-filter: OK` 가 나와야 해요(받은 파일이 이 README 를 쓸 때 확인한 파일과 같다는 뜻이에요). 다른 위치에 두려면 `VAE_DEEP_FILTER=/경로/deep-filter` 환경변수를 써요. 인텔 맥이나 리눅스는 릴리스 페이지에서 맞는 파일을 받고 해시는 직접 확인하세요.
+**윈도우** — PowerShell (`gh` 는 `winget install GitHub.cli`, 또는 [릴리스 페이지](https://github.com/Rikorose/DeepFilterNet/releases/tag/v0.5.6)에서 `deep-filter-0.5.6-x86_64-pc-windows-msvc.exe` 를 받아 아래 위치에 `deep-filter.exe` 로 저장)
+
+```powershell
+New-Item -ItemType Directory -Force "$HOME\.local\share\deep-filter" | Out-Null; cd "$HOME\.local\share\deep-filter"
+gh release download v0.5.6 -R Rikorose/DeepFilterNet -p "deep-filter-0.5.6-x86_64-pc-windows-msvc.exe" -O deep-filter.exe
+(Get-FileHash -Algorithm SHA256 deep-filter.exe).Hash   # 75E11FA16445F560CB6B021521DDB89E89270D13B83089705D98776F58FD7915 와 같아야 해요
+```
+
+**리눅스(x86_64)** — 터미널
+
+```bash
+mkdir -p ~/.local/share/deep-filter && cd ~/.local/share/deep-filter
+gh release download v0.5.6 -R Rikorose/DeepFilterNet -p 'deep-filter-0.5.6-x86_64-unknown-linux-musl' -O deep-filter
+echo "70775e251eee44c0f2451a1e833326cf8bcbbe304d3e7cd12851e6fce72ef7da  deep-filter" | sha256sum -c -
+chmod +x deep-filter
+```
+
+해시 검사 결과가 맞아야 해요(받은 파일이 이 README 를 쓸 때 확인한 파일과 같다는 뜻이에요). 다른 위치에 두려면 `VAE_DEEP_FILTER=/경로/deep-filter` (윈도우는 `deep-filter.exe` 경로) 환경변수를 써요. 인텔 맥이나 ARM 리눅스는 릴리스 페이지에서 맞는 파일을 받고 해시는 직접 확인하세요. 윈도우·리눅스에서의 목소리 보정은 아직 직접 돌려 보지 못했어요.
 
 - 소리 처리는 영상 화면을 다시 인코딩하지 않고 **소리만** 바꿔요: AI 소음 제거 → 말소리 대역 정리 → 소리 크기를 -16 LUFS 로 맞춤. 20초 영상 소리를 몇 초에 처리해요.
-- macOS 에서는 인터넷을 막은 채(`sandbox-exec`) 실행해요. 이 도구는 소리 파일 하나를 처리하는 데 인터넷이 필요 없어요.
+- macOS 에서는 인터넷을 막은 채(`sandbox-exec`) 실행해요(윈도우·리눅스에는 같은 장치가 없어 막지 않고 실행해요). 이 도구는 소리 파일 하나를 처리하는 데 인터넷이 필요 없어요.
 - **한계:** 소음은 줄고 크기는 맞지만, **방의 울림은 많이 줄지 않아요.** 마이크를 입 가까이 두지 않고 찍은 영상은 스튜디오 녹음처럼 되지 않아요. 울림 제거 AI 는 나중에 붙일 수 있게 이 단계를 따로 뒀어요. 영상 하나(소음 있는 야외 레슨)로만 강도를 정했어요.
 
 

@@ -22,7 +22,7 @@ try {
 }
 
 if (!(await isPortFree(port, HOST))) {
-  console.error(`[app] ${port} 포트를 이미 다른 프로그램이 쓰고 있어요. 이미 앱이 켜져 있다면 http://${HOST}:${port} 를 열어 보세요.\n      다른 포트로 켜려면: VAE_PORT=4949 npm run app`)
+  console.error(`[app] ${port} 포트를 이미 다른 프로그램이 쓰고 있어요. 이미 앱이 켜져 있다면 http://${HOST}:${port} 를 열어 보세요.\n      다른 포트로 켜려면: ${process.platform === 'win32' ? '$env:VAE_PORT=4949; npm run app (PowerShell)' : 'VAE_PORT=4949 npm run app'}`)
   process.exit(1)
 }
 
