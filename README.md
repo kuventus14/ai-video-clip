@@ -67,6 +67,17 @@ mkdir -p ~/.claude/skills && cp -R skills/autoframes ~/.claude/skills/
 New-Item -ItemType Directory -Force "$HOME\.claude\skills" | Out-Null; Copy-Item -Recurse -Force skills\autoframes "$HOME\.claude\skills\autoframes"
 ```
 
+저장소를 통째로 받지 않고 **스킬 폴더만** 받으려면(맥·리눅스는 GitHub 에서 받아 설치본과 같은지 확인했어요):
+
+```bash
+mkdir -p ~/.claude/skills && curl -sL https://github.com/kuventus14/ai-video-clip/archive/refs/heads/main.tar.gz | tar -xz -C ~/.claude/skills --strip-components=2 ai-video-clip-main/skills/autoframes
+```
+
+```powershell
+# 윈도우 (PowerShell) — 직접 돌려 보지는 못했어요. 파이프(|) 대신 파일로 받아요(PowerShell 5.1 은 바이너리 파이프가 깨져요)
+New-Item -ItemType Directory -Force "$HOME\.claude\skills" | Out-Null; curl.exe -sL -o "$env:TEMP\af.tar.gz" https://github.com/kuventus14/ai-video-clip/archive/refs/heads/main.tar.gz; tar -xzf "$env:TEMP\af.tar.gz" -C "$HOME\.claude\skills" --strip-components=2 ai-video-clip-main/skills/autoframes
+```
+
 - 스킬은 편집 엔진이 아니라 **운전석**이에요. 엔진(이 저장소의 앱)은 그대로이고, 스킬은 앱의 로컬 API 를 부르는 작은 도구(`skills/autoframes/scripts/autoframes.mjs`)로 결과를 짧게 요약해서 읽어요 — 긴 대본을 대화창에 올리지 않아 사용량이 크게 늘지 않게요.
 - 저장소가 홈 폴더 아래(`~/ai-video-clip` 등)에 없으면 환경변수 `AUTOFRAMES_HOME` 에 저장소 경로를 주세요. 저장소가 아직 없으면 스킬이 설치부터 도와줘요.
 - 화면(웹)과 스킬은 같은 앱·같은 데이터를 써요. 스킬로 만든 작업도 화면의 기록에 보여요.
