@@ -75,6 +75,24 @@ export function echoesPrompt(t: Pick<Transcript, 'words'>, prompt: string): bool
   return hint !== '' && heard.length > 0 && heard.every((w) => hint.includes(w))
 }
 
+const NON_ASCII = /[^\x00-\x7F]/
+
+/**
+ * whisper-cli 에 줄 경로. 윈도우의 whisper-cli 는 인자를 시스템 코드 페이지로 읽어서 영어 로캘에서는 한글이 `?` 로 깨진다(입력 파일을 못 찾는다).
+ * 그래서 임시 파일은 영어 이름의 폴더에 두고, 모델 폴더에 한글이 있으면 그 폴더를 작업 폴더로 해서 파일 이름만 넘긴다.
+ * 한국어 윈도우(CP949)는 대부분 되지만 드문 글자는 깨지므로 같은 방식으로 막아 둔다. 맥·리눅스는 그대로.
+ */
+export function whisperPaths(o: { platform?: NodeJS.Platform; tmpdir?: string; modelPath: string; publicDir?: string }): { tmpBase: string; model: string; cwd: string | undefined } {
+  const platform = o.platform ?? process.platform
+  const tmpdir = o.tmpdir ?? os.tmpdir()
+  if (platform !== 'win32') return { tmpBase: tmpdir, model: o.modelPath, cwd: undefined }
+  const tmpBase = NON_ASCII.test(tmpdir) ? (o.publicDir ?? process.env.PUBLIC ?? 'C:\\Users\\Public') : tmpdir
+  const dir = path.win32.dirname(o.modelPath)
+  const name = path.win32.basename(o.modelPath)
+  if (NON_ASCII.test(dir) && !NON_ASCII.test(name)) return { tmpBase, model: name, cwd: dir }
+  return { tmpBase, model: o.modelPath, cwd: undefined }
+}
+
 export async function transcribe(
   videoPath: string,
   opts: { language?: string; modelPath?: string; /** 분야 용어 힌트(예: "롱아이언, 백스윙") — 전문 용어 오인식을 줄인다 */ prompt?: string; run?: typeof run } = {},
@@ -85,14 +103,16 @@ export async function transcribe(
   if (!info.hasAudio) return { language, durationSec: info.durationSec, words: [], segments: [], hasSpeech: false }
 
   const modelPath = opts.modelPath ?? WHISPER_MODEL_PATH
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'vae-whisper-'))
+  const w = whisperPaths({ modelPath })
+  const tmp = fs.mkdtempSync(path.join(w.tmpBase, 'vae-whisper-'))
   try {
     const wav = path.join(tmp, 'audio.wav')
     await exec('ffmpeg', ['-v', 'error', '-nostdin', '-y', '-i', videoPath, '-vn', '-ar', '16000', '-ac', '1', '-c:a', 'pcm_s16le', wav])
     const prefix = path.join(tmp, 'out')
     const hint = opts.prompt?.trim() ? ['--prompt', opts.prompt.trim()] : []
-    await exec('whisper-cli', ['-m', modelPath, '-l', language, '-ml', '1', '-sow', '-ojf', '-np', ...hint, '-of', prefix, '-f', wav], {
+    await exec('whisper-cli', ['-m', w.model, '-l', language, '-ml', '1', '-sow', '-ojf', '-np', ...hint, '-of', prefix, '-f', wav], {
       timeoutMs: 20 * 60_000,
+      cwd: w.cwd,
     })
     const json = JSON.parse(fs.readFileSync(`${prefix}.json`, 'utf8')) as unknown
     const parsed = parseWhisperJson(json, info.durationSec)

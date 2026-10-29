@@ -22,7 +22,7 @@ describe.skipIf(!model)('whisper-cli 실제 호출', () => {
   test('한글이 든 임시 폴더·모델 폴더와 한글 힌트(--prompt)에서도 돈다', async () => {
     const fx = await ensureFixtures()
     const base = fs.mkdtempSync(path.join(os.tmpdir(), '한글 폴더 '))
-    const koModel = path.join(base, '모델.bin')
+    const koModel = path.join(base, 'ggml-small.bin') // 사용자 폴더에 한글이 있는 경우: 폴더만 한글이고 파일 이름은 영어
     fs.copyFileSync(model!, koModel)
     const keys = ['TEMP', 'TMP', 'TMPDIR'] as const
     const saved = Object.fromEntries(keys.map((k) => [k, process.env[k]]))
