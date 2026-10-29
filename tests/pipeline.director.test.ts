@@ -7,6 +7,7 @@ import { interpretRequest } from '../src/core/interpret.ts'
 import { applyTranscriptEdits } from '../src/shared/captionReview.ts'
 import { LlmError } from '../src/core/llm.ts'
 import { analyzeInput, prepareEdit, produceEdit, type PipelineDeps, type Stage } from '../src/core/pipeline.ts'
+import { noBalance, recipeOf } from './helpers/soundFakes.ts'
 import type { QaInput, QaReport } from '../src/core/qa.ts'
 import { emptyScript, type EditScript } from '../src/core/script.ts'
 import { FEASIBILITY, type StyleSpec } from '../src/core/styleSpec.ts'
@@ -70,7 +71,8 @@ function setup(over: Partial<PipelineDeps> = {}, videoInfo: VideoInfo = info()) 
     },
     runQa: async (q) => (qas.push(q), PASS),
     enhanceVoice: async (v) => v.outPath,
-    applySound: async (a) => (sounds.push(a), fs.writeFileSync(a.outPath, 'mixed'), { path: a.outPath, report: { sfxCount: 0 } }),
+    applySound: async (a) => (sounds.push(a), fs.writeFileSync(a.outPath, 'mixed'), { path: a.outPath, report: { sfxCount: 0 }, recipe: recipeOf(a) }),
+    balanceSound: noBalance,
     directEdit: async (x) => (directs.push(x), { script: SCRIPT, notes: [] }),
     extractReferenceFrames: async (refPath, _d, outDir) => {
       extracts.push({ refPath, outDir })

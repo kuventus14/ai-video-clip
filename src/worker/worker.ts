@@ -1,6 +1,7 @@
 import { run } from '../core/exec.ts'
 import { probeVideo } from '../core/media.ts'
 import { analyzeInput, prepareEdit, produceEdit, type Stage } from '../core/pipeline.ts'
+import { remixSound } from '../core/sound.ts'
 import { detectPurpose } from '../core/purpose.ts'
 import { searchReferences } from '../core/search.ts'
 import { openDb } from '../db/db.ts'
@@ -15,6 +16,8 @@ export interface WorkerDeps {
   analyzeInput: typeof analyzeInput
   prepareEdit: typeof prepareEdit
   produceEdit: typeof produceEdit
+  /** 결과 화면에서 음악·효과음 크기를 바꾸면 영상은 그대로 두고 소리만 다시 섞는다 */
+  remixSound: typeof remixSound
   searchReferences: typeof searchReferences
   makeThumbnail: (video: string, out: string, atSec?: number) => Promise<void>
 }
@@ -25,6 +28,7 @@ const DEFAULTS: WorkerDeps = {
   analyzeInput,
   prepareEdit,
   produceEdit,
+  remixSound,
   searchReferences,
   makeThumbnail: async (video, out, atSec = 1) => {
     await run('ffmpeg', ['-v', 'error', '-nostdin', '-y', '-ss', String(atSec), '-i', video, '-frames:v', '1', '-vf', 'scale=480:-2', '-q:v', '4', out])

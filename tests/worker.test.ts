@@ -51,10 +51,11 @@ interface Calls {
   prepare: Parameters<WorkerDeps['prepareEdit']>[0][]
   produce: Parameters<WorkerDeps['produceEdit']>[0][]
   search: Parameters<WorkerDeps['searchReferences']>[0][]
+  remix: Parameters<WorkerDeps['remixSound']>[0][]
 }
 
 function fakes(over: Partial<WorkerDeps> = {}) {
-  const calls: Calls = { analyze: [], prepare: [], produce: [], search: [] }
+  const calls: Calls = { analyze: [], prepare: [], produce: [], search: [], remix: [] }
   const deps: WorkerDeps = {
     probeVideo: async () => INFO,
     detectPurpose: (i) => ({ purpose: i.info.height > i.info.width ? 'short' : 'post', confidence: 0.8, reasons: ['테스트'] }),
@@ -75,6 +76,10 @@ function fakes(over: Partial<WorkerDeps> = {}) {
       fs.writeFileSync(path.join(i.outDir, 'report.json'), JSON.stringify({ qa: { passed: true, findings: [] }, unchecked: ['싱크'] }))
       i.onStage?.('render', 'looks 화질')
       return { resultPath: path.join(i.outDir, 'result.mp4'), purpose: 'short', attempts: 2, delivered: true } as never
+    },
+    remixSound: async (i) => {
+      calls.remix.push(i)
+      return { sfxCount: 0, balance: { ...i.gains, aiBgmGainDb: 0, aiSfxGainDb: 0, reason: '' } }
     },
     searchReferences: async (i) => {
       calls.search.push(i)

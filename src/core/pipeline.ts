@@ -13,7 +13,8 @@ import { analyzeReference, detectSceneCuts, FEASIBILITY, type StyleSpec } from '
 import { fetchReference } from './reference.ts'
 import { buildTimeline, groupWordsIntoCues, hookRepeatsOpening, remapKeyframes, remapWords, shiftCues, subtractSpans } from './timeline.ts'
 import { echoesPrompt, transcribe } from './transcribe.ts'
-import { applySound, type SoundReport } from './sound.ts'
+import { applySound, type MixRecipe, type SoundReport } from './sound.ts'
+import { balanceSound, speechRatio, type SoundBalance } from './soundBalance.ts'
 import { directEdit, extractReferenceFrames } from './director.ts'
 import { cropToContent, detectContentRect } from './letterbox.ts'
 import { emptyScript, normalizeScript, SCRIPT_LIMITS, scriptCardLines, toRenderScript, type EditScript } from './script.ts'
@@ -92,6 +93,8 @@ export interface PipelineDeps {
   runQa: typeof runQa
   enhanceVoice: typeof enhanceVoice
   applySound: typeof applySound
+  /** 음악·효과음 크기를 AI 가 정한다(실패하면 기본 규칙 그대로). 제작 앞에서 한 번만 부른다 */
+  balanceSound: typeof balanceSound
   /** 편집 감독(AI). 없으면 감독 단계를 건너뛰고 지금 방식(컷+자막)으로 만든다 */
   directEdit?: typeof directEdit
   /** 레퍼런스 장면 사진 만들기. 없으면 사진 없이 감독을 부른다 */
@@ -105,7 +108,7 @@ export interface PipelineDeps {
 
 const DEFAULTS: PipelineDeps = {
   probeVideo, ensureH264, transcribe, detectSilences, detectSceneCuts, describeVideo, fetchReference, analyzeReference,
-  interpretRequest, trackPeople, proofreadCues, buildProject, renderProject, runQa, enhanceVoice, applySound, directEdit, extractReferenceFrames, applyTempo, detectContentRect, cropToContent,
+  interpretRequest, trackPeople, proofreadCues, buildProject, renderProject, runQa, enhanceVoice, applySound, balanceSound, directEdit, extractReferenceFrames, applyTempo, detectContentRect, cropToContent,
 }
 
 const MIN_SEC = 1
@@ -507,7 +510,13 @@ export async function produceEdit(i: ProduceInput, overrides: Partial<PipelineDe
     let qa: QaReport
     let renderedPath: string
     let soundReport: SoundReport | undefined
+    let dryPath: string | undefined // 마지막 시도의, 소리를 입히기 전 렌더 — 다시 섞을 수 있게 결과 폴더에 남긴다
+    let mixRecipe: MixRecipe | undefined
     const wantsSound = Boolean(i.bgm) || i.sfx === 'on'
+    // 음악·효과음 크기는 영상 내용을 보고 한 번만 정한다(재작업으로 다시 입혀도 같은 값). 실패하면 기본 규칙(0, 0)
+    const balance: SoundBalance = wantsSound
+      ? await d.balanceSound({ summary, speechRatio: speechRatio(i.cutTranscript ?? transcript, info.durationSec), bgmId: i.bgm ?? null, sfxOn: i.sfx === 'on' })
+      : { bgmGainDb: 0, sfxGainDb: 0, reason: '' }
     for (;;) {
       stage('build')
       const built = await d.buildProject({
@@ -535,6 +544,7 @@ export async function produceEdit(i: ProduceInput, overrides: Partial<PipelineDe
       // 배경음악·효과음: 렌더가 끝난 영상에 입히고, 검수는 입힌 결과를 본다(재작업으로 다시 렌더할 때마다 다시 입힌다)
       if (wantsSound) {
         stage('mix')
+        dryPath = renderedPath
         const mixed = await d.applySound({
           renderedPath,
           outPath: path.join(work, `mix-${attempt}.mp4`),
@@ -545,9 +555,11 @@ export async function produceEdit(i: ProduceInput, overrides: Partial<PipelineDe
           hasAudio: info.hasAudio,
           hasSpeech: (i.cutTranscript ?? transcript).hasSpeech, // 자막을 다 지워도 말이 있는 영상이다(음악 크기를 목소리에 맞춰 잰다)
           speed: effSpeed,
+          gains: { bgmGainDb: balance.bgmGainDb, sfxGainDb: balance.sfxGainDb },
         })
         renderedPath = mixed.path
-        soundReport = mixed.report
+        soundReport = { ...mixed.report, balance: { bgmGainDb: balance.bgmGainDb, sfxGainDb: balance.sfxGainDb, aiBgmGainDb: balance.bgmGainDb, aiSfxGainDb: balance.sfxGainDb, reason: balance.reason } }
+        mixRecipe = { ...mixed.recipe, ai: balance }
       }
 
       stage('qa')
@@ -634,6 +646,16 @@ export async function produceEdit(i: ProduceInput, overrides: Partial<PipelineDe
     }
     const finalQa: QaReport = { ...qa, findings: [...qa.findings, ...extraFindings, ...cropFindings, ...suggestionFindings] }
     const resultPath = path.join(outDir, 'result.mp4')
+    // 소리만 다시 섞을 수 있게 소리 없는 렌더와 섞는 방법을 남긴다. 이번에 소리를 안 썼다면 같은 폴더의 옛 파일을 지운다(다시 섞기가 열리면 안 된다).
+    const dryOut = path.join(outDir, 'dry.mp4')
+    const recipeOut = path.join(outDir, 'mix.json')
+    if (dryPath && mixRecipe) {
+      fs.copyFileSync(dryPath, dryOut)
+      fs.writeFileSync(recipeOut, JSON.stringify(mixRecipe))
+    } else {
+      fs.rmSync(dryOut, { force: true })
+      fs.rmSync(recipeOut, { force: true })
+    }
     fs.copyFileSync(renderedPath, resultPath)
 
     fs.writeFileSync(

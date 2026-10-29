@@ -3,6 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { beforeEach, describe, expect, test } from 'vitest'
 import { analyzeInput, InputError, prepareEdit, produceEdit, runEdit, type PipelineDeps, type Stage } from '../src/core/pipeline.ts'
+import { noBalance, recipeOf } from './helpers/soundFakes.ts'
 import { ReferenceFetchError } from '../src/core/reference.ts'
 import { interpretRequest } from '../src/core/interpret.ts'
 import { FEASIBILITY, type StyleSpec } from '../src/core/styleSpec.ts'
@@ -97,7 +98,8 @@ function setup(over: Partial<PipelineDeps> = {}, o: { qaQueue?: QaReport[]; vide
       return { outPath: r.outPath, wallSec: 0.1 }
     },
     enhanceVoice: async (v) => v.outPath,
-    applySound: async (a) => ({ path: a.renderedPath, report: { sfxCount: 0 } }),
+    applySound: async (a) => ({ path: a.renderedPath, report: { sfxCount: 0 }, recipe: recipeOf(a) }),
+    balanceSound: noBalance,
     directEdit: undefined, // 이 시험들은 지금 방식(컷+자막)을 확인한다 — 편집 감독은 tests/pipeline.director.test.ts
     extractReferenceFrames: undefined,
     applyTempo: undefined,

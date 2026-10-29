@@ -10,6 +10,7 @@ import { FEASIBILITY, type StyleSpec } from '../src/core/styleSpec.ts'
 import type { QaReport } from '../src/core/qa.ts'
 import type { Transcript, VideoInfo, Word } from '../src/core/types.ts'
 import type { VideoSummary } from '../src/core/understand.ts'
+import { noBalance, recipeOf } from './helpers/soundFakes.ts'
 
 const info = (over: Partial<VideoInfo> = {}): VideoInfo => ({ path: '/in/영상.mp4', durationSec: 45, width: 1920, height: 1080, fps: 30, hasAudio: true, videoBitrate: 2e6, videoCodec: 'h264', rotation: 0, ...over })
 const word = (text: string, start: number): Word => ({ text, start, end: start + 0.4, confidence: 0.9 })
@@ -34,6 +35,7 @@ function setup(over: Partial<PipelineDeps> = {}, videoInfo: VideoInfo = info()) 
   const builds: { sourcePath: string; canvas: { width: number; height: number }; reframe: string; captionPosition: string }[] = []
   const voices: { sourcePath: string; outPath: string; durationSec: number }[] = []
   const sounds: Parameters<PipelineDeps['applySound']>[0][] = []
+  const balances: Parameters<PipelineDeps['balanceSound']>[0][] = []
   const deps: PipelineDeps = {
     probeVideo: async () => videoInfo,
     ensureH264: async (p, i) => ({ path: p, info: i, converted: false }),
@@ -73,12 +75,13 @@ function setup(over: Partial<PipelineDeps> = {}, videoInfo: VideoInfo = info()) 
       fs.mkdirSync(path.dirname(a.outPath), { recursive: true })
       fs.writeFileSync(a.outPath, 'mixed')
       const bgm = a.choice.bgm ? { id: a.choice.bgm, title: '잔잔한 곡', author: '작가', license: 'CC0', sourceUrl: 'https://pixabay.com/x' } : undefined
-      return { path: a.outPath, report: { ...(bgm ? { bgm } : {}), sfxCount: a.choice.sfx === 'on' ? 2 : 0 } }
+      return { path: a.outPath, report: { ...(bgm ? { bgm } : {}), sfxCount: a.choice.sfx === 'on' ? 2 : 0 }, recipe: recipeOf(a) }
     },
+    balanceSound: async (b) => (balances.push(b), { bgmGainDb: -2, sfxGainDb: 1, reason: '말이 많아요' }),
     ...over,
   }
   const onStage = (s: Stage) => stages.push(s)
-  return { deps, stages, fetches, builds, voices, sounds, cleanups: () => cleanups, onStage }
+  return { deps, stages, fetches, builds, voices, sounds, balances, cleanups: () => cleanups, onStage }
 }
 
 const roundTrip = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T
@@ -309,6 +312,67 @@ describe('produceEdit', () => {
       expect(report.unchecked.join(' ')).toContain('배경음악')
     })
 
+    describe('음악·효과음 크기(AI 가 정하고 다시 섞을 수 있게 남긴다)', () => {
+      test('제작 앞에서 AI 에게 한 번만 묻고(재작업이 있어도), 그 오프셋으로 소리를 입힌다', async () => {
+        const queue: QaReport[] = [{ passed: false, findings: [{ id: 'low-bitrate', severity: 'high', message: '화질', fixHint: 'rerender-quality' }], corrections: [], checkedAt: 'x' }, PASS]
+        const s = setup({ runQa: async () => queue.shift()! })
+        const { analysis, prepared } = await prepare(s)
+        await produceEdit({ analysis, prepared, outDir: path.join(work, 'once'), bgm: 'calm-1', sfx: 'off', onStage: s.onStage }, s.deps)
+        expect(s.balances).toHaveLength(1)
+        expect(s.balances[0]).toMatchObject({ bgmId: 'calm-1', sfxOn: false, summary: { genre: '골프 레슨' } })
+        expect(s.balances[0]!.speechRatio).toBeCloseTo(1.4 / 45, 3) // 말 구간 1~2.4초 / 영상 45초
+        expect(s.sounds).toHaveLength(2)
+        for (const a of s.sounds) expect(a.gains).toEqual({ bgmGainDb: -2, sfxGainDb: 1 })
+      })
+      test('음악도 효과음도 안 쓰면 AI 를 부르지 않는다', async () => {
+        const s = setup()
+        const { analysis, prepared } = await prepare(s)
+        await produceEdit({ analysis, prepared, outDir: path.join(work, 'nosound'), onStage: s.onStage }, s.deps)
+        expect(s.balances).toHaveLength(0)
+      })
+      test('결과 폴더에 result.mp4·report.json 과 함께 dry.mp4(소리 없는 렌더)·mix.json(섞는 방법)을 남긴다', async () => {
+        const s = setup()
+        const { analysis, prepared } = await prepare(s)
+        const outDir = path.join(work, 'keep')
+        await produceEdit({ analysis, prepared, outDir, bgm: 'calm-1', sfx: 'on', onStage: s.onStage }, s.deps)
+        expect(fs.readdirSync(outDir).sort()).toEqual(['dry.mp4', 'mix.json', 'report.json', 'result.mp4'])
+        expect(fs.readFileSync(path.join(outDir, 'dry.mp4'), 'utf8')).toBe('mp4') // 섞기 전 렌더
+        expect(fs.readFileSync(path.join(outDir, 'result.mp4'), 'utf8')).toBe('mixed')
+        expect(JSON.parse(fs.readFileSync(path.join(outDir, 'mix.json'), 'utf8'))).toEqual({
+          durationSec: 1, hasAudio: true, voice: { lufs: -18, peakDb: -2 }, bgmId: 'calm-1', sfx: [], ai: { bgmGainDb: -2, sfxGainDb: 1, reason: '말이 많아요' },
+        })
+      })
+      test('재작업으로 여러 번 렌더하면 마지막 시도의 렌더가 dry.mp4 가 된다', async () => {
+        const queue: QaReport[] = [{ passed: false, findings: [{ id: 'low-bitrate', severity: 'high', message: '화질', fixHint: 'rerender-quality' }], corrections: [], checkedAt: 'x' }, PASS]
+        const s = setup({
+          runQa: async () => queue.shift()!,
+          renderProject: async (_d, r) => (fs.mkdirSync(path.dirname(r.outPath), { recursive: true }), fs.writeFileSync(r.outPath, path.basename(r.outPath)), { outPath: r.outPath, wallSec: 0.1 }),
+        })
+        const { analysis, prepared } = await prepare(s)
+        const outDir = path.join(work, 'lastdry')
+        await produceEdit({ analysis, prepared, outDir, bgm: 'calm-1', onStage: s.onStage }, s.deps)
+        expect(fs.readFileSync(path.join(outDir, 'dry.mp4'), 'utf8')).toBe('render-2.mp4')
+      })
+      test('report.json 의 sound.balance 에 지금 값과 AI 추천 값·이유가 있다', async () => {
+        const s = setup()
+        const { analysis, prepared } = await prepare(s)
+        const outDir = path.join(work, 'balance')
+        await produceEdit({ analysis, prepared, outDir, bgm: 'calm-1', sfx: 'on', onStage: s.onStage }, s.deps)
+        const report = JSON.parse(fs.readFileSync(path.join(outDir, 'report.json'), 'utf8'))
+        expect(report.sound.balance).toEqual({ bgmGainDb: -2, sfxGainDb: 1, aiBgmGainDb: -2, aiSfxGainDb: 1, reason: '말이 많아요' })
+      })
+      test('이번에 소리를 안 쓰면 같은 폴더에 남아 있던 옛 dry.mp4·mix.json 은 지운다(다시 섞기가 열리면 안 된다)', async () => {
+        const s = setup()
+        const { analysis, prepared } = await prepare(s)
+        const outDir = path.join(work, 'stale')
+        fs.mkdirSync(outDir, { recursive: true })
+        fs.writeFileSync(path.join(outDir, 'dry.mp4'), 'OLD')
+        fs.writeFileSync(path.join(outDir, 'mix.json'), '{}')
+        await produceEdit({ analysis, prepared, outDir, onStage: s.onStage }, s.deps)
+        expect(fs.readdirSync(outDir).sort()).toEqual(['report.json', 'result.mp4'])
+      })
+    })
+
     test('고르지 않았다면 report.json 에 sound 가 없다', async () => {
       const s = setup()
       const { analysis, prepared } = await prepare(s)
@@ -318,7 +382,7 @@ describe('produceEdit', () => {
     })
 
     test('효과음을 켰는데 넣을 곳(컷 경계·제목 카드)이 없어서 0개면 검수 결과에 알림(info)이 남는다', async () => {
-      const s = setup({ applySound: async (a) => ({ path: a.renderedPath, report: { sfxCount: 0 } }) })
+      const s = setup({ applySound: async (a) => ({ path: a.renderedPath, report: { sfxCount: 0 }, recipe: recipeOf(a) }) })
       const { analysis, prepared } = await prepare(s)
       const r = await produceEdit({ analysis, prepared, outDir: path.join(work, 'sfx0'), sfx: 'on', onStage: s.onStage }, s.deps)
       expect(r.qa.findings).toContainEqual(expect.objectContaining({ id: 'sfx-none', severity: 'info', fixHint: 'none' }))

@@ -4,7 +4,7 @@ import path from 'node:path'
 import { afterAll, beforeAll, describe, expect, test } from 'vitest'
 import { run } from '../src/core/exec.ts'
 import { probeVideo } from '../src/core/media.ts'
-import { applySound, buildMixArgs, checkSoundFlags, measureAudio, mixSound, planSfx, type MixInput } from '../src/core/sound.ts'
+import { applySound, buildMixArgs, checkSoundFlags, measureAudio, mixSound, planSfx, remixSound, type MixInput, type MixRecipe } from '../src/core/sound.ts'
 import { SoundError, type BgmTrack, type Catalog, type SfxRole, type SfxTrack } from '../src/shared/sound.ts'
 import { ensureFixtures, type Fixtures } from './helpers/fixtures.ts'
 
@@ -322,6 +322,18 @@ describe('applySound — 고른 값으로 측정하고 섞는다', () => {
     expect(g.calls.mix!.bgmGainDb ?? 0).toBe(0)
     expect(g.calls.mix!.sfxGainDb ?? 0).toBe(0)
   })
+  test('섞는 방법(recipe)을 돌려준다: 곡 id·목소리 측정값·효과음 id 와 출력 시각(속도 적용 뒤)·길이', async () => {
+    const f = fakes()
+    const r = await applySound({ ...RENDERED, choice: { bgm: 'calm-1', sfx: 'on' }, speed: 1.25 }, f.deps)
+    expect(r.recipe).toMatchObject({ durationSec: 9, hasAudio: true, voice: { lufs: -18, peakDb: -2 }, bgmId: 'calm-1' })
+    expect(r.recipe.sfx.map((e) => e.trackId)).toEqual(['p1', 'w1'])
+    expect(r.recipe.sfx[0]!.atSec).toBeCloseTo(0.1 / 1.25, 3)
+    expect(r.recipe.sfx[1]!.atSec).toBeCloseTo(4.85 / 1.25, 3)
+  })
+  test('곡을 안 고르면 recipe.bgmId 는 null', async () => {
+    const r = await applySound({ ...RENDERED, choice: { bgm: null, sfx: 'on' } }, fakes().deps)
+    expect(r.recipe.bgmId).toBeNull()
+  })
   test('음악만 고르면 효과음은 비어 있고 sfxCount 0', async () => {
     const f = fakes()
     const r = await applySound({ ...RENDERED, choice: { bgm: 'calm-1', sfx: 'off' } }, f.deps)
@@ -369,5 +381,93 @@ describe('checkSoundFlags — CLI 의 --bgm / --sfx 점검', () => {
   })
   test('효과음 파일이 없는데 --sfx on 이면 거절', () => {
     expect(checkSoundFlags({ sfx: 'on' }, { ...cat, sfx: [] }).ok).toBe(false)
+  })
+})
+
+describe('remixSound — 소리만 다시 섞는다', () => {
+  let dir: string
+  beforeAll(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vae-remix-'))
+  })
+  afterAll(() => fs.rmSync(dir, { recursive: true, force: true }))
+
+  const RECIPE: MixRecipe = {
+    durationSec: 9, hasAudio: true, voice: { lufs: -18, peakDb: -2 }, bgmId: 'calm-1',
+    sfx: [{ trackId: 'p1', atSec: 0.1 }, { trackId: 'w1', atSec: 3.88 }],
+    ai: { bgmGainDb: -1, sfxGainDb: 0, reason: '말이 많아요' },
+  }
+  /** 결과 폴더를 새로 만든다: 옛 result.mp4, 그리고 (원하면) dry.mp4 + mix.json */
+  function outDirWith(name: string, opts: { files?: boolean; recipe?: unknown } = {}): string {
+    const d = path.join(dir, name)
+    fs.mkdirSync(d, { recursive: true })
+    fs.writeFileSync(path.join(d, 'result.mp4'), 'OLD')
+    if (opts.files !== false) {
+      fs.writeFileSync(path.join(d, 'dry.mp4'), 'DRY')
+      fs.writeFileSync(path.join(d, 'mix.json'), JSON.stringify(opts.recipe ?? RECIPE))
+    }
+    return d
+  }
+  const recorder = () => {
+    const calls: MixInput[] = []
+    const mix = async (m: MixInput) => (calls.push(m), fs.writeFileSync(m.outPath, 'NEW'), m.outPath)
+    return { calls, mix }
+  }
+  const read = (d: string, f: string) => fs.readFileSync(path.join(d, f), 'utf8')
+
+  test('dry.mp4 + mix.json 으로 섞고, 성공하면 result.mp4 를 새 파일로 바꾼다 — 임시 파일은 남지 않는다', async () => {
+    const d = outDirWith('ok')
+    const r = recorder()
+    await remixSound({ outDir: d, gains: { bgmGainDb: 3, sfxGainDb: -2 } }, { catalog: CATALOG, mix: r.mix })
+    expect(r.calls).toHaveLength(1)
+    expect(r.calls[0]).toMatchObject({
+      videoPath: path.join(d, 'dry.mp4'), durationSec: 9, hasAudio: true, voice: { lufs: -18, peakDb: -2 },
+      bgm: { file: '/snd/bgm/calm-1.mp3', lufs: -14 }, bgmGainDb: 3, sfxGainDb: -2,
+    })
+    expect(r.calls[0]!.sfx.map((e) => [e.file, e.atSec])).toEqual([['/snd/sfx/p1.mp3', 0.1], ['/snd/sfx/w1.mp3', 3.88]])
+    expect(path.extname(r.calls[0]!.outPath)).toBe('.mp4') // ffmpeg 는 확장자로 형식을 정한다
+    expect(read(d, 'result.mp4')).toBe('NEW')
+    expect(fs.readdirSync(d).sort()).toEqual(['dry.mp4', 'mix.json', 'result.mp4'])
+  })
+  test('돌려주는 리포트: 사용한 곡·효과음 수·지금 값과 AI 추천 값·이유', async () => {
+    const d = outDirWith('report')
+    const report = await remixSound({ outDir: d, gains: { bgmGainDb: 3, sfxGainDb: -2 } }, { catalog: CATALOG, mix: recorder().mix })
+    expect(report).toEqual({
+      bgm: { id: 'calm-1', title: '잔잔한 곡', author: '작가', license: 'Pixabay License', sourceUrl: 'https://pixabay.com/music/x' },
+      sfxCount: 2,
+      balance: { bgmGainDb: 3, sfxGainDb: -2, aiBgmGainDb: -1, aiSfxGainDb: 0, reason: '말이 많아요' },
+    })
+  })
+  test('범위 밖 값은 -12 ~ +6 dB 로 잘라서 쓴다', async () => {
+    const d = outDirWith('clamp')
+    const r = recorder()
+    await remixSound({ outDir: d, gains: { bgmGainDb: 99, sfxGainDb: -99 } }, { catalog: CATALOG, mix: r.mix })
+    expect(r.calls[0]).toMatchObject({ bgmGainDb: 6, sfxGainDb: -12 })
+  })
+  test('섞다가 실패하면 옛 result.mp4 는 그대로, 임시 파일은 지워지고, 한국어 SoundError', async () => {
+    const d = outDirWith('fail')
+    const mix = async (m: MixInput) => (fs.writeFileSync(m.outPath, 'HALF'), Promise.reject(new SoundError('배경음악·효과음을 입히지 못했어요.')))
+    const p = remixSound({ outDir: d, gains: { bgmGainDb: 1, sfxGainDb: 1 } }, { catalog: CATALOG, mix })
+    await expect(p).rejects.toThrow(SoundError)
+    await expect(p).rejects.toThrow(/입히지 못했어요/)
+    expect(read(d, 'result.mp4')).toBe('OLD')
+    expect(fs.readdirSync(d).sort()).toEqual(['dry.mp4', 'mix.json', 'result.mp4'])
+  })
+  test('dry.mp4 나 mix.json 이 없으면(옛 작업) 다시 섞을 수 없다는 한국어 안내, result.mp4 는 그대로', async () => {
+    const d = outDirWith('old', { files: false })
+    const r = recorder()
+    const p = remixSound({ outDir: d, gains: { bgmGainDb: 1, sfxGainDb: 1 } }, { catalog: CATALOG, mix: r.mix })
+    await expect(p).rejects.toThrow(SoundError)
+    await expect(p).rejects.toThrow(/다시 섞을 수 없어요/)
+    expect(r.calls).toHaveLength(0)
+    expect(read(d, 'result.mp4')).toBe('OLD')
+  })
+  test('mix.json 이 깨졌으면 한국어 SoundError', async () => {
+    const d = outDirWith('broken', { recipe: { durationSec: 'x' } })
+    await expect(remixSound({ outDir: d, gains: { bgmGainDb: 0, sfxGainDb: 0 } }, { catalog: CATALOG, mix: recorder().mix })).rejects.toThrow(/섞는 방법/)
+  })
+  test('그사이 음원 목록에서 곡이 사라졌으면 그 곡을 말하는 SoundError', async () => {
+    const d = outDirWith('gone')
+    await expect(remixSound({ outDir: d, gains: { bgmGainDb: 0, sfxGainDb: 0 } }, { catalog: { ...CATALOG, bgm: [] }, mix: recorder().mix })).rejects.toThrow(/calm-1/)
+    expect(read(d, 'result.mp4')).toBe('OLD')
   })
 })

@@ -1,5 +1,9 @@
-import { loadCatalog, SoundError, soundChoiceProblem, trackPath, type Catalog, type SfxMode, type SfxRole, type SfxTrack } from '../shared/sound.ts'
+import fs from 'node:fs'
+import nodePath from 'node:path'
+import { z } from 'zod'
+import { clampGainDb, loadCatalog, SoundError, soundChoiceProblem, trackPath, type BgmTrack, type Catalog, type SfxMode, type SfxRole, type SfxTrack } from '../shared/sound.ts'
 import { run as realRun, ToolError } from './exec.ts'
+import type { SoundBalance } from './soundBalance.ts'
 import type { Span } from './types.ts'
 
 /** 효과음 사이 최소 간격 — 컷이 아주 많은 영상에서도 정신없지 않게 한다. */
@@ -202,7 +206,33 @@ export interface SoundChoice {
 export interface SoundReport {
   bgm?: { id: string; title: string; author: string; license: string; sourceUrl: string }
   sfxCount: number
+  /** 지금 쓴 크기(bgmGainDb·sfxGainDb)와 AI 가 추천한 크기(ai…)·이유. 소리를 입히기 전(오프셋 기능 이전)에 만든 리포트에는 없다 */
+  balance?: { bgmGainDb: number; sfxGainDb: number; aiBgmGainDb: number; aiSfxGainDb: number; reason: string }
 }
+
+/** 다시 섞을 수 있게 남기는 "섞는 방법"(out/mix.json). 효과음 시각은 속도 적용 뒤 출력 시각이다. */
+export interface MixRecipe {
+  durationSec: number
+  hasAudio: boolean
+  /** 소리 없는 원본 렌더(dry.mp4)의 목소리 측정값 */
+  voice: AudioLevel
+  bgmId: string | null
+  sfx: { trackId: string; atSec: number }[]
+  /** 제작할 때 AI 가 정한 크기. 유저가 바꿔도 "AI 추천으로 되돌리기"가 이 값을 쓴다 */
+  ai: SoundBalance
+}
+
+const level = z.number().nullable()
+const RecipeSchema = z.object({
+  durationSec: z.number().positive(),
+  hasAudio: z.boolean(),
+  voice: z.object({ lufs: level, peakDb: level }),
+  bgmId: z.string().nullable(),
+  sfx: z.array(z.object({ trackId: z.string(), atSec: z.number().min(0) })),
+  ai: z.object({ bgmGainDb: z.number(), sfxGainDb: z.number(), reason: z.string() }),
+})
+
+const bgmInfo = (t: BgmTrack) => ({ id: t.id, title: t.title, author: t.author, license: t.license, sourceUrl: t.sourceUrl })
 
 export interface ApplySoundInput {
   /** 렌더된 영상 */
@@ -227,7 +257,7 @@ export interface ApplySoundInput {
 export async function applySound(
   i: ApplySoundInput,
   deps: { catalog?: Catalog; measure?: typeof measureAudio; mix?: typeof mixSound } = {},
-): Promise<{ path: string; report: SoundReport }> {
+): Promise<{ path: string; report: SoundReport; recipe: Omit<MixRecipe, 'ai'> }> {
   const catalog = deps.catalog ?? loadCatalog()
   const measure = deps.measure ?? measureAudio
   const mix = deps.mix ?? mixSound
@@ -253,10 +283,58 @@ export async function applySound(
   })
   return {
     path,
-    report: {
-      ...(bgm ? { bgm: { id: bgm.id, title: bgm.title, author: bgm.author, license: bgm.license, sourceUrl: bgm.sourceUrl } } : {}),
-      sfxCount: sfx.length,
-    },
+    report: { ...(bgm ? { bgm: bgmInfo(bgm) } : {}), sfxCount: sfx.length },
+    recipe: { durationSec: i.durationSec, hasAudio: i.hasAudio, voice, bgmId: bgm?.id ?? null, sfx: events.map((e, k) => ({ trackId: e.trackId, atSec: sfx[k]!.atSec })) },
+  }
+}
+
+const NOT_REMIXABLE = '이 작업은 소리만 다시 섞을 수 없어요. 새로 만든 작업부터 가능해요.'
+
+/**
+ * 제작 때 남긴 소리 없는 렌더(dry.mp4)와 섞는 방법(mix.json)으로 음악·효과음 크기만 바꿔 다시 섞는다. 화면은 다시 그리지 않는다.
+ * 임시 파일(result.tmp.mp4)에 만들고 성공해야 result.mp4 를 바꿔치기한다 — 실패해도 기존 결과가 그대로 남는다.
+ */
+export async function remixSound(
+  i: { outDir: string; gains: { bgmGainDb: number; sfxGainDb: number } },
+  deps: { catalog?: Catalog; mix?: typeof mixSound } = {},
+): Promise<SoundReport> {
+  const dry = nodePath.join(i.outDir, 'dry.mp4')
+  const recipeFile = nodePath.join(i.outDir, 'mix.json')
+  if (!fs.existsSync(dry) || !fs.existsSync(recipeFile)) throw new SoundError(NOT_REMIXABLE)
+  const parsed = (() => {
+    try {
+      return RecipeSchema.safeParse(JSON.parse(fs.readFileSync(recipeFile, 'utf8')))
+    } catch {
+      return { success: false as const }
+    }
+  })()
+  if (!parsed.success) throw new SoundError('섞는 방법 기록(mix.json)을 읽을 수 없어요. 이 작업은 다시 만들어 주세요.')
+  const recipe = parsed.data
+
+  const catalog = deps.catalog ?? loadCatalog()
+  const mix = deps.mix ?? mixSound
+  const problem = soundChoiceProblem(catalog, recipe.bgmId, recipe.sfx.length ? 'on' : 'off')
+  if (problem) throw new SoundError(problem)
+  const bgm = recipe.bgmId ? catalog.bgm.find((t) => t.id === recipe.bgmId) : undefined
+  const sfx = recipe.sfx.map((e) => {
+    const t = catalog.sfx.find((x) => x.id === e.trackId)
+    if (!t) throw new SoundError(`효과음 파일(${e.trackId})을 음원 목록에서 찾을 수 없어요. 이 작업은 다시 만들어 주세요.`)
+    return { file: trackPath(catalog, t), peakDb: t.peakDb, atSec: e.atSec }
+  })
+  const gains = { bgmGainDb: clampGainDb(i.gains.bgmGainDb), sfxGainDb: clampGainDb(i.gains.sfxGainDb) }
+
+  const tmp = nodePath.join(i.outDir, 'result.tmp.mp4') // ffmpeg 는 확장자로 출력 형식을 정한다
+  try {
+    await mix({ videoPath: dry, outPath: tmp, durationSec: recipe.durationSec, hasAudio: recipe.hasAudio, voice: recipe.voice, bgm: bgm ? { file: trackPath(catalog, bgm), lufs: bgm.lufs } : undefined, sfx, ...gains })
+    fs.renameSync(tmp, nodePath.join(i.outDir, 'result.mp4'))
+  } catch (e) {
+    fs.rmSync(tmp, { force: true })
+    throw e
+  }
+  return {
+    ...(bgm ? { bgm: bgmInfo(bgm) } : {}),
+    sfxCount: sfx.length,
+    balance: { ...gains, aiBgmGainDb: recipe.ai.bgmGainDb, aiSfxGainDb: recipe.ai.sfxGainDb, reason: recipe.ai.reason },
   }
 }
 

@@ -1,6 +1,5 @@
-import { clampGainDb } from '../shared/sound.ts'
+import { clampGainDb, loadCatalog, type Catalog } from '../shared/sound.ts'
 import { askClaude, extractJson } from './llm.ts'
-import type { AudioLevel } from './sound.ts'
 import type { Transcript } from './types.ts'
 import type { VideoSummary } from './understand.ts'
 
@@ -35,7 +34,7 @@ export function speechRatio(t: Transcript, durationSec: number): number {
 
 const aiClamp = (n: unknown): number => Math.min(AI_RANGE.max, Math.max(AI_RANGE.min, clampGainDb(n)))
 
-function buildPrompt(i: { summary: VideoSummary; speechRatio: number; voice: AudioLevel; bgm?: { title: string; mood: string }; sfxOn: boolean }): string {
+function buildPrompt(i: { summary: VideoSummary; speechRatio: number; bgm?: { title: string; mood: string }; sfxOn: boolean }): string {
   return [
     '짧은 세로 영상(릴스)에 배경음악과 효과음을 깐다. 기본 규칙은 이렇다: 음악은 목소리보다 14 LU 작게, 효과음 최대치는 목소리 최대치보다 8 dB 작게, 말할 때는 음악이 자동으로 줄어든다.',
     '이 영상에서 기본 규칙 대비 음악과 효과음을 얼마나 키우거나 줄이면 좋을지 dB 오프셋으로 정해라. 0 이면 기본 그대로, 양수는 크게, 음수는 작게.',
@@ -44,7 +43,6 @@ function buildPrompt(i: { summary: VideoSummary; speechRatio: number; voice: Aud
     `주제: ${i.summary.topic}`,
     `한 줄 요약: ${i.summary.oneLine}`,
     `말하는 구간 비율: ${Math.round(i.speechRatio * 100)}%`,
-    i.voice.lufs === null ? '목소리 음량: 말 없음(소리 트랙이 없거나 주변 소음뿐)' : `목소리 음량: ${i.voice.lufs.toFixed(1)} LUFS`,
     i.bgm ? `배경음악: ${i.bgm.title} (분위기 ${i.bgm.mood})` : '배경음악: 쓰지 않음',
     `효과음: ${i.sfxOn ? '켬' : '끔'}`,
     '',
@@ -60,7 +58,7 @@ function buildPrompt(i: { summary: VideoSummary; speechRatio: number; voice: Aud
  * 쓸 음악도 효과음도 없으면 AI 를 부르지 않는다. 호출 실패·엉뚱한 답이면 오프셋 0 으로 돌아가고 제작은 계속된다.
  */
 export async function decideSoundBalance(
-  i: { summary: VideoSummary; speechRatio: number; voice: AudioLevel; bgm?: { title: string; mood: string; lufs: number }; sfxOn: boolean },
+  i: { summary: VideoSummary; speechRatio: number; bgm?: { title: string; mood: string }; sfxOn: boolean },
   deps: { ask?: typeof askClaude } = {},
 ): Promise<SoundBalance> {
   if (!i.bgm && !i.sfxOn) return NONE
@@ -74,6 +72,19 @@ export async function decideSoundBalance(
       sfxGainDb: i.sfxOn ? aiClamp(r.sfxGainDb) : 0,
       reason: typeof r.reason === 'string' ? r.reason.trim().slice(0, REASON_MAX) : '',
     }
+  } catch {
+    return NONE
+  }
+}
+
+/** 파이프라인이 쓰는 입구: 곡 id 로 음원 목록에서 제목·분위기를 찾아 묻는다. 목록을 못 읽으면 AI 를 부르지 않고 오프셋 0. */
+export async function balanceSound(
+  i: { summary: VideoSummary; speechRatio: number; bgmId: string | null; sfxOn: boolean },
+  deps: { ask?: typeof askClaude; catalog?: () => Catalog } = {},
+): Promise<SoundBalance> {
+  try {
+    const track = i.bgmId ? (deps.catalog ?? loadCatalog)().bgm.find((t) => t.id === i.bgmId) : undefined
+    return await decideSoundBalance({ summary: i.summary, speechRatio: i.speechRatio, bgm: track && { title: track.title, mood: track.mood }, sfxOn: i.sfxOn }, { ask: deps.ask })
   } catch {
     return NONE
   }

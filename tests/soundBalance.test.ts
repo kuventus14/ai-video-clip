@@ -1,12 +1,12 @@
 import { describe, expect, test } from 'vitest'
 import type { askClaude } from '../src/core/llm.ts'
-import { decideSoundBalance, speechRatio } from '../src/core/soundBalance.ts'
+import { balanceSound, decideSoundBalance, speechRatio } from '../src/core/soundBalance.ts'
+import type { BgmTrack, Catalog } from '../src/shared/sound.ts'
 import type { VideoSummary } from '../src/core/understand.ts'
 import type { Transcript } from '../src/core/types.ts'
 
 const SUMMARY: VideoSummary = { topic: '자취방 정리', genre: '브이로그', oneLine: '작은 방을 정리한다', language: 'ko', hasPeople: true, hookTitle: '방 정리', searchQueries: ['a', 'b', 'c'], source: 'analyzed' }
-const VOICE = { lufs: -20, peakDb: -3 }
-const BGM = { title: '잔잔한 곡', mood: 'calm', lufs: -14 }
+const BGM = { title: '잔잔한 곡', mood: 'calm' }
 
 /** 가짜 AI: 받은 요청을 기록하고, 정해 둔 글(또는 오류)로 답한다 */
 function fakeAsk(reply: string | Error) {
@@ -18,7 +18,7 @@ function fakeAsk(reply: string | Error) {
   }) as unknown as typeof askClaude
   return { ask, calls }
 }
-const input = (extra: Partial<Parameters<typeof decideSoundBalance>[0]> = {}) => ({ summary: SUMMARY, speechRatio: 0.7, voice: VOICE, bgm: BGM, sfxOn: true, ...extra })
+const input = (extra: Partial<Parameters<typeof decideSoundBalance>[0]> = {}) => ({ summary: SUMMARY, speechRatio: 0.7, bgm: BGM, sfxOn: true, ...extra })
 
 describe('decideSoundBalance — AI 가 음악·효과음 크기 오프셋을 정한다', () => {
   test('AI 가 준 값을 그대로 쓰고 이유를 남긴다', async () => {
@@ -95,5 +95,31 @@ describe('speechRatio — 길이 중 말하는 구간의 비율', () => {
   test('겹친 구간은 한 번만 세고 1 을 넘지 않는다', () => {
     expect(speechRatio(tr([[0, 6], [4, 9]]), 10)).toBeCloseTo(0.9, 5)
     expect(speechRatio(tr([[-2, 20]]), 10)).toBe(1)
+  })
+})
+
+const TRACK: BgmTrack = { kind: 'bgm', id: 'calm-1', file: 'bgm/calm-1.mp3', title: '잔잔한 곡', author: '작가', sourceUrl: 'https://pixabay.com/music/x', license: 'Pixabay License', durationSec: 90, lufs: -14, peakDb: -1, mood: 'calm' }
+const CATALOG: Catalog = { dir: '/snd', bgm: [TRACK], sfx: [] }
+
+describe('balanceSound — 음원 목록에서 곡 정보를 찾아 AI 에게 묻는다', () => {
+  const REPLY = '{"bgmGainDb":2,"sfxGainDb":0,"reason":"활기찬 영상"}'
+  test('곡 id 로 제목·분위기를 찾아 프롬프트에 넣는다', async () => {
+    const f = fakeAsk(REPLY)
+    const r = await balanceSound({ summary: SUMMARY, speechRatio: 0.3, bgmId: 'calm-1', sfxOn: false }, { ask: f.ask, catalog: () => CATALOG })
+    expect(r).toMatchObject({ bgmGainDb: 2, sfxGainDb: 0 })
+    expect(f.calls[0]!.prompt).toContain('잔잔한 곡')
+    expect(f.calls[0]!.prompt).toContain('calm')
+  })
+  test('음원 목록을 못 읽어도(던짐) 오프셋 0 — 제작은 계속된다', async () => {
+    const f = fakeAsk(REPLY)
+    const r = await balanceSound({ summary: SUMMARY, speechRatio: 0.3, bgmId: 'calm-1', sfxOn: true }, { ask: f.ask, catalog: () => { throw new Error('manifest 깨짐') } })
+    expect(r).toEqual({ bgmGainDb: 0, sfxGainDb: 0, reason: '' })
+    expect(f.calls).toHaveLength(0)
+  })
+  test('효과음만 쓰면 음원 목록을 읽지 않는다', async () => {
+    const f = fakeAsk(REPLY)
+    const r = await balanceSound({ summary: SUMMARY, speechRatio: 0.3, bgmId: null, sfxOn: true }, { ask: f.ask, catalog: () => { throw new Error('안 불려야 함') } })
+    expect(r.bgmGainDb).toBe(0)
+    expect(f.calls).toHaveLength(1)
   })
 })
