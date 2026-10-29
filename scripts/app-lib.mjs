@@ -1,4 +1,5 @@
 // scripts/app.mjs 의 순수한 부분 — 시험할 수 있게 따로 둔다.
+import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import net from 'node:net'
 import path from 'node:path'
@@ -108,4 +109,24 @@ export function createSignalHandler({ listChildren, terminate, killGroup, exit, 
     exit(1)
     return 'force'
   }
+}
+
+/**
+ * 자식 프로세스를 그 자식들(렌더링 도구 포함)과 함께 끝낸다.
+ * 맥·리눅스는 자식이 자기 프로세스 그룹이라 그룹째(-pid) 끝내고, 윈도우는 그룹이 없어서 taskkill 의 /T(트리)로 끝낸다.
+ * 이미 끝났으면 조용히 넘어간다. 옵션은 시험에서 가짜로 바꿔 끼우는 용도.
+ */
+export function killTree(pid, { platform = process.platform, spawnSync: spawnSyncFn = spawnSync, kill = process.kill.bind(process) } = {}) {
+  if (pid === undefined) return
+  try {
+    if (platform === 'win32') spawnSyncFn('taskkill', ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true })
+    else kill(-pid, 'SIGKILL')
+  } catch {
+    // 이미 끝났다
+  }
+}
+
+/** next 를 node 로 직접 실행할 JS 파일. node_modules/.bin/next 는 윈도우에서 .cmd 라 spawn 이 거절한다. */
+export function nextBinPath(root) {
+  return path.join(root, 'node_modules', 'next', 'dist', 'bin', 'next')
 }

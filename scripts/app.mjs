@@ -6,12 +6,11 @@
 import { spawn } from 'node:child_process'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { createSignalHandler, isPortFree, linePrefixer, needsBuild, parseAppArgs } from './app-lib.mjs'
+import { createSignalHandler, isPortFree, killTree, linePrefixer, needsBuild, nextBinPath, parseAppArgs } from './app-lib.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const HOST = '127.0.0.1'
 const port = Number(process.env.VAE_PORT ?? 4848)
-const bin = (name) => path.join(root, 'node_modules', '.bin', name)
 const say = (line) => console.log(line)
 
 let args
@@ -31,7 +30,7 @@ if (!(await isPortFree(port, HOST))) {
 function run(prefix, command, commandArgs) {
   // detached: 자식을 자기 프로세스 그룹에 둔다 — 터미널의 Ctrl+C 가 자식(렌더링 중인 워커·hyperframes·ffmpeg)에게 직접 가서
   // 진행 중인 작업이 바로 죽는 일이 없게 하고, 종료는 런처가 정해진 순서로 알린다.
-  const child = spawn(command, commandArgs, { cwd: root, env: process.env, stdio: ['ignore', 'pipe', 'pipe'], detached: true })
+  const child = spawn(command, commandArgs, { cwd: root, env: process.env, stdio: ['ignore', 'pipe', 'pipe'], detached: true, windowsHide: true })
   const out = linePrefixer(prefix, say)
   const err = linePrefixer(prefix, say)
   child.stdout.on('data', (c) => out.write(c))
@@ -47,7 +46,7 @@ const exited = (child) => new Promise((resolve) => child.once('exit', (code, sig
 
 if (!args.dev && (args.rebuild || needsBuild(root))) {
   say('[app] 화면을 빌드해요 (처음이거나 소스가 바뀌었을 때만 해요. 1~2분 걸릴 수 있어요)')
-  const { code } = await exited(run('[build]', bin('next'), ['build']))
+  const { code } = await exited(run('[build]', process.execPath, [nextBinPath(root), 'build']))
   if (code !== 0) {
     console.error('[app] 빌드에 실패했어요. 위의 [build] 로그를 확인해 주세요.')
     process.exit(1)
@@ -57,7 +56,7 @@ if (!args.dev && (args.rebuild || needsBuild(root))) {
 let shuttingDown = false
 const children = new Set()
 
-const web = run('[web]', bin('next'), [args.dev ? 'dev' : 'start', '-H', HOST, '-p', String(port)])
+const web = run('[web]', process.execPath, [nextBinPath(root), args.dev ? 'dev' : 'start', '-H', HOST, '-p', String(port)]) // .bin/next 는 윈도우에서 .cmd 라 node 로 직접 연다
 children.add(web)
 
 // 워커가 예상치 못하게 멈추면 작업이 조용히 멈춰 버리므로 다시 켠다(짧은 시간에 반복해서 죽으면 포기한다).
@@ -101,11 +100,20 @@ function exitWhenChildrenGone(exitCode) {
   }, 200)
 }
 
+/**
+ * 자식에게 "끝내 달라"고 알린다. 맥·리눅스는 SIGTERM 이라 워커가 진행 중인 작업을 끝내고 종료한다.
+ * 윈도우는 신호가 없어 SIGTERM 이 곧바로 강제 종료라서, 렌더링 도구까지 함께 트리째 끝낸다(진행 중이던 작업은 다음 실행 때 "중단됐어요"로 표시된다).
+ */
+function terminate(c) {
+  if (process.platform === 'win32') killTree(c.pid)
+  else c.kill('SIGTERM')
+}
+
 /** 앱 안에서 정한 종료(화면 서버가 죽음, 워커가 계속 죽음): 자식에게 한 번씩 알리고 끝나길 기다린다 */
 function shutdown(exitCode = 0) {
   if (shuttingDown) return
   shuttingDown = true
-  for (const c of children) c.kill('SIGTERM')
+  for (const c of children) terminate(c)
   exitWhenChildrenGone(exitCode)
 }
 
@@ -113,14 +121,8 @@ function shutdown(exitCode = 0) {
 // 터미널과 npm 이 같은 Ctrl+C 를 두 번 전달하는 경우는 1초 안의 중복으로 보고 무시한다(app-lib 의 createSignalHandler).
 const onSignal = createSignalHandler({
   listChildren: () => [...children],
-  terminate: (c) => c.kill('SIGTERM'),
-  killGroup: (c) => {
-    try {
-      process.kill(-c.pid, 'SIGKILL') // 프로세스 그룹째: 워커가 띄운 렌더링 도구까지
-    } catch {
-      // 이미 끝났다
-    }
-  },
+  terminate,
+  killGroup: (c) => killTree(c.pid), // 프로세스 그룹(윈도우는 트리)째: 워커가 띄운 렌더링 도구까지
   exit: (code) => process.exit(code),
   say,
 })

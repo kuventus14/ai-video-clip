@@ -2,8 +2,8 @@ import fs from 'node:fs'
 import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { createSignalHandler, isPortFree, latestMtimeMs, linePrefixer, needsBuild, parseAppArgs } from '../scripts/app-lib.mjs'
+import { afterEach, beforeEach, describe, expect, it, test } from 'vitest'
+import { createSignalHandler, isPortFree, killTree, latestMtimeMs, linePrefixer, needsBuild, nextBinPath, parseAppArgs } from '../scripts/app-lib.mjs'
 
 describe('linePrefixer', () => {
   it('줄마다 접두어를 붙이고, 줄 중간에 끊겨 온 조각은 이어 붙인다', () => {
@@ -141,5 +141,34 @@ describe('createSignalHandler — Ctrl+C 한 번에 진행 중인 작업이 죽�
     expect(handler('SIGINT')).toBe('force')
     expect(calls.filter((c) => c.startsWith('KILL'))).toEqual(['KILL web', 'KILL worker'])
     expect(calls[calls.length - 1]).toBe('exit 1')
+  })
+})
+
+describe('killTree — 자식과 그 자식들을 함께 끝낸다(플랫폼별)', () => {
+  test('윈도우: taskkill /T /F 로 트리째 끝낸다', () => {
+    const calls: unknown[][] = []
+    killTree(123, { platform: 'win32', spawnSync: (...a: unknown[]) => void calls.push(a) })
+    expect(calls).toEqual([['taskkill', ['/pid', '123', '/T', '/F'], { stdio: 'ignore', windowsHide: true }]])
+  })
+  test('맥·리눅스: 프로세스 그룹째(-pid) SIGKILL', () => {
+    const calls: unknown[][] = []
+    killTree(123, { platform: 'darwin', kill: (...a: unknown[]) => void calls.push(a) })
+    expect(calls).toEqual([[-123, 'SIGKILL']])
+  })
+  test('이미 끝나서 던져도 조용히 넘어간다', () => {
+    expect(() => killTree(1, { platform: 'linux', kill: () => { throw new Error('ESRCH') } })).not.toThrow()
+    expect(() => killTree(1, { platform: 'win32', spawnSync: () => { throw new Error('x') } })).not.toThrow()
+  })
+  test('pid 가 없으면 아무것도 하지 않는다', () => {
+    const calls: unknown[][] = []
+    killTree(undefined, { platform: 'darwin', kill: (...a: unknown[]) => void calls.push(a) })
+    expect(calls).toEqual([])
+  })
+})
+
+describe('nextBinPath — next 를 node 로 직접 실행하는 파일', () => {
+  test('.bin 의 셸 스크립트(윈도우는 .cmd)가 아니라 next 패키지 안의 JS 파일을 가리킨다', () => {
+    expect(nextBinPath('/app')).toBe(path.join('/app', 'node_modules', 'next', 'dist', 'bin', 'next'))
+    expect(fs.existsSync(nextBinPath(path.resolve(import.meta.dirname, '..')))).toBe(true)
   })
 })
