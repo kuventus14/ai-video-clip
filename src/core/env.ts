@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { defaultSearchPath, run } from './exec.ts'
+import { installHint, resolveTool, withPath } from './platform.ts'
 
 export { defaultSearchPath }
 
@@ -21,44 +22,34 @@ export interface EnvReport {
 
 export const WHISPER_MODEL_PATH = path.join(os.homedir(), '.cache/hyperframes/whisper/models/ggml-small.bin')
 
-const SPEC: Record<ToolName, { versionArgs: string[] | null; hint: string }> = {
-  node: { versionArgs: ['--version'], hint: 'Node.js 22 이상이 필요해요 (brew install node)' },
-  ffmpeg: { versionArgs: ['-version'], hint: 'brew install ffmpeg' },
-  ffprobe: { versionArgs: ['-version'], hint: 'brew install ffmpeg' },
-  hyperframes: { versionArgs: ['--version'], hint: 'npm i -g hyperframes' },
-  'whisper-cli': { versionArgs: null, hint: 'brew install whisper-cpp' },
-  'yt-dlp': { versionArgs: ['--version'], hint: 'uv tool install yt-dlp' },
-  claude: { versionArgs: ['--version'], hint: 'Claude Code 를 설치하고 로그인하세요' },
-  swiftc: { versionArgs: ['--version'], hint: 'xcode-select --install (또는 Xcode 설치)' },
+const VERSION_ARGS: Record<ToolName, string[] | null> = {
+  node: ['--version'],
+  ffmpeg: ['-version'],
+  ffprobe: ['-version'],
+  hyperframes: ['--version'],
+  'whisper-cli': null,
+  'yt-dlp': ['--version'],
+  claude: ['--version'],
+  swiftc: ['--version'],
 }
 
-function findOnPath(name: string, searchPath: string): string | null {
-  for (const dir of searchPath.split(path.delimiter)) {
-    if (!dir) continue
-    const candidate = path.join(dir, name)
-    try {
-      fs.accessSync(candidate, fs.constants.X_OK)
-      if (fs.statSync(candidate).isFile()) return candidate
-    } catch {
-      // 다음 후보
-    }
-  }
-  return null
-}
+/** 앱이 쓰지 않는 도구(사람 추적용 Swift 컴파일러, 맥 전용) — 없어도 환경은 정상이다 */
+const NOT_NEEDED: ToolName[] = ['swiftc']
 
-export async function checkEnvironment(opts: { path?: string } = {}): Promise<EnvReport> {
+export async function checkEnvironment(opts: { path?: string; platform?: NodeJS.Platform; isExecutable?: (file: string) => boolean; modelPath?: string } = {}): Promise<EnvReport> {
+  const platform = opts.platform ?? process.platform
   const searchPath = opts.path ?? defaultSearchPath()
-  const env = { ...process.env, PATH: searchPath }
-  const names = Object.keys(SPEC) as ToolName[]
+  const env = withPath(process.env, searchPath)
+  const names = Object.keys(VERSION_ARGS) as ToolName[]
 
   const entries = await Promise.all(
     names.map(async (name): Promise<[ToolName, ToolStatus]> => {
-      const spec = SPEC[name]
-      const found = findOnPath(name, searchPath)
-      if (!found) return [name, { ok: false, hint: spec.hint }]
-      if (!spec.versionArgs) return [name, { ok: true }]
+      const versionArgs = VERSION_ARGS[name]
+      const found = resolveTool(name, searchPath, { platform, isExecutable: opts.isExecutable })
+      if (!found) return [name, { ok: false, hint: installHint(name, platform) }]
+      if (!versionArgs) return [name, { ok: true }]
       try {
-        const { stdout, stderr } = await run(found, spec.versionArgs, { env, timeoutMs: 15_000 })
+        const { stdout, stderr } = await run(found, versionArgs, { env, timeoutMs: 15_000 })
         const first = (stdout || stderr).split('\n')[0]?.trim()
         return [name, { ok: true, version: first }]
       } catch {
@@ -68,7 +59,8 @@ export async function checkEnvironment(opts: { path?: string } = {}): Promise<En
   )
 
   const tools = Object.fromEntries(entries) as Record<ToolName, ToolStatus>
-  const whisperModel = { ok: fs.existsSync(WHISPER_MODEL_PATH), path: WHISPER_MODEL_PATH }
-  const ok = names.every((n) => tools[n].ok) && whisperModel.ok
+  const modelPath = opts.modelPath ?? WHISPER_MODEL_PATH
+  const whisperModel = { ok: fs.existsSync(modelPath), path: modelPath }
+  const ok = names.filter((n) => !NOT_NEEDED.includes(n)).every((n) => tools[n].ok) && whisperModel.ok
   return { ok, tools, whisperModel }
 }

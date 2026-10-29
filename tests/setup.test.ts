@@ -34,7 +34,7 @@ describe('describeSetup — 처음 쓰는 사람을 위한 환경 점검 결과'
   })
 
   test('인식 모델이 없으면 받는 명령과 확인 해시를 보여 준다', () => {
-    const r = describeSetup(report([], false), true)
+    const r = describeSetup(report([], false), true, 'darwin')
     expect(r.ready).toBe(false)
     const text = r.lines.join('\n')
     expect(text).toContain('✗ 음성 인식 모델')
@@ -51,5 +51,20 @@ describe('describeSetup — 처음 쓰는 사람을 위한 환경 점검 결과'
 
   test('claude 는 설치만 확인할 수 있어서 로그인을 직접 확인하라고 알려 준다', () => {
     expect(describeSetup(report(), true).lines.join('\n')).toMatch(/claude.*로그인/s)
+  })
+})
+
+describe('describeSetup — 플랫폼별 모델 받기 명령', () => {
+  const MODEL = 'C:\\Users\\u\\.cache\\hyperframes\\whisper\\models\\ggml-small.bin'
+  const missing = (platform: NodeJS.Platform, path = '/home/u/m.bin') => describeSetup({ ...report([], false), whisperModel: { ok: false, path } }, true, platform).lines.join('\n')
+  test('윈도우: curl.exe(PowerShell 의 curl 은 다른 명령이다)와 Get-FileHash', () => {
+    const text = missing('win32', MODEL)
+    expect(text).toContain(`curl.exe -L --create-dirs -o "${MODEL}"`)
+    expect(text).toContain(`Get-FileHash -Algorithm SHA256 "${MODEL}"`)
+    expect(text).not.toContain('shasum')
+  })
+  test('리눅스: sha256sum, 맥: shasum', () => {
+    expect(missing('linux')).toContain('sha256sum /home/u/m.bin')
+    expect(missing('darwin')).toContain('shasum -a 256 /home/u/m.bin')
   })
 })
