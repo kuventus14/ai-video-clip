@@ -120,6 +120,18 @@ describe('buildMixArgs — ffmpeg 인자 (순수 함수)', () => {
     const g = graphOf(buildMixArgs(base({ sfx: [{ file: '/s.mp3', peakDb: -3, atSec: 1 }] }))) // 목표 min(-6, -3-8=-11) = -11 → -11 - (-3) = -8
     expect(g).toContain('volume=-8.00dB')
   })
+  test('음악 오프셋 +3dB 는 기본 -20.00dB 위에 더해져 -17.00dB, 오프셋 0·생략은 기본 그대로', () => {
+    expect(graphOf(buildMixArgs(base({ bgm: { file: '/b.mp3', lufs: -14 }, bgmGainDb: 3 })))).toContain('volume=-17.00dB')
+    expect(graphOf(buildMixArgs(base({ bgm: { file: '/b.mp3', lufs: -14 }, bgmGainDb: 0 })))).toContain('volume=-20.00dB')
+  })
+  test('효과음 오프셋 -2dB 는 기본 -8.00dB 위에 더해져 -10.00dB (음악 오프셋은 효과음에 영향 없음)', () => {
+    const g = graphOf(buildMixArgs(base({ sfx: [{ file: '/s.mp3', peakDb: -3, atSec: 1 }], sfxGainDb: -2, bgmGainDb: 5 })))
+    expect(g).toContain('volume=-10.00dB')
+  })
+  test('말 없는 영상의 음악(절대 크기 -22 LUFS)에도 음악 오프셋이 더해진다', () => {
+    const g = graphOf(buildMixArgs(base({ hasAudio: false, voice: { lufs: null, peakDb: null }, bgm: { file: '/b.mp3', lufs: -14 }, bgmGainDb: -4 })))
+    expect(g).toContain('volume=-12.00dB') // -22 - (-14) - 4
+  })
   test('alimiter 가 마지막 필터이고 출력 이름은 [aout]', () => {
     const g = graphOf(buildMixArgs(base({ bgm: { file: '/b.mp3', lufs: -14 } })))
     expect(g).toMatch(/alimiter=limit=0\.8:level=disabled\[aout\]$/)
@@ -300,6 +312,15 @@ describe('applySound — 고른 값으로 측정하고 섞는다', () => {
     const at = f.calls.mix!.sfx.map((s) => s.atSec)
     expect(at[0]).toBeCloseTo(0.1 / 1.25, 3) // 제목 pop
     expect(at[1]).toBeCloseTo(4.85 / 1.25, 3) // 컷 whoosh
+  })
+  test('gains 를 주면 음악·효과음 오프셋을 섞기에 넘기고, 안 주면 넘기지 않는다', async () => {
+    const f = fakes()
+    await applySound({ ...RENDERED, choice: { bgm: 'calm-1', sfx: 'on' }, gains: { bgmGainDb: 3, sfxGainDb: -2 } }, f.deps)
+    expect(f.calls.mix).toMatchObject({ bgmGainDb: 3, sfxGainDb: -2 })
+    const g = fakes()
+    await applySound({ ...RENDERED, choice: { bgm: 'calm-1', sfx: 'on' } }, g.deps)
+    expect(g.calls.mix!.bgmGainDb ?? 0).toBe(0)
+    expect(g.calls.mix!.sfxGainDb ?? 0).toBe(0)
   })
   test('음악만 고르면 효과음은 비어 있고 sfxCount 0', async () => {
     const f = fakes()

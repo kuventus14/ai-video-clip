@@ -114,6 +114,10 @@ export interface MixInput {
   bgm?: { file: string; lufs: number }
   /** 출력 시간 기준 효과음 */
   sfx: { file: string; peakDb: number; atSec: number }[]
+  /** 기본 규칙(음악 = 목소리 -14 LU)에서 음악을 키우거나(+) 줄이는(-) dB. 기본 0 */
+  bgmGainDb?: number
+  /** 기본 규칙(효과음 최대치 = 목소리 최대치 -8 dB)에서 효과음을 키우거나 줄이는 dB. 기본 0 */
+  sfxGainDb?: number
 }
 
 /**
@@ -154,7 +158,7 @@ export function buildMixArgs(i: MixInput): string[] {
     const fadeOut = Math.min(BGM_FADE_OUT_SEC, dur / 4)
     const target = hasVoice ? i.voice.lufs! - BGM_BELOW_VOICE_LU : BGM_NO_VOICE_LUFS
     graph.push(
-      `[${bgmIn}]${norm},atrim=duration=${fmt(dur)},asetpts=PTS-STARTPTS,volume=${(target - i.bgm.lufs).toFixed(2)}dB,afade=t=in:st=0:d=${fmt(fadeIn)},afade=t=out:st=${fmt(dur - fadeOut)}:d=${fmt(fadeOut)}[bg]`,
+      `[${bgmIn}]${norm},atrim=duration=${fmt(dur)},asetpts=PTS-STARTPTS,volume=${(target - i.bgm.lufs + (i.bgmGainDb ?? 0)).toFixed(2)}dB,afade=t=in:st=0:d=${fmt(fadeIn)},afade=t=out:st=${fmt(dur - fadeOut)}:d=${fmt(fadeOut)}[bg]`,
     )
     if (hasVoice) {
       const threshold = Math.min(1, Math.max(0.001, 10 ** ((i.voice.lufs! - DUCK_THRESHOLD_BELOW_VOICE_LU) / 20)))
@@ -167,7 +171,7 @@ export function buildMixArgs(i: MixInput): string[] {
 
   const sfxPeak = Math.min(SFX_MAX_PEAK_DB, (i.voice.peakDb ?? -3) - SFX_BELOW_VOICE_PEAK_DB)
   i.sfx.forEach((s, k) => {
-    graph.push(`[${sfxIn[k]}]${norm},volume=${(sfxPeak - s.peakDb).toFixed(2)}dB,adelay=${Math.round(s.atSec * 1000)}:all=1[sfx${k}]`)
+    graph.push(`[${sfxIn[k]}]${norm},volume=${(sfxPeak - s.peakDb + (i.sfxGainDb ?? 0)).toFixed(2)}dB,adelay=${Math.round(s.atSec * 1000)}:all=1[sfx${k}]`)
     mixed.push(`[sfx${k}]`)
   })
 
@@ -215,6 +219,8 @@ export interface ApplySoundInput {
   hasSpeech: boolean
   /** 렌더 뒤 속도 조정 배수(기본 1). 효과음 위치를 같은 배수로 앞당긴다 — durationSec 은 속도를 적용한 뒤의 길이를 준다 */
   speed?: number
+  /** 음악·효과음 크기 오프셋(dB). 없으면 기본 규칙 그대로 */
+  gains?: { bgmGainDb: number; sfxGainDb: number }
 }
 
 /** 사용자가 고른 곡·효과음으로 렌더된 영상에 소리를 입힌다. 고른 곡이 목록에 없으면 SoundError. */
@@ -242,6 +248,8 @@ export async function applySound(
     videoPath: i.renderedPath, outPath: i.outPath, durationSec: i.durationSec, hasAudio: i.hasAudio, voice,
     bgm: bgm ? { file: trackPath(catalog, bgm), lufs: bgm.lufs } : undefined,
     sfx,
+    bgmGainDb: i.gains?.bgmGainDb,
+    sfxGainDb: i.gains?.sfxGainDb,
   })
   return {
     path,

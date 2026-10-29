@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { beforeEach, describe, expect, test } from 'vitest'
-import { findTrack, loadCatalog, SFX_MODES, SoundError, soundChoiceProblem, soundDir } from '../src/shared/sound.ts'
+import { clampGainDb, findTrack, loadCatalog, SFX_MODES, SOUND_GAIN_RANGE, SoundError, soundChoiceProblem, soundDir } from '../src/shared/sound.ts'
 
 let dir: string
 beforeEach(() => {
@@ -115,5 +115,21 @@ describe('soundChoiceProblem — 고른 곡·효과음을 지금 쓸 수 있나'
   test('효과음을 켰는데 효과음 파일이 없으면 안내', () => {
     write([bgm('a')])
     expect(soundChoiceProblem(loadCatalog(dir), null, 'on')).toMatch(/효과음/)
+  })
+})
+
+describe('clampGainDb — 볼륨 오프셋 정리', () => {
+  test('범위는 -12 ~ +6 dB', () => {
+    expect(SOUND_GAIN_RANGE).toEqual({ min: -12, max: 6 })
+  })
+  test('숫자가 아니면 0, 범위 밖은 끝값으로, 0.5 단위로 반올림', () => {
+    expect(clampGainDb('x')).toBe(0)
+    expect(clampGainDb(null)).toBe(0)
+    expect(clampGainDb(NaN)).toBe(0)
+    expect(clampGainDb(Infinity)).toBe(0)
+    expect(clampGainDb(99)).toBe(6)
+    expect(clampGainDb(-99)).toBe(-12)
+    expect(clampGainDb(2.74)).toBe(2.5)
+    expect(clampGainDb(-0.2)).toBe(0)
   })
 })
