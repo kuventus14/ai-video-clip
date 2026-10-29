@@ -2,8 +2,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { z } from 'zod'
 import type { Job } from '../db/jobs.ts'
-import type { Catalog } from '../shared/sound.ts'
-import type { JobDto, ReportDto, ScriptDto, ScriptEdits, SoundListDto } from '../shared/types.ts'
+import { canRemix, SOUND_NOT_REMIXABLE, type Catalog } from '../shared/sound.ts'
+import type { JobDto, ReportDto, ScriptDto, ScriptEdits, SoundAdjustDto, SoundListDto } from '../shared/types.ts'
 
 const SummarySchema = z.object({
   topic: z.string(),
@@ -75,6 +75,26 @@ function toResultInfo(report: unknown): JobDto['resultInfo'] {
   return parsed.success ? parsed.data.output : null
 }
 
+/** 제작이 남긴 지금 값·AI 추천 값(report.sound.balance). 없으면(소리 크기 기능 이전의 작업) null */
+const BalanceSchema = z.object({
+  sound: z.object({ balance: z.object({ bgmGainDb: z.number(), sfxGainDb: z.number(), aiBgmGainDb: z.number(), aiSfxGainDb: z.number(), reason: z.string() }) }),
+})
+function toSoundAdjust(job: Job): SoundAdjustDto | null {
+  if (!job.bgmId && job.sfxMode !== 'on') return null
+  const available = canRemix(job.resultPath)
+  const parsed = BalanceSchema.safeParse(job.report)
+  const b = parsed.success ? parsed.data.sound.balance : null
+  return {
+    available,
+    reason: available ? null : SOUND_NOT_REMIXABLE,
+    bgmGainDb: b?.bgmGainDb ?? 0,
+    sfxGainDb: b?.sfxGainDb ?? 0,
+    aiBgmGainDb: b?.aiBgmGainDb ?? 0,
+    aiSfxGainDb: b?.aiSfxGainDb ?? 0,
+    aiReason: b?.reason ?? '',
+  }
+}
+
 const exists = (p: string | null) => (p ? fs.existsSync(p) : false)
 
 /** 내부 경로·원본 파일 경로를 숨기고, 파일이 있는 것만 /api/jobs/<id>/media/<종류> 주소로 채운 화면용 작업. */
@@ -116,6 +136,7 @@ export function toJobDto(job: Job): JobDto {
     planCard: job.planCard,
     report: toReportDto(job.report),
     resultInfo: toResultInfo(job.report),
+    soundAdjust: toSoundAdjust(job),
     media,
     log: job.log.slice(-30),
     error: job.errorMessage,

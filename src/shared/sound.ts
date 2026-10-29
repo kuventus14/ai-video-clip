@@ -25,6 +25,16 @@ export function clampGainDb(n: unknown): number {
   return r === 0 ? 0 : r // -0 을 0 으로
 }
 
+/** 소리만 다시 섞을 수 없는 작업(옛 작업)에 보이는 안내 */
+export const SOUND_NOT_REMIXABLE = '이 작업은 소리만 다시 섞을 수 없어요. 새로 만든 작업부터 가능해요.'
+
+/** 결과 폴더(out/)에 다시 섞기에 필요한 소리 없는 렌더(dry.mp4)와 섞는 방법(mix.json)이 있는가 */
+export function canRemix(resultPath: string | null): boolean {
+  if (!resultPath) return false
+  const dir = path.dirname(resultPath)
+  return fs.existsSync(path.join(dir, 'dry.mp4')) && fs.existsSync(path.join(dir, 'mix.json'))
+}
+
 /** 사용자에게 그대로 보여 줘도 되는 음원 관련 오류(목록이 깨졌거나 고른 파일이 없을 때 등). */
 export class SoundError extends Error {
   constructor(message: string) {

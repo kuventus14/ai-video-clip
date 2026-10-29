@@ -48,6 +48,10 @@ export interface Job {
   transcriptEdits: CaptionEdit[] | null
   /** 사용자가 만든 자막 줄 전체. null = 없음(인식 결과를 쓴다), [] = 자막을 전부 지움 */
   captionTrack: CaptionLine[] | null
+  /** 결과 화면에서 바꾼 음악·효과음 크기(dB, 기본 규칙 대비). 바꾼 적 없으면 null */
+  soundGain: { bgmGainDb: number; sfxGainDb: number } | null
+  /** 켜져 있으면 제작 단계가 영상을 다시 만들지 않고 소리만 다시 섞는다 */
+  remixPending: boolean
   quality: 'draft' | 'looks' | 'delivery'
   recommendations: Recommendation[]
   summary: unknown | null
@@ -63,7 +67,7 @@ export interface Job {
 
 type Patch = Partial<Omit<Job, 'id' | 'createdAt'>>
 
-type Kind = 'text' | 'json' | 'int'
+type Kind = 'text' | 'json' | 'int' | 'bool'
 /** Job 필드 → [컬럼, 종류]. JSON 필드는 TEXT 에 JSON 문자열로 저장한다. */
 const FIELDS: Record<Exclude<keyof Job, 'id' | 'createdAt'>, [string, Kind]> = {
   ownerId: ['owner_id', 'text'],
@@ -93,6 +97,8 @@ const FIELDS: Record<Exclude<keyof Job, 'id' | 'createdAt'>, [string, Kind]> = {
   scriptEdits: ['script_edits', 'json'],
   transcriptEdits: ['transcript_edits', 'json'],
   captionTrack: ['caption_track', 'json'],
+  soundGain: ['sound_gain', 'json'],
+  remixPending: ['remix_pending', 'bool'],
   quality: ['quality', 'text'],
   recommendations: ['recommendations', 'json'],
   summary: ['summary', 'json'],
@@ -116,7 +122,7 @@ function rowToJob(row: Row): Job {
   const job: Record<string, unknown> = { id: row.id, createdAt: row.created_at }
   for (const [key, [col, kind]] of Object.entries(FIELDS)) {
     const v = row[col]
-    job[key] = v === null || v === undefined ? null : kind === 'json' ? JSON.parse(String(v)) : v
+    job[key] = v === null || v === undefined ? null : kind === 'json' ? JSON.parse(String(v)) : kind === 'bool' ? Number(v) === 1 : v
   }
   return job as unknown as Job
 }
@@ -124,6 +130,7 @@ function rowToJob(row: Row): Job {
 function toColumnValue(value: unknown, kind: Kind): string | number | null {
   if (value === null || value === undefined) return null
   if (kind === 'json') return JSON.stringify(value)
+  if (kind === 'bool') return value ? 1 : 0
   return value as string | number
 }
 

@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import nodePath from 'node:path'
 import { z } from 'zod'
-import { clampGainDb, loadCatalog, SoundError, soundChoiceProblem, trackPath, type BgmTrack, type Catalog, type SfxMode, type SfxRole, type SfxTrack } from '../shared/sound.ts'
+import { clampGainDb, loadCatalog, SOUND_NOT_REMIXABLE, SoundError, soundChoiceProblem, trackPath, type BgmTrack, type Catalog, type SfxMode, type SfxRole, type SfxTrack } from '../shared/sound.ts'
 import { run as realRun, ToolError } from './exec.ts'
 import type { SoundBalance } from './soundBalance.ts'
 import type { Span } from './types.ts'
@@ -288,8 +288,6 @@ export async function applySound(
   }
 }
 
-const NOT_REMIXABLE = '이 작업은 소리만 다시 섞을 수 없어요. 새로 만든 작업부터 가능해요.'
-
 /**
  * 제작 때 남긴 소리 없는 렌더(dry.mp4)와 섞는 방법(mix.json)으로 음악·효과음 크기만 바꿔 다시 섞는다. 화면은 다시 그리지 않는다.
  * 임시 파일(result.tmp.mp4)에 만들고 성공해야 result.mp4 를 바꿔치기한다 — 실패해도 기존 결과가 그대로 남는다.
@@ -300,7 +298,7 @@ export async function remixSound(
 ): Promise<SoundReport> {
   const dry = nodePath.join(i.outDir, 'dry.mp4')
   const recipeFile = nodePath.join(i.outDir, 'mix.json')
-  if (!fs.existsSync(dry) || !fs.existsSync(recipeFile)) throw new SoundError(NOT_REMIXABLE)
+  if (!fs.existsSync(dry) || !fs.existsSync(recipeFile)) throw new SoundError(SOUND_NOT_REMIXABLE)
   const parsed = (() => {
     try {
       return RecipeSchema.safeParse(JSON.parse(fs.readFileSync(recipeFile, 'utf8')))

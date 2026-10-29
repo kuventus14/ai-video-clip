@@ -43,7 +43,8 @@ const ALLOWED: Record<JobStatus, JobStatus[]> = {
   awaiting_plan: ['queued_plan', 'queued_produce'],
   queued_produce: ['producing'],
   producing: ['awaiting_confirm', 'failed'],
-  awaiting_confirm: ['confirmed', 'queued_plan'],
+  // queued_produce: 결과 화면에서 음악·효과음 크기를 바꿔 소리만 다시 섞는다(remixPending)
+  awaiting_confirm: ['confirmed', 'queued_plan', 'queued_produce'],
   confirmed: [],
   // 실패한 작업은 실패한 단계(또는 입력을 바꿔 plan 단계)를 다시 요청할 수 있다. 어느 단계인지는 API 가 failedPhase 로 검사한다.
   failed: ['queued_probe', 'queued_analysis', 'queued_plan', 'queued_produce'],

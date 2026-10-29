@@ -81,12 +81,26 @@ export interface JobDto {
   report: ReportDto | null
   /** 결과 영상의 길이·크기(직접 잰 값). 결과가 없거나 못 쟀으면 null */
   resultInfo: { durationSec: number; width: number; height: number } | null
+  /** 결과 화면의 음악·효과음 크기 조절 카드. 음악도 효과음도 쓰지 않은 작업은 null */
+  soundAdjust: SoundAdjustDto | null
   media: { source?: string; result?: string; thumb?: string }
   log: { t: string; stage: string; message: string }[]
   error: string | null
   failedPhase: Phase | null
   parentJobId: string | null
   confirmedAt: string | null
+}
+
+/** 음악·효과음 크기(dB, 기본 규칙 대비) 조절 정보. bgmGainDb·sfxGainDb 는 지금 영상에 쓰인 값, ai… 는 제작 때 AI 가 추천한 값 */
+export interface SoundAdjustDto {
+  /** false 면 소리만 다시 섞을 수 없는 작업(옛 작업) — reason 에 안내 */
+  available: boolean
+  reason: string | null
+  bgmGainDb: number
+  sfxGainDb: number
+  aiBgmGainDb: number
+  aiSfxGainDb: number
+  aiReason: string
 }
 
 /** 레퍼런스 추천 목록의 한 항목 */

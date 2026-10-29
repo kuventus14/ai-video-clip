@@ -33,7 +33,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     }
   }
 
-  const patch: Partial<Job> = { stage: null }
+  const patch: Partial<Job> = { stage: null, soundGain: null, remixPending: false } // 새로 만들면 예전에 바꿔 둔 소리 크기·다시 섞기 표시는 지운다
   if (body.data.audio) patch.audioMode = body.data.audio
   if (body.data.bgm !== undefined) patch.bgmId = body.data.bgm
   if (body.data.sfx) patch.sfxMode = body.data.sfx

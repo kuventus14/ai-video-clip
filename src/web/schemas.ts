@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { CAPTION_LINE_LIMITS } from '../shared/captionReview.ts'
 import { cleanScriptText, SCRIPT_TEXT_LIMITS } from '../shared/scriptText.ts'
+import { SOUND_GAIN_RANGE } from '../shared/sound.ts'
 
 export const PurposeChoice = z.enum(['auto', 'post', 'short'])
 
@@ -52,3 +53,8 @@ export const ApproveBody = z.object({
   sfx: z.enum(['off', 'on']).optional(),
   quality: z.enum(['draft', 'looks', 'delivery']).optional(),
 })
+
+const gainDb = z.number().min(SOUND_GAIN_RANGE.min).max(SOUND_GAIN_RANGE.max)
+
+/** 결과 화면에서 바꾼 음악·효과음 크기(dB, 기본 규칙 대비). 알 수 없는 칸은 받지 않는다. */
+export const RemixBody = z.strictObject({ bgmGainDb: gainDb, sfxGainDb: gainDb })

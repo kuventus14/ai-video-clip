@@ -7,11 +7,13 @@ import { GET as captions } from '../app/api/jobs/[id]/captions/route.ts'
 import { POST as confirm } from '../app/api/jobs/[id]/confirm/route.ts'
 import { POST as otherVersion } from '../app/api/jobs/[id]/other-version/route.ts'
 import { POST as plan } from '../app/api/jobs/[id]/plan/route.ts'
+import { POST as remix } from '../app/api/jobs/[id]/remix/route.ts'
 import { POST as retry } from '../app/api/jobs/[id]/retry/route.ts'
 import { POST as start } from '../app/api/jobs/[id]/start/route.ts'
 import type { Job } from '../src/db/jobs.ts'
 import type { CaptionReviewDto, JobDto, JobStatus } from '../src/shared/types.ts'
 import { getContext, resetContextForTests } from '../src/web/context.ts'
+import { toJobDto } from '../src/web/dto.ts'
 
 const HOST = 'localhost:4848'
 let dir: string
@@ -588,6 +590,104 @@ describe('confirm', () => {
   })
   test('결과가 나오기 전에는 409', async () => {
     expect((await call(confirm, job('producing').id)).status).toBe(409)
+  })
+})
+
+describe('remix — 소리 크기만 바꿔 다시 섞기', () => {
+  /** 결과가 나온 작업 + (원하면) 다시 섞는 데 필요한 파일 */
+  function withResult(patch: Parameters<ReturnType<typeof getContext>['jobs']['update']>[1] = {}, files = true, status: JobStatus = 'awaiting_confirm'): Job {
+    const j = job(status)
+    const out = path.join(getContext().jobs.jobDir(j.id), 'out')
+    fs.mkdirSync(out, { recursive: true })
+    fs.writeFileSync(path.join(out, 'result.mp4'), 'mp4')
+    if (files) {
+      fs.writeFileSync(path.join(out, 'dry.mp4'), 'dry')
+      fs.writeFileSync(path.join(out, 'mix.json'), '{}')
+    }
+    return getContext().jobs.update(j.id, { resultPath: path.join(out, 'result.mp4'), bgmId: 'calm-1', ...patch })
+  }
+  const BODY = { bgmGainDb: 3, sfxGainDb: -2 }
+
+  test('결과 확인 중이고 파일이 있으면 queued_produce 로 보내고, 크기와 다시 섞기 표시를 기록한다', async () => {
+    const j = withResult()
+    const res = await call(remix, j.id, BODY)
+    expect(res.status).toBe(200)
+    expect(((await res.json()) as JobDto).status).toBe('queued_produce')
+    expect(read(j.id)).toMatchObject({ status: 'queued_produce', soundGain: { bgmGainDb: 3, sfxGainDb: -2 }, remixPending: true, errorMessage: null })
+  })
+  test('0.5 단위가 아닌 값은 반올림해서 기록한다', async () => {
+    const j = withResult()
+    await call(remix, j.id, { bgmGainDb: 2.74, sfxGainDb: -0.2 })
+    expect(read(j.id).soundGain).toEqual({ bgmGainDb: 2.5, sfxGainDb: 0 })
+  })
+  test.each([
+    ['범위 밖(+7)', { bgmGainDb: 7, sfxGainDb: 0 }],
+    ['범위 밖(-13)', { bgmGainDb: 0, sfxGainDb: -13 }],
+    ['숫자가 아님', { bgmGainDb: 'loud', sfxGainDb: 0 }],
+    ['한 칸이 없음', { bgmGainDb: 1 }],
+    ['알 수 없는 칸', { bgmGainDb: 1, sfxGainDb: 1, extra: 1 }],
+  ])('잘못된 본문(%s)은 400 이고 아무것도 바뀌지 않는다', async (_n, body) => {
+    const j = withResult()
+    expect((await call(remix, j.id, body)).status).toBe(400)
+    expect(read(j.id)).toMatchObject({ status: 'awaiting_confirm', soundGain: null, remixPending: false })
+  })
+  test.each(['producing', 'queued_produce', 'confirmed', 'awaiting_plan', 'failed'] as const)('%s 에서는 409 — 연타해도 요청이 쌓이지 않는다', async (status) => {
+    const j = withResult({}, true, status)
+    expect((await call(remix, j.id, BODY)).status).toBe(409)
+    expect(read(j.id)).toMatchObject({ status, soundGain: null, remixPending: false })
+  })
+  test('연타하면(두 번 보내면) 첫 요청만 200, 두 번째는 409', async () => {
+    const j = withResult()
+    expect((await call(remix, j.id, BODY)).status).toBe(200)
+    expect((await call(remix, j.id, { bgmGainDb: 5, sfxGainDb: 5 })).status).toBe(409)
+    expect(read(j.id).soundGain).toEqual(BODY)
+  })
+  test('dry.mp4 나 mix.json 이 없으면(옛 작업) 409 와 한국어 안내, 상태는 그대로', async () => {
+    const j = withResult({}, false)
+    const res = await call(remix, j.id, BODY)
+    expect(res.status).toBe(409)
+    expect(((await res.json()) as { error: string }).error).toMatch(/다시 섞을 수 없어요/)
+    expect(read(j.id)).toMatchObject({ status: 'awaiting_confirm', remixPending: false })
+  })
+  test('결과 영상이 없으면 409', async () => {
+    const j = job('awaiting_confirm', { bgmId: 'calm-1' })
+    expect((await call(remix, j.id, BODY)).status).toBe(409)
+  })
+  test('로컬이 아닌 호스트·다른 사이트 요청은 403', async () => {
+    const j = withResult()
+    expect((await call(remix, j.id, BODY, { host: 'evil.example.com' })).status).toBe(403)
+    expect((await call(remix, j.id, BODY, { origin: 'http://evil.example.com' })).status).toBe(403)
+  })
+  test('다시 승인(approve)하면 예전 소리 크기와 다시 섞기 표시는 지워진다', async () => {
+    const j = job('awaiting_plan', { soundGain: { bgmGainDb: 3, sfxGainDb: -2 }, remixPending: true })
+    expect((await call(approve, j.id, {})).status).toBe(200)
+    expect(read(j.id)).toMatchObject({ status: 'queued_produce', soundGain: null, remixPending: false })
+  })
+
+  describe('JobDto.soundAdjust', () => {
+    const REPORT = { qa: { passed: true, findings: [] }, sound: { sfxCount: 2, balance: { bgmGainDb: 3, sfxGainDb: -2, aiBgmGainDb: -1, aiSfxGainDb: 1, reason: '말이 많아요' } } }
+    test('음악·효과음을 안 쓴 작업은 null', () => {
+      const j = withResult({ bgmId: null, sfxMode: 'off' })
+      expect(toJobDto(read(j.id)).soundAdjust).toBeNull()
+    })
+    test('파일이 있으면 available, 지금 값과 AI 추천 값·이유를 리포트에서 가져온다', () => {
+      const j = withResult({ report: REPORT })
+      expect(toJobDto(read(j.id)).soundAdjust).toEqual({ available: true, reason: null, bgmGainDb: 3, sfxGainDb: -2, aiBgmGainDb: -1, aiSfxGainDb: 1, aiReason: '말이 많아요' })
+    })
+    test('리포트에 balance 가 없으면 값은 모두 0', () => {
+      const j = withResult({ report: { qa: { passed: true, findings: [] } } })
+      expect(toJobDto(read(j.id)).soundAdjust).toMatchObject({ available: true, bgmGainDb: 0, sfxGainDb: 0, aiBgmGainDb: 0, aiSfxGainDb: 0, aiReason: '' })
+    })
+    test('옛 작업(파일 없음)은 available:false 와 이유', () => {
+      const j = withResult({ report: REPORT }, false)
+      const dto = toJobDto(read(j.id)).soundAdjust!
+      expect(dto.available).toBe(false)
+      expect(dto.reason).toMatch(/다시 섞을 수 없어요/)
+    })
+    test('효과음만 켠 작업도 조절 대상이다', () => {
+      const j = withResult({ bgmId: null, sfxMode: 'on' })
+      expect(toJobDto(read(j.id)).soundAdjust).not.toBeNull()
+    })
   })
 })
 
