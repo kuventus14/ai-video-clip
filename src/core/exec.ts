@@ -1,12 +1,10 @@
 import { spawn } from 'node:child_process'
-import os from 'node:os'
 import path from 'node:path'
+import { envValue, killProcessTree, resolveTool, searchPathFor, spawnPlan, withPath } from './platform.ts'
 
 /** GUI·서비스로 실행돼도 도구를 찾을 수 있게 흔한 설치 위치를 덧붙인 기본 PATH. */
 export function defaultSearchPath(): string {
-  const home = os.homedir()
-  const extra = ['/opt/homebrew/bin', '/usr/local/bin', path.join(home, '.local/bin'), path.join(home, '.npm-global/bin')]
-  return [process.env.PATH ?? '', ...extra].filter(Boolean).join(path.delimiter)
+  return searchPathFor()
 }
 
 export class ToolError extends Error {
@@ -32,11 +30,17 @@ export interface RunOpts {
 /** 외부 명령을 실행해 stdout/stderr 를 돌려준다. 종료 코드가 0 이 아니거나 실행할 수 없으면 ToolError. */
 export function run(file: string, args: string[], opts: RunOpts = {}): Promise<{ stdout: string; stderr: string }> {
   const tool = path.basename(file)
+  const env = opts.env ?? withPath(process.env, defaultSearchPath())
+  // 윈도우는 "hyperframes" 처럼 이름만 주면 .cmd 를 못 찾으므로 PATH(PATHEXT 포함)에서 먼저 찾는다
+  const found = process.platform === 'win32' && !/[\\/]/.test(file) ? resolveTool(file, envValue(env, 'PATH') ?? '') : null
+  const plan = spawnPlan(found ?? file, args)
   return new Promise((resolve, reject) => {
-    const child = spawn(file, args, {
+    const child = spawn(plan.command, plan.args, {
       cwd: opts.cwd,
-      env: opts.env ?? { ...process.env, PATH: defaultSearchPath() },
+      env,
       stdio: ['pipe', 'pipe', 'pipe'],
+      shell: plan.shell,
+      windowsHide: true,
     })
     const out: Buffer[] = []
     const err: Buffer[] = []
@@ -44,7 +48,7 @@ export function run(file: string, args: string[], opts: RunOpts = {}): Promise<{
     const timer = opts.timeoutMs
       ? setTimeout(() => {
           timedOut = true
-          child.kill('SIGKILL')
+          killProcessTree(child.pid)
         }, opts.timeoutMs)
       : null
 
