@@ -21,10 +21,11 @@ const isExecutable = (p: string): boolean => {
 
 /**
  * 목소리 보정에 쓰는 deep-filter 실행 파일의 경로. VAE_DEEP_FILTER 가 있으면 그것만 본다(틀린 경로를 조용히 다른 곳으로 넘기지 않는다),
- * 없으면 ~/.local/share/deep-filter/deep-filter. 실행할 수 있는 파일이 아니면 null.
+ * 없으면 ~/.local/share/deep-filter/deep-filter (윈도우는 deep-filter.exe). 실행할 수 있는 파일이 아니면 null.
  */
-export function findDeepFilter(o: { env?: Env; home?: string } = {}): string | null {
+export function findDeepFilter(o: { env?: Env; home?: string; platform?: NodeJS.Platform } = {}): string | null {
   const env = o.env ?? process.env
-  const candidate = env.VAE_DEEP_FILTER || path.join(o.home ?? os.homedir(), '.local/share/deep-filter/deep-filter')
+  const name = (o.platform ?? process.platform) === 'win32' ? 'deep-filter.exe' : 'deep-filter'
+  const candidate = env.VAE_DEEP_FILTER || path.join(o.home ?? os.homedir(), '.local/share/deep-filter', name)
   return isExecutable(candidate) ? candidate : null
 }
