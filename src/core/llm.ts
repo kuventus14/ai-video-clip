@@ -6,6 +6,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import type { ZodType } from 'zod'
+import { envValue, killProcessTree, prepareSpawn, searchPathFor, withPath } from './platform.ts'
 
 export class LlmError extends Error {
   kind: 'spawn' | 'timeout' | 'invalid-json' | 'schema'
@@ -29,15 +30,31 @@ export interface AskOpts {
 }
 
 const SAFE_KEYS = ['HOME', 'USER', 'LOGNAME', 'SHELL', 'TMPDIR', 'LANG', 'SSH_AUTH_SOCK', 'CLAUDE_CODE_OAUTH_TOKEN', 'ANTHROPIC_API_KEY']
+/** 윈도우에서 프로그램이 돌려면 필요한 변수(없으면 claude 가 시작도 못 한다). Git for Windows 의 bash 위치를 직접 정해 둔 경우도 넘긴다. */
+const WINDOWS_KEYS = ['SystemRoot', 'SystemDrive', 'windir', 'USERPROFILE', 'HOMEDRIVE', 'HOMEPATH', 'APPDATA', 'LOCALAPPDATA', 'PROGRAMDATA', 'ProgramFiles', 'ProgramFiles(x86)', 'ProgramW6432', 'TEMP', 'TMP', 'ComSpec', 'PATHEXT', 'USERNAME', 'USERDOMAIN', 'OS', 'PROCESSOR_ARCHITECTURE', 'CLAUDE_CODE_OAUTH_TOKEN', 'ANTHROPIC_API_KEY', 'CLAUDE_CODE_GIT_BASH_PATH']
 
-function cleanEnv(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
-  const env = {} as NodeJS.ProcessEnv // Next 의 타입 정의는 NODE_ENV 를 필수로 만든다 — 여기서는 화이트리스트로 짓는 빈 환경이다
-  for (const k of SAFE_KEYS) if (process.env[k]) env[k] = process.env[k]
-  const home = os.homedir()
+/**
+ * claude 를 부를 때 자식 프로세스에 줄 환경. 아무 변수나 넘기지 않고 화이트리스트로 새로 짓는다.
+ * 맥은 정해 둔 위치만 PATH 로 쓰고(예전 그대로), 리눅스·윈도우는 지금 PATH 도 이어 붙인다(nvm·Git for Windows 등으로 깔린 도구를 찾게).
+ */
+export function cleanEnv(extra: Record<string, string> = {}, o: { platform?: NodeJS.Platform; env?: Record<string, string | undefined>; home?: string } = {}): NodeJS.ProcessEnv {
+  const platform = o.platform ?? process.platform
+  const src = o.env ?? process.env
+  const home = o.home ?? os.homedir()
+  const env: Record<string, string> = {} // Next 의 타입 정의는 NODE_ENV 를 필수로 만든다 — 여기서는 화이트리스트로 짓는 빈 환경이라 느슨한 타입으로 짓는다
+  if (platform === 'win32') {
+    for (const k of WINDOWS_KEYS) {
+      const v = envValue(src, k, platform)
+      if (v) env[k] = v
+    }
+    return { ...withPath(env, searchPathFor({ platform, env: src, home }), platform), ...extra } as NodeJS.ProcessEnv
+  }
+  for (const k of SAFE_KEYS) if (src[k]) env[k] = src[k]!
   env.HOME ||= home
   env.LANG ||= 'ko_KR.UTF-8'
-  env.PATH = ['/usr/local/bin', '/opt/homebrew/bin', path.join(home, '.npm-global/bin'), path.join(home, '.local/bin'), '/usr/bin', '/bin', '/usr/sbin', '/sbin'].join(':')
-  return { ...env, ...extra }
+  const fixed = ['/usr/local/bin', ...(platform === 'darwin' ? ['/opt/homebrew/bin'] : []), path.join(home, '.npm-global/bin'), path.join(home, '.local/bin'), '/usr/bin', '/bin', '/usr/sbin', '/sbin']
+  env.PATH = (platform === 'darwin' ? fixed : [...fixed, ...(src.PATH ?? '').split(':').filter(Boolean)]).join(':')
+  return { ...env, ...extra } as unknown as NodeJS.ProcessEnv
 }
 
 function runClaude(o: AskOpts): Promise<string> {
@@ -55,7 +72,9 @@ function runClaude(o: AskOpts): Promise<string> {
     const images = o.images ?? []
     if (images.length) args.push('--input-format', 'stream-json')
 
-    const child = spawn(process.env.VAE_CLAUDE_BIN || 'claude', args, { cwd: os.tmpdir(), env: cleanEnv(o.env), stdio: ['pipe', 'pipe', 'pipe'] })
+    const env = cleanEnv(o.env)
+    const plan = prepareSpawn(process.env.VAE_CLAUDE_BIN || 'claude', args, env)
+    const child = spawn(plan.command, plan.args, { cwd: os.tmpdir(), env, stdio: ['pipe', 'pipe', 'pipe'], shell: plan.shell, windowsHide: true })
     let buf = ''
     let stderr = ''
     let result: { is_error?: boolean; result?: unknown } | null = null
@@ -68,7 +87,7 @@ function runClaude(o: AskOpts): Promise<string> {
       fn()
     }
     const timer = setTimeout(() => {
-      child.kill('SIGKILL')
+      killProcessTree(child.pid)
       finish(() => reject(new LlmError('timeout', `claude 응답 시간 초과 (${Math.round(timeoutMs / 1000)}초)`)))
     }, timeoutMs)
 

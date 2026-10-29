@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { installHint, resolveTool, searchPathFor, spawnPlan, withPath } from '../src/core/platform.ts'
+import { installHint, prepareSpawn, resolveTool, searchPathFor, spawnPlan, withPath } from '../src/core/platform.ts'
 
 describe('searchPathFor — 도구를 찾을 PATH', () => {
   test('맥: 기존 PATH 뒤에 Homebrew 등 흔한 위치를 ":" 로 잇는다(예전과 같다)', () => {
@@ -97,5 +97,19 @@ describe('installHint — 설치 안내(플랫폼별)', () => {
       expect(installHint(t, 'win32')).not.toMatch(/brew /)
       expect(installHint(t, 'linux')).not.toMatch(/brew /)
     }
+  })
+})
+
+describe('prepareSpawn — 이름만 준 명령을 찾아서 실행 방식까지 정한다', () => {
+  test('윈도우: hyperframes 처럼 이름만 주면 PATH 의 .cmd 를 찾아 shell 로 실행한다', () => {
+    const plan = prepareSpawn('hyperframes', ['render', 'C:\\내 폴더'], { Path: 'C:\\npm' }, 'win32', { isExecutable: (p) => p === 'C:\\npm\\hyperframes.cmd' })
+    expect(plan).toEqual({ command: 'C:\\npm\\hyperframes.cmd', args: ['render', '"C:\\내 폴더"'], shell: true })
+  })
+  test('윈도우: ffmpeg 는 .exe 라 shell 없이', () => {
+    expect(prepareSpawn('ffmpeg', ['-i', 'a.mp4'], { PATH: 'C:\\bin' }, 'win32', { isExecutable: (p) => p === 'C:\\bin\\ffmpeg.exe' })).toEqual({ command: 'C:\\bin\\ffmpeg.exe', args: ['-i', 'a.mp4'], shell: false })
+  })
+  test('찾지 못했거나 경로를 이미 준 경우, 맥·리눅스는 그대로 넘긴다', () => {
+    expect(prepareSpawn('ffmpeg', ['-v'], { PATH: '/bin' }, 'win32', { isExecutable: () => false }).command).toBe('ffmpeg')
+    expect(prepareSpawn('/usr/bin/ffmpeg', ['-v'], { PATH: '/bin' }, 'darwin')).toEqual({ command: '/usr/bin/ffmpeg', args: ['-v'], shell: false })
   })
 })

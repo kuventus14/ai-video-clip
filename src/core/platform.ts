@@ -89,6 +89,12 @@ export function spawnPlan(file: string, args: string[], platform: NodeJS.Platfor
   return { command: file, args, shell: false }
 }
 
+/** 이름만 준 명령을 (윈도우는 PATH·PATHEXT 로) 찾아서 실행 방식까지 정한다. spawn 하기 직전에 부른다. */
+export function prepareSpawn(file: string, args: string[], env: Env, platform: NodeJS.Platform = process.platform, o: { isExecutable?: (file: string) => boolean; pathext?: string } = {}): { command: string; args: string[]; shell: boolean } {
+  const found = platform === 'win32' && !/[\\/]/.test(file) ? resolveTool(file, getEnv(env, 'PATH', platform) ?? '', { platform, ...o }) : null
+  return spawnPlan(found ?? file, args, platform)
+}
+
 type Tool = 'node' | 'ffmpeg' | 'ffprobe' | 'hyperframes' | 'whisper-cli' | 'yt-dlp' | 'claude' | 'swiftc'
 
 const WHISPER_RELEASES = 'https://github.com/ggml-org/whisper.cpp/releases'

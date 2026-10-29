@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { z } from 'zod'
-import { askClaude as realAsk, extractJson, LlmError, type AskOpts } from '../src/core/llm.ts'
+import { askClaude as realAsk, cleanEnv, extractJson, LlmError, type AskOpts } from '../src/core/llm.ts'
 
 const FAKE = path.resolve(import.meta.dirname, 'fixtures/fake-claude.mjs')
 
@@ -140,5 +140,34 @@ describe('askClaude', () => {
     process.env.FAKE_CLAUDE_SLEEP_MS = '3000'
     const err = await askClaude({ prompt: 'x', timeoutMs: 300 }).catch((e) => e)
     expect((err as LlmError).kind).toBe('timeout')
+  })
+})
+
+describe('cleanEnv — claude 를 부를 때 자식 프로세스 환경(플랫폼별)', () => {
+  const base = { PATH: '/ignored:/usr/bin', FOO: 'x', ANTHROPIC_API_KEY: 'k', CLAUDE_CODE_OAUTH_TOKEN: 't', CLAUDECODE: '1' }
+  test('맥: 예전과 같은 화이트리스트 — 모르는 변수는 안 넘기고 PATH 는 정해 둔 위치만(":")', () => {
+    const e = cleanEnv({ EXTRA: '1' }, { platform: 'darwin', env: { ...base, HOME: '/Users/me' }, home: '/Users/me' })
+    expect(e.PATH).toBe('/usr/local/bin:/opt/homebrew/bin:/Users/me/.npm-global/bin:/Users/me/.local/bin:/usr/bin:/bin:/usr/sbin:/sbin')
+    expect(e).toMatchObject({ HOME: '/Users/me', ANTHROPIC_API_KEY: 'k', CLAUDE_CODE_OAUTH_TOKEN: 't', EXTRA: '1' })
+    expect(e.FOO).toBeUndefined()
+    expect(e.CLAUDECODE).toBeUndefined()
+  })
+  test('리눅스: 정해 둔 위치 뒤에 지금 PATH 도 이어서(nvm 등으로 깔린 node 를 찾게)', () => {
+    const e = cleanEnv({}, { platform: 'linux', env: { ...base, HOME: '/home/me' }, home: '/home/me' })
+    expect(e.PATH).toBe('/usr/local/bin:/home/me/.npm-global/bin:/home/me/.local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/ignored:/usr/bin')
+    expect(e.HOME).toBe('/home/me')
+  })
+  test('윈도우: 필수 변수(SystemRoot·USERPROFILE·APPDATA·TEMP·PATHEXT 등)를 넘기고 PATH 는 ";" 로 잇는다', () => {
+    const env = { Path: 'C:\\Windows\\System32;C:\\Git\\bin', SystemRoot: 'C:\\Windows', USERPROFILE: 'C:\\Users\\me', APPDATA: 'C:\\Users\\me\\AppData\\Roaming', LOCALAPPDATA: 'C:\\Users\\me\\AppData\\Local', TEMP: 'C:\\T', PATHEXT: '.COM;.EXE', ComSpec: 'C:\\Windows\\System32\\cmd.exe', CLAUDE_CODE_GIT_BASH_PATH: 'C:\\Git\\bin\\bash.exe', FOO: 'x', ANTHROPIC_API_KEY: 'k' }
+    const e = cleanEnv({}, { platform: 'win32', env, home: 'C:\\Users\\me' })
+    expect(e).toMatchObject({ SystemRoot: 'C:\\Windows', USERPROFILE: 'C:\\Users\\me', APPDATA: 'C:\\Users\\me\\AppData\\Roaming', LOCALAPPDATA: 'C:\\Users\\me\\AppData\\Local', TEMP: 'C:\\T', PATHEXT: '.COM;.EXE', ComSpec: 'C:\\Windows\\System32\\cmd.exe', CLAUDE_CODE_GIT_BASH_PATH: 'C:\\Git\\bin\\bash.exe', ANTHROPIC_API_KEY: 'k' })
+    expect(e.FOO).toBeUndefined()
+    const pathValue = Object.entries(e).find(([k]) => k.toLowerCase() === 'path')![1] as string
+    expect(pathValue.split(';')).toEqual(expect.arrayContaining(['C:\\Windows\\System32', 'C:\\Git\\bin', 'C:\\Users\\me\\.local\\bin']))
+    expect(pathValue).not.toContain('/usr/local/bin')
+    expect(Object.keys(e).filter((k) => k.toLowerCase() === 'path')).toHaveLength(1)
+  })
+  test('윈도우: 이 앱이 정한 값(env 옵션)이 덮어쓴다', () => {
+    expect(cleanEnv({ FAKE_X: '1' }, { platform: 'win32', env: { SystemRoot: 'C:\\Windows' }, home: 'C:\\Users\\me' }).FAKE_X).toBe('1')
   })
 })
