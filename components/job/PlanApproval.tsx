@@ -161,10 +161,15 @@ export function PlanApproval({ job, onChanged, onEditReference }: { job: JobDto;
               options={[
                 { value: 'original', label: '원본 그대로', hint: '소리를 건드리지 않아요' },
                 { value: 'voice', label: '목소리 또렷하게', hint: '소음 줄이고 크기 맞춤' },
+                { value: 'mic', label: '마이크 음성', hint: '주변 소리 지우고 핀마이크처럼' },
               ]}
             />
             <p className="text-[13px] text-ink-3">
-              {audio === 'voice' ? '주변 소음을 줄이고 목소리 크기를 맞춰요. 방의 울림까지 없애지는 못해요(마이크를 입 가까이 두고 찍은 소리처럼 되지는 않아요). 제작 시간이 조금 늘어요.' : '찍은 소리를 그대로 써요. 소음이 많은 영상은 목소리가 묻힐 수 있어요.'}
+              {audio === 'voice'
+                ? '주변 소음을 줄이고 목소리 크기를 맞춰요. 쉬는 구간의 현장 소리는 조금 남겨요. 제작 시간이 조금 늘어요.'
+                : audio === 'mic'
+                  ? '핀마이크로 녹음한 것처럼 주변 소리를 끝까지 지우고, 말 사이는 조용하게, 목소리는 앞으로 또렷하게 만들어요. 방의 울림은 조금 남을 수 있어요.'
+                  : '찍은 소리를 그대로 써요. 소음이 많은 영상은 목소리가 묻힐 수 있어요.'}
             </p>
           </div>
 

@@ -25,7 +25,7 @@ const Config = z.object({
       purpose: z.enum(['auto', 'post', 'short']).default('short'),
       quality: z.enum(['draft', 'looks', 'delivery']).default('looks'),
       captions: z.enum(['auto', 'off']).default('auto'),
-      audio: z.enum(['original', 'voice']).default('voice'),
+      audio: z.enum(['original', 'voice', 'mic']).default('mic'),
       bgm: z.string().nullable().default(null),
       sfx: z.enum(['on', 'off']).default('off'),
       /** 영상이 어떤 영상인지 한 줄 설명(모든 영상에 같이 쓴다). 비우면 AI 가 영상마다 판단 */

@@ -33,7 +33,7 @@ function setup(over: Partial<PipelineDeps> = {}, videoInfo: VideoInfo = info()) 
   const fetches: string[] = []
   let cleanups = 0
   const builds: { sourcePath: string; canvas: { width: number; height: number }; reframe: string; captionPosition: string }[] = []
-  const voices: { sourcePath: string; outPath: string; durationSec: number }[] = []
+  const voices: { sourcePath: string; outPath: string; durationSec: number; profile?: string }[] = []
   const sounds: Parameters<PipelineDeps['applySound']>[0][] = []
   const balances: Parameters<PipelineDeps['balanceSound']>[0][] = []
   const deps: PipelineDeps = {
@@ -62,7 +62,7 @@ function setup(over: Partial<PipelineDeps> = {}, videoInfo: VideoInfo = info()) 
     },
     runQa: async () => PASS,
     enhanceVoice: async (v) => {
-      voices.push({ sourcePath: v.sourcePath, outPath: v.outPath, durationSec: v.durationSec })
+      voices.push({ sourcePath: v.sourcePath, outPath: v.outPath, durationSec: v.durationSec, profile: v.profile })
       return v.outPath
     },
     directEdit: undefined, // 이 시험들은 지금 방식(컷+자막)을 확인한다 — 편집 감독은 tests/pipeline.director.test.ts
@@ -203,6 +203,15 @@ describe('produceEdit', () => {
       expect(s.stages).toEqual(['cuts', 'voice', 'build', 'render', 'qa', 'done'])
       expect(s.voices).toHaveLength(1)
       expect(s.voices[0]).toMatchObject({ sourcePath: '/in/영상.mp4', durationSec: 45 })
+      expect(s.builds[0]!.sourcePath).toBe(s.voices[0]!.outPath)
+    })
+
+    test("'mic' 이면 같은 자리에서 마이크 음성 설정으로 보정한다", async () => {
+      const s = setup()
+      const { analysis, prepared } = await prepare(s)
+      await produceEdit({ analysis, prepared, outDir: path.join(work, 'm1'), audio: 'mic', onStage: s.onStage }, s.deps)
+      expect(s.stages).toEqual(['cuts', 'voice', 'build', 'render', 'qa', 'done'])
+      expect(s.voices[0]).toMatchObject({ profile: 'mic' })
       expect(s.builds[0]!.sourcePath).toBe(s.voices[0]!.outPath)
     })
 

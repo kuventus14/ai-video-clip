@@ -24,7 +24,7 @@ import { applyTempo, scaleSec } from './tempo.ts'
 import { enhanceVoice } from './voice.ts'
 import type { SfxMode } from '../shared/sound.ts'
 import type { CaptionPosition } from '../shared/types.ts'
-import type { AudioMode } from '../shared/voice.ts'
+import { usesVoiceTool, type AudioMode } from '../shared/voice.ts'
 import { describeVideo, type VideoSummary } from './understand.ts'
 import type { CaptionCue, Purpose, ReframeMode, Span, Transcript, VideoInfo } from './types.ts'
 
@@ -49,7 +49,7 @@ export interface EditOptions {
   request?: string
   quality?: Quality
   captions?: 'auto' | 'off'
-  /** 소리: 'original' 은 원본 그대로(기본), 'voice' 는 소음을 줄이고 목소리 크기를 맞춘다 */
+  /** 소리: 'original' 은 원본 그대로(기본), 'voice' 는 소음을 줄이고 목소리 크기를 맞춘다, 'mic' 은 핀마이크로 녹음한 것처럼 */
   audio?: AudioMode
   /** 배경음악 곡 id (없거나 null 이면 넣지 않는다) / 효과음 켜기·끄기(기본 끄기) */
   bgm?: string | null
@@ -506,9 +506,9 @@ export async function produceEdit(i: ProduceInput, overrides: Partial<PipelineDe
 
     // 8-2) 목소리 보정: 소리만 정리한 영상을 한 번 만들어 두고, 재작업을 포함한 모든 렌더가 그것을 쓴다
     let renderSrc = src
-    if (i.audio === 'voice' && info.hasAudio) {
-      stage('voice')
-      renderSrc = await d.enhanceVoice({ sourcePath: src, outPath: path.join(work, 'source-voice.mp4'), workDir: path.join(work, 'voice'), durationSec: info.durationSec })
+    if (usesVoiceTool(i.audio) && info.hasAudio) {
+      stage('voice', i.audio === 'mic' ? '마이크 음성' : undefined)
+      renderSrc = await d.enhanceVoice({ sourcePath: src, outPath: path.join(work, 'source-voice.mp4'), workDir: path.join(work, 'voice'), durationSec: info.durationSec, profile: i.audio })
     }
 
     // 9) 만들고 검수하고, 필요하면 최대 2번 다시 만든다

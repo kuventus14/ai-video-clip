@@ -28,7 +28,7 @@ export const WAITING = new Set(['ready', 'awaiting_reference', 'awaiting_plan', 
 const NEXT = {
   ready: 'start <id> [--description "…"] [--purpose auto|post|short] [--reference <링크>]',
   awaiting_reference: 'captions <id> 로 자막을 보고(틀린 곳은 --save 로 파일에 받아 고친 뒤) plan <id> [--reference <링크>|--reference-file <파일>|--reference none] [--request "…"] [--captions-file 파일.json]',
-  awaiting_plan: 'approve <id> [--bgm 곡id|none] [--sfx on|off] [--audio original|voice] [--captions auto|off] [--position top|middle|bottom] [--quality draft|looks|delivery] [--title "…"] [--hook-question "…"]',
+  awaiting_plan: 'approve <id> [--bgm 곡id|none] [--sfx on|off] [--audio original|voice|mic] [--captions auto|off] [--position top|middle|bottom] [--quality draft|looks|delivery] [--title "…"] [--hook-question "…"]',
   awaiting_confirm: 'confirm <id> | plan <id> --request "고칠 점"(수정 요청) | other <id>(반대 용도 버전) | remix <id> --bgm-gain N --sfx-gain N(소리 크기) | result <id> --save <폴더>',
   confirmed: 'result <id> --save <폴더> (영상 파일 받기)',
   failed: 'retry <id>',
