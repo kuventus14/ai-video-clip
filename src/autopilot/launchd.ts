@@ -1,6 +1,9 @@
 import os from 'node:os'
-import path from 'node:path'
+import nodePath from 'node:path'
 import { FOLDERS } from './config.ts'
+
+/** launchd 는 맥 전용이라 경로는 항상 / 로 잇는다(윈도우에서 시험을 돌려도 같은 결과) */
+const path = nodePath.posix
 
 export const LAUNCHD_LABEL = 'com.autoframes.autopilot'
 export const LAUNCHD_PLIST = path.join(os.homedir(), 'Library', 'LaunchAgents', `${LAUNCHD_LABEL}.plist`)
