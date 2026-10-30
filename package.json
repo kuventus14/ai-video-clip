@@ -8,6 +8,8 @@
   "scripts": {
     "test": "vitest run",
     "edit": "tsx src/cli/edit.ts",
+    "autopilot": "tsx src/cli/autopilot.ts",
+    "connect": "tsx src/cli/connect.ts",
     "typecheck": "tsc --noEmit",
     "web:dev": "node scripts/web.mjs dev",
     "web:build": "next build",
