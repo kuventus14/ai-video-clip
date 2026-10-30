@@ -1,5 +1,5 @@
 import type { Job } from '../../../../../src/db/jobs.ts'
-import { findDeepFilter, VOICE_TOOL_MISSING } from '../../../../../src/shared/voice.ts'
+import { findDeepFilter, usesVoiceTool, VOICE_TOOL_MISSING } from '../../../../../src/shared/voice.ts'
 import { loadCatalog, SoundError, soundChoiceProblem } from '../../../../../src/shared/sound.ts'
 import { toJobDto } from '../../../../../src/web/dto.ts'
 import { assertSameOrigin, jsonError, loadJob, readBody } from '../../../../../src/web/http.ts'
@@ -18,7 +18,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   if ('res' in body) return body.res
 
   // 도구가 없는데 목소리 보정을 고르면 제작을 시작한 뒤에 실패하지 않도록 여기서 알린다
-  if (body.data.audio === 'voice' && !findDeepFilter()) return jsonError(400, VOICE_TOOL_MISSING)
+  if (usesVoiceTool(body.data.audio) && !findDeepFilter()) return jsonError(400, VOICE_TOOL_MISSING)
 
   // 고른 배경음악·효과음이 지금 음원 목록에 있는지도 여기서 확인한다(이전에 골라 둔 값 포함) — 제작 도중에 실패하지 않도록
   const bgm = body.data.bgm === undefined ? found.job.bgmId : body.data.bgm

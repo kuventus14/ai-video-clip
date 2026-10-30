@@ -33,7 +33,7 @@ description: 영상 1개를 올리면 레퍼런스(유튜브·인스타 링크�
 | 기다리기 | `AF status <id> --wait` | 분석은 1분 영상 기준 30~40초 |
 | **① 자막 확인** | `AF captions <id>` | 의심 단어(⚠)와 자막 없는 구간을 보여 주고 확인받아요. 고칠 게 있으면 `--save f.json` 으로 받아 f.json 을 고치고(줄마다 `start`·`end`·`text`) `AF plan <id> --captions-file f.json`. 규칙: 줄은 서로 겹치지 않고, 0.2초 이상, 160자 이하. 말이 인식되지 않은 영상은 줄을 직접 넣을 수 있어요 |
 | 레퍼런스·계획 | `AF plan <id> [--reference <링크>\|--reference-file <파일>\|--reference none] [--request "참고할 부분"] [--purpose …]` | 추천 목록(`status` 에 나와요)에서 고르거나 링크·파일을 주거나, 없이 가도 돼요 |
-| **② 계획 승인** | `AF status <id> --wait` 뒤 `AF approve <id> …` | "이렇게 이해했어요" 카드와 편집 구성(제목·훅 질문·소개 줄·속도)을 보여 주고 승인받아요. 옵션: `--captions auto\|off`(영상에 이미 자막이 있으면 off), `--position top\|middle\|bottom`, `--audio original\|voice`, `--bgm <곡id>\|none`(`AF sounds`), `--sfx on\|off`, `--quality draft\|looks\|delivery`, `--title "…"`, `--hook-question "…"` |
+| **② 계획 승인** | `AF status <id> --wait` 뒤 `AF approve <id> …` | "이렇게 이해했어요" 카드와 편집 구성(제목·훅 질문·소개 줄·속도)을 보여 주고 승인받아요. 옵션: `--captions auto\|off`(영상에 이미 자막이 있으면 off), `--position top\|middle\|bottom`, `--audio original\|voice\|mic`(mic = 핀마이크처럼 주변 소리 지우기), `--bgm <곡id>\|none`(`AF sounds`), `--sfx on\|off`, `--quality draft\|looks\|delivery`, `--title "…"`, `--hook-question "…"` |
 | 제작 | `AF status <id> --wait` | 영상 길이의 2~3배쯤 걸려요. 화면을 닫아도 계속돼요. `--wait` 가 끝나기 전에 도구 시간 제한이 오면 같은 명령을 다시 부르면 돼요 |
 | **③ 결과 확인** | `AF status <id>` 뒤 `AF result <id> --save <폴더>` | 검수 결과를 보여 주고 **영상을 직접 열어 보게** 해요. 검수가 확인하지 않은 항목(소리가 어울리는지, 문구가 맞는지 등)은 사용자가 봐야 한다고 꼭 말해요 |
 | 마무리 | `AF confirm <id>` / `AF plan <id> --request "고칠 점"` / `AF other <id>` / `AF remix <id> --bgm-gain N --sfx-gain N` | 확정(기록에 저장) · 수정 요청(이전 요청에 덧붙여 계획부터 다시 → 다시 승인) · 반대 용도 버전 · 소리 크기 |
@@ -45,7 +45,7 @@ description: 영상 1개를 올리면 레퍼런스(유튜브·인스타 링크�
 - 음악은 목소리보다 약 14 LU 작게 깔리고 말할 때 자동으로 더 줄어요. 효과음은 제목 카드와 컷이 바뀌는 곳에 들어가요.
 - **크기는 AI 가 영상 내용(장르·말 비율·음악 분위기)으로 짐작해 정해요(−6~+4dB).** AI 는 소리를 직접 듣지 못해요 — 그래서 사용자가 들어 보고 `AF remix` 로 −12~+6dB 안에서 바꾸게 해요. 소리만 다시 섞으니 영상은 그대로고 1초 안팎이에요. `status` 의 "AI 추천"이 되돌릴 기준이에요.
 - 소리 크기 기능이 생기기 전에 만든 작업은 다시 섞을 수 없어요(`status` 가 이유를 말해 줘요). 새로 만들면 돼요.
-- 배경음악 파일은 저작권 때문에 저장소에 없어요. `AF sounds` 가 "음원 파일이 없어요"라고 하면 `assets/sound/README.md` 를 보고 넣거나 음악 없이 가요. `--audio voice`(목소리 또렷하게)는 `deep-filter` 설치가 필요해요(설치 안내에 있어요).
+- 배경음악 파일은 저작권 때문에 저장소에 없어요. `AF sounds` 가 "음원 파일이 없어요"라고 하면 `assets/sound/README.md` 를 보고 넣거나 음악 없이 가요. `--audio voice`(목소리 또렷하게)·`--audio mic`(마이크 음성)은 `deep-filter` 설치가 필요해요(설치 안내에 있어요).
 
 ## 4. 릴스 기본 디자인 — 채널 띠
 

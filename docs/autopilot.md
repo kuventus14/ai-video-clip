@@ -35,7 +35,7 @@ npm run autopilot -- install
 처음 켤 때 기본값으로 만들어져요. 텍스트 편집기로 고치면 다음 영상부터 바로 적용돼요.
 
 - `edit.purpose`: `short`(세로 릴스·숏츠, 기본) / `post`(가로) / `auto`
-- `edit.audio`: `voice`(소음 줄이고 목소리 크기 맞춤, 기본) / `original`
+- `edit.audio`: `mic`(핀마이크로 녹음한 것처럼 주변 소리를 지우고 목소리를 또렷하게, 기본) / `voice`(소음만 줄이고 현장 소리는 조금 남김) / `original`
 - `edit.bgm`: 배경음악 곡 id (기본 `null` = 없음), `edit.sfx`: `on`/`off`
 - `edit.reference`: 레퍼런스 링크(유튜브·인스타). 비우면 `레퍼런스` 폴더의 영상을 써요
 - `edit.description`: 모든 영상에 공통인 한 줄 설명(예: "골프 레슨 영상")

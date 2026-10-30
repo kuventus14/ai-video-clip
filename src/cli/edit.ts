@@ -22,7 +22,8 @@ const USAGE = `영상 자동 편집
   --request "<글>"        레퍼런스에서 참고할 부분 (비우면 AI가 알아서)
   --quality draft|looks|delivery   렌더 화질. 기본 looks
   --captions auto|off     자막. 기본 auto
-  --audio original|voice  소리. original(기본)은 원본 그대로, voice 는 소음을 줄이고 목소리 크기를 맞춰요
+  --audio original|voice|mic  소리. original(기본)은 원본 그대로, voice 는 소음을 줄이고 목소리 크기를 맞춰요,
+                          mic 은 핀마이크로 녹음한 것처럼 주변 소리를 지우고 목소리를 또렷하게 해요
   --bgm <곡 id|none>      배경음악. 기본 none (assets/sound 의 곡 id)
   --sfx on|off            효과음. 기본 off
   --keep-work             작업 폴더를 지우지 않고 남겨요
@@ -89,7 +90,7 @@ async function main() {
   if (v.purpose && !['auto', 'post', 'short'].includes(v.purpose)) fail('--purpose 는 auto, post, short 중 하나예요')
   if (v.quality && !['draft', 'looks', 'delivery'].includes(v.quality)) fail('--quality 는 draft, looks, delivery 중 하나예요')
   if (v.captions && !['auto', 'off'].includes(v.captions)) fail('--captions 는 auto 또는 off 예요')
-  if (v.audio && !['original', 'voice'].includes(v.audio)) fail('--audio 는 original 또는 voice 예요')
+  if (v.audio && !['original', 'voice', 'mic'].includes(v.audio)) fail('--audio 는 original, voice, mic 중 하나예요')
   const sound = checkSoundFlags({ bgm: v.bgm, sfx: v.sfx }, loadCatalog())
   if (!sound.ok) fail(sound.message)
 

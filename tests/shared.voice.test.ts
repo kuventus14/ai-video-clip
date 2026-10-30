@@ -18,7 +18,7 @@ const install = (file: string, mode = 0o755) => {
 
 describe('소리 설정 값', () => {
   test('원본 그대로(original)와 목소리 또렷하게(voice) 두 가지다', () => {
-    expect(AUDIO_MODES).toEqual(['original', 'voice'])
+    expect(AUDIO_MODES).toEqual(['original', 'voice', 'mic'])
   })
 })
 

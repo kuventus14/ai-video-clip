@@ -48,7 +48,7 @@ export const ApproveBody = z.object({
   captions: z.enum(['auto', 'off']).optional(),
   captionPosition: z.enum(['top', 'middle', 'bottom']).optional(),
   scriptEdits: ScriptEditsBody.optional(),
-  audio: z.enum(['original', 'voice']).optional(),
+  audio: z.enum(['original', 'voice', 'mic']).optional(),
   bgm: z.string().min(1).max(80).nullable().optional(),
   sfx: z.enum(['off', 'on']).optional(),
   quality: z.enum(['draft', 'looks', 'delivery']).optional(),

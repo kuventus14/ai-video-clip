@@ -409,6 +409,7 @@ describe('approve (Review Focus 2)', () => {
       expect(res.status).toBe(400)
       expect(((await res.json()) as { error: string }).error).toContain('README')
       expect(read(j.id).status).toBe('awaiting_plan')
+      expect((await call(approve, j.id, { audio: 'mic' })).status).toBe(400)
       expect((await call(approve, j.id, { audio: 'original' })).status).toBe(200)
     })
   })

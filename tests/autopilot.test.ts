@@ -69,7 +69,7 @@ describe('설정 파일', () => {
     const cfg = loadConfig(root)
     expect(cfg.upload.youtube.enabled).toBe(true)
     expect(cfg.upload.youtube.privacy).toBe('private')
-    expect(cfg.edit.audio).toBe('voice')
+    expect(cfg.edit.audio).toBe('mic')
   })
 
   test('잘못된 값은 어느 칸인지 알려 준다', () => {
@@ -131,7 +131,7 @@ describe('영상 하나 처리', () => {
     expect(fs.readFileSync(path.join(root, FOLDERS.done, '스윙_릴스.mp4'), 'utf8')).toBe('edited')
     expect(fs.existsSync(path.join(root, FOLDERS.originals, '스윙.mp4'))).toBe(true)
     expect(fs.existsSync(v)).toBe(false)
-    expect(calls.edit[0]).toMatchObject({ purpose: 'short', audio: 'voice', reference: undefined })
+    expect(calls.edit[0]).toMatchObject({ purpose: 'short', audio: 'mic', reference: undefined })
     expect(calls.yt).toHaveLength(0) // 업로드는 기본으로 꺼져 있다
   })
 

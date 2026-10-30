@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, test } from 'vitest'
 import { ensureFixtures } from './helpers/fixtures.ts'
 import { run } from '../src/core/exec.ts'
 import { probeVideo } from '../src/core/media.ts'
-import { enhanceVoice, VOICE_FILTER, VoiceError, type VoiceDeps } from '../src/core/voice.ts'
+import { enhanceVoice, MIC_FILTER, VOICE_FILTER, VoiceError, type VoiceDeps } from '../src/core/voice.ts'
 import { findDeepFilter, VOICE_TOOL_MISSING } from '../src/shared/voice.ts'
 
 let work: string
@@ -91,6 +91,28 @@ describe('enhanceVoice — 처리 순서', () => {
     const muxAf = f.calls[3]!.args[f.calls[3]!.args.indexOf('-af') + 1]!
     expect(muxAf).not.toContain('measured_I')
     expect(muxAf).toContain('loudnorm=I=-16')
+  })
+})
+
+describe('enhanceVoice — 마이크 음성(mic)', () => {
+  test('소음 제거 한도 없이(-a 없음) 끝까지 지우고, 측정·합치기 모두 마이크 정리 필터를 쓴다', async () => {
+    const f = fake()
+    await enhanceVoice({ ...input(), profile: 'mic' }, f.deps)
+    const [, deep, measure, mux] = f.calls
+    expect(deep!.args).toContain('-D')
+    expect(deep!.args).not.toContain('-a')
+    expect(measure!.args[measure!.args.indexOf('-af') + 1]!.startsWith(MIC_FILTER + ',')).toBe(true)
+    expect(mux!.args[mux!.args.indexOf('-af') + 1]!.startsWith(MIC_FILTER + ',')).toBe(true)
+  })
+
+  test('마이크 정리 필터: 바람·쉿 소리 자르기, 치찰음 줄이기, 압축, 깊은 게이트가 들어 있다', () => {
+    for (const part of ['highpass=f=80', 'lowpass=f=12000', 'deesser', 'acompressor', 'agate']) expect(MIC_FILTER).toContain(part)
+  })
+
+  test('마이크 정리 필터를 실제 ffmpeg 가 읽고 처리한다', async () => {
+    const wav = path.join(work, 'tone.wav')
+    await run('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'sine=f=300:d=1', '-ar', '48000', wav])
+    await run('ffmpeg', ['-v', 'error', '-i', wav, '-af', MIC_FILTER, '-f', 'null', '-'])
   })
 })
 

@@ -2,9 +2,15 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-/** 편집 때 소리를 어떻게 할지: 원본을 그대로 통과시키거나, 소음을 줄이고 목소리 크기를 맞춘다. */
-export type AudioMode = 'original' | 'voice'
-export const AUDIO_MODES: AudioMode[] = ['original', 'voice']
+/**
+ * 편집 때 소리를 어떻게 할지: 원본 그대로 / 'voice' 소음을 줄이고 목소리 크기를 맞춤(쉬는 구간 소리는 조금 남김) /
+ * 'mic' 핀마이크로 녹음한 것처럼 — 주변 소리를 끝까지 지우고 말 사이는 조용히, 목소리를 앞으로 당긴다.
+ */
+export type AudioMode = 'original' | 'voice' | 'mic'
+export const AUDIO_MODES: AudioMode[] = ['original', 'voice', 'mic']
+
+/** 목소리 보정 도구(deep-filter)를 쓰는 모드인지 */
+export const usesVoiceTool = (m: AudioMode | undefined): m is 'voice' | 'mic' => m === 'voice' || m === 'mic'
 
 export const VOICE_TOOL_MISSING = '목소리 보정 도구(deep-filter)가 설치돼 있지 않아요. README 의 "목소리 보정 설치"를 따라 설치하거나, 소리를 "원본 그대로"로 골라 주세요.'
 
