@@ -88,9 +88,9 @@ function setup(over: Partial<PipelineDeps> = {}, videoInfo: VideoInfo = info()) 
   return { deps, stages, builds, qas, tempos, sounds, directs, extracts, onStage: (s: Stage) => stages.push(s) }
 }
 
-async function prepare(s: ReturnType<typeof setup>, reference?: string) {
+async function prepare(s: ReturnType<typeof setup>, reference?: string, purposeChoice: 'short' | 'post' = 'short') {
   const analysis = await analyzeInput({ videoPath: '/in/영상.mp4', workDir: work }, s.deps) // 앱처럼: 분석 때는 레퍼런스를 모른다
-  const prepared = await prepareEdit({ analysis, workDir: work, purposeChoice: 'short', reference, onStage: s.onStage }, s.deps)
+  const prepared = await prepareEdit({ analysis, workDir: work, purposeChoice, reference, onStage: s.onStage }, s.deps)
   return { analysis, prepared }
 }
 
@@ -273,10 +273,48 @@ describe('produceEdit — 대본대로 만들기', () => {
     expect(s.builds[0]!.style.hookTitle).toBeUndefined()
   })
 
-  test('drop 구간은 남은 구간에서 빠진다(10~20초)', async () => {
+  test('drop 구간은 남은 구간에서 빠진다(10~20초, 게시물 영상)', async () => {
     const s = setup({ directEdit: async () => ({ script: { ...SCRIPT, hook: undefined, drop: [{ start: 10, end: 20 }] }, notes: [] }) })
-    await produce(s)
+    await produce(s, {}, await prepare(s, undefined, 'post'))
     expect(s.builds[0]!.kept).toEqual([{ start: 0, end: 10 }, { start: 20, end: 45 }])
+  })
+
+  test('릴스·숏츠가 60초 이하면 길이를 그대로 둔다(감독이 drop 을 내도 쓰지 않는다)', async () => {
+    const s = setup({ directEdit: async () => ({ script: { ...SCRIPT, hook: undefined, drop: [{ start: 10, end: 20 }] }, notes: [] }) })
+    const p = await prepare(s)
+    expect(p.prepared.script?.drop).toEqual([])
+    expect(p.prepared.planCard).toContain('• 길이: 60초 이하라 길이는 그대로 두고 편집만 해요')
+    await produce(s, {}, p)
+    expect(s.builds[0]!.kept).toEqual([{ start: 0, end: 45 }])
+  })
+
+  test('릴스·숏츠가 60초를 넘으면 감독에게 핵심만 남기라고 하고, 감독이 고른 drop 을 25% 넘게도 쓴다', async () => {
+    const long = info({ durationSec: 180 })
+    const asked: (number | undefined)[] = []
+    const s = setup({ directEdit: async (x) => (asked.push(x.maxOutputSec), { script: { ...SCRIPT, hook: undefined, speed: 1, drop: [{ start: 0, end: 30 }, { start: 80, end: 180 }] }, notes: [] }) }, long)
+    const p = await prepare(s)
+    expect(asked).toEqual([60])
+    expect(p.prepared.planCard).toContain('• 길이: 180초라서 핵심만 골라 60초 이하로 줄여요')
+    expect(p.prepared.script?.drop).toEqual([{ start: 0, end: 30 }, { start: 80, end: 180 }])
+    await produce(s, {}, p)
+    expect(s.builds[0]!.kept).toEqual([{ start: 30, end: 80 }])
+  })
+
+  test('감독이 덜 빼서 60초를 넘으면 (훅 + 본편) / 속도가 60초가 되게 뒤쪽을 자르고 검수에 남긴다', async () => {
+    const long = info({ durationSec: 180 })
+    const s = setup({ directEdit: async () => ({ script: { ...SCRIPT, hook: { sourceStart: 100, sourceEnd: 104, question: '어떻게 칠까?' }, speed: 1.1, drop: [] }, notes: [] }) }, long)
+    const r = await produce(s, {}, await prepare(s))
+    const total = s.builds[0]!.kept.reduce((a, k) => a + k.end - k.start, 0)
+    expect(total / 1.1).toBeCloseTo(60, 1)
+    expect(s.builds[0]!.kept[0]).toEqual({ start: 100, end: 104 }) // 훅은 그대로 맨 앞
+    expect(r.qa.findings.map((f) => f.id)).toContain('length-capped')
+  })
+
+  test('게시물(가로) 영상은 길이 상한이 없다', async () => {
+    const long = info({ durationSec: 180 })
+    const s = setup({ directEdit: async () => ({ script: { ...SCRIPT, hook: undefined, speed: 1, drop: [] }, notes: [] }) }, long)
+    await produce(s, {}, await prepare(s, undefined, 'post'))
+    expect(s.builds[0]!.kept).toEqual([{ start: 0, end: 180 }])
   })
 
   test('drop 이 모든 구간을 지워 버리면 drop 을 쓰지 않는다(빈 영상 방지)', async () => {

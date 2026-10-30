@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { LlmError } from '../core/llm.ts'
 import { ToolError } from '../core/exec.ts'
-import { assertDurationOk, InputError, type Analysis, type Prepared, type Stage } from '../core/pipeline.ts'
+import { assertDurationOk, InputError, maxOutputSecFor, type Analysis, type Prepared, type Stage } from '../core/pipeline.ts'
 import { applyScriptEdits } from '../core/script.ts'
 import { ReferenceFetchError } from '../core/reference.ts'
 import { TempoError } from '../core/tempo.ts'
@@ -182,7 +182,7 @@ export async function producePhase(ctx: PhaseContext): Promise<void> {
 
   const outDir = path.join(dir, 'out')
   // 승인 화면에서 문구를 고쳤다면 계획 대본 위에 덮어서 넘긴다(상한을 넘는 값은 정리된다). 고치지 않았으면 엔진이 prepared.script 를 그대로 쓴다.
-  const script = job.scriptEdits && prepared.script ? applyScriptEdits(prepared.script, job.scriptEdits, { durationSec: analysis.info.durationSec, fallbackTitle: analysis.summary.genre || analysis.summary.topic }) : undefined
+  const script = job.scriptEdits && prepared.script ? applyScriptEdits(prepared.script, job.scriptEdits, { durationSec: analysis.info.durationSec, fallbackTitle: analysis.summary.genre || analysis.summary.topic, maxOutputSec: maxOutputSecFor(prepared.purpose) }) : undefined
   const result = await d.produceEdit({ analysis, prepared, outDir, script, cutTranscript: job.captionTrack !== null ? cutTranscriptFor(raw.transcript, job.captionTrack) : raw.transcript, quality: job.quality, captions: job.captionsMode, captionPosition: job.captionPosition ?? undefined, audio: job.audioMode, bgm: job.bgmId, sfx: job.sfxMode, remixFiles: true, soundGain: job.soundGain ?? undefined, onStage })
 
   let thumbPath: string | null = null

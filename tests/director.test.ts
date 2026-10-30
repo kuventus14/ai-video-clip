@@ -195,3 +195,19 @@ describe('extractReferenceFrames — 실제 ffmpeg', () => {
     expect((await extractReferenceFrames(long, 30, path.join(tmp, 'b'))).length).toBe(16)
   })
 })
+
+describe('buildDirectorPrompt — 릴스·숏츠 60초 상한', () => {
+  test('원본이 60초를 넘으면 핵심만 남겨 60초 이하로 줄이라고 한다', () => {
+    const p = buildDirectorPrompt({ ...base, info: info({ durationSec: 180 }), maxOutputSec: 60 })
+    expect(p).toContain('반드시 60초 이하')
+    expect(p).toContain('핵심만 남기고')
+    expect(p).not.toContain('25% 이하')
+  })
+  test('원본이 60초 이하면 길이를 그대로 두고 drop 을 비우게 한다', () => {
+    const p = buildDirectorPrompt({ ...base, info: info({ durationSec: 45 }), maxOutputSec: 60 })
+    expect(p).toContain('길이를 그대로 둡니다')
+  })
+  test('상한이 없으면(게시물) 예전처럼 군더더기만 25% 이하로 뺀다', () => {
+    expect(buildDirectorPrompt(base)).toContain('25% 이하')
+  })
+})
