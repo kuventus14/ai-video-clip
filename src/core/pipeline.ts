@@ -332,6 +332,38 @@ export interface PrepareInput {
   deletedSpans?: Span[]
 }
 
+/** 결과 영상 길이 상한: 릴스·숏츠(세로)는 60초, 게시물(가로)은 없음 */
+export const maxOutputSecFor = (purpose: Purpose): number | undefined => (purpose === 'short' ? SCRIPT_LIMITS.shortMaxSec : undefined)
+
+/** "이렇게 이해했어요" 카드의 길이 안내 줄 */
+export function lengthCardLines(durationSec: number, maxOutputSec?: number): string[] {
+  if (maxOutputSec === undefined) return []
+  return durationSec > maxOutputSec
+    ? [`• 길이: ${Math.round(durationSec)}초라서 핵심만 골라 ${maxOutputSec}초 이하로 줄여요`]
+    : [`• 길이: ${maxOutputSec}초 이하라 길이는 그대로 두고 편집만 해요`]
+}
+
+/**
+ * 결과가 상한을 넘지 않게 남길 구간을 줄인다(편집 감독이 덜 뺐거나 대본이 없을 때의 안전장치).
+ * 훅이 결과를 앞에서 보여 주므로 본편은 앞에서부터 이어 붙이고 넘치는 뒤쪽을 자른다. 출력 길이 = (훅 + 본편) / 속도.
+ */
+export function capKeptToOutput(kept: Span[], o: { maxOutputSec: number; hookSec: number; speed: number }): Span[] {
+  let room = o.maxOutputSec * o.speed - o.hookSec
+  const out: Span[] = []
+  for (const k of kept) {
+    if (room <= 0.3) break
+    const len = k.end - k.start
+    if (len <= room) {
+      out.push(k)
+      room -= len
+    } else {
+      out.push({ start: k.start, end: Math.round((k.start + room) * 1000) / 1000 })
+      room = 0
+    }
+  }
+  return out.length ? out : kept.slice(0, 1)
+}
+
 /** 2단계: (레퍼런스 받기·분석) → 용도 확정 → 요청 해석 → "이렇게 이해했어요" 카드 */
 export async function prepareEdit(i: PrepareInput, overrides: Partial<PipelineDeps> = {}): Promise<Prepared> {
   const d: PipelineDeps = { ...DEFAULTS, ...overrides }
@@ -361,7 +393,8 @@ export async function prepareEdit(i: PrepareInput, overrides: Partial<PipelineDe
         '• 자막: 말하는 대로 넣고, 오타·오인식은 검수에서 고쳐요',
       ]
     : planCardLines(plan, specUsed)
-  const planCard = [...baseCard, ...reframeCardLines(reframe, a.info, canvas)]
+  const maxOutputSec = maxOutputSecFor(purpose)
+  const planCard = [...baseCard, ...reframeCardLines(reframe, a.info, canvas), ...lengthCardLines(a.info.durationSec, maxOutputSec)]
   const captionPosition = deriveAppliedStyle(plan, specUsed, a.summary, purpose).captions.position
 
   // 편집 감독: 영상·대본·(레퍼런스 사진)을 보고 편집 대본을 짠다. 실패해도 작업을 막지 않고 지금 방식으로 되돌아간다.
@@ -371,9 +404,9 @@ export async function prepareEdit(i: PrepareInput, overrides: Partial<PipelineDe
   if (d.directEdit) {
     stage('direct')
     try {
-      const out = await d.directEdit({ info: a.info, transcript: a.transcript, summary: a.summary, sourcePath: a.sourcePath, spec, refFrames: spec ? readRefFrames(i.workDir) : [], workDir: i.workDir, deletedSpans: i.deletedSpans })
+      const out = await d.directEdit({ info: a.info, transcript: a.transcript, summary: a.summary, sourcePath: a.sourcePath, spec, refFrames: spec ? readRefFrames(i.workDir) : [], workDir: i.workDir, deletedSpans: i.deletedSpans, maxOutputSec })
       // 감독 구현이 무엇을 돌려주든 대본을 한 번 더 정리한다(영상이 10초 이하면 제목만 등) — 정리는 여러 번 해도 같다
-      const clean = normalizeScript(out.script, { durationSec: a.info.durationSec, fallbackTitle: a.summary.hookTitle || a.summary.genre || a.summary.topic })
+      const clean = normalizeScript(out.script, { durationSec: a.info.durationSec, fallbackTitle: a.summary.hookTitle || a.summary.genre || a.summary.topic, maxOutputSec })
       script = clean.script
       directorNotes = [...out.notes, ...clean.notes]
     } catch {
@@ -453,6 +486,20 @@ export async function produceEdit(i: ProduceInput, overrides: Partial<PipelineDe
     // 훅이 영상 맨 앞 장면이면 앞에 또 붙이지 않고(같은 말이 연달아 두 번 나온다) 질문만 본편 첫머리 위에 띄운다
     const hookSpan = script?.hook ? { start: script.hook.sourceStart, end: script.hook.sourceEnd } : undefined
     const hookInPlace = hookSpan !== undefined && hookRepeatsOpening(hookSpan, kept, SCRIPT_LIMITS.hookMaxSec)
+    const speed = script?.speed ?? 1
+    const tempoOn = speed > 1.001 && d.applyTempo !== undefined
+    const effSpeed = tempoOn ? speed : 1
+    // 릴스·숏츠는 결과가 60초를 넘지 않게: 감독이 덜 뺐으면 넘치는 뒤쪽을 자른다
+    const maxOutputSec = maxOutputSecFor(purpose)
+    const lengthFindings: Finding[] = []
+    if (maxOutputSec !== undefined) {
+      const hookLen = hookSpan && !hookInPlace ? hookSpan.end - hookSpan.start : 0
+      const before = (hookLen + kept.reduce((a, k) => a + k.end - k.start, 0)) / effSpeed
+      if (before > maxOutputSec + 0.05) {
+        kept = capKeptToOutput(kept, { maxOutputSec, hookSec: hookLen, speed: effSpeed })
+        lengthFindings.push({ id: 'length-capped', severity: 'info', message: `결과가 ${Math.round(before)}초라서 ${maxOutputSec}초에 맞게 뒤쪽을 잘랐어요`, fixHint: 'none' })
+      }
+    }
     const timeline = buildTimeline(kept, hookInPlace ? undefined : hookSpan)
     const hookSec = timeline.hookSec
     let renderScript = script ? toRenderScript(script, kept, hookSec, timeline.totalSec) : undefined
@@ -460,9 +507,6 @@ export async function produceEdit(i: ProduceInput, overrides: Partial<PipelineDe
       const sec = Math.min(script.hook.sourceEnd - script.hook.sourceStart, timeline.totalSec)
       renderScript = { ...renderScript, hook: { sec, question: script.hook.question }, hookSec: sec }
     }
-    const speed = script?.speed ?? 1
-    const tempoOn = speed > 1.001 && d.applyTempo !== undefined
-    const effSpeed = tempoOn ? speed : 1
     // 자막·단어 시각은 본편(kept) 기준으로 만들고, 쓸 때 훅 길이만큼 밀고 속도로 나눈다
     const outTime = <T extends { start: number; end: number }>(xs: T[], toBuild: boolean): T[] => {
       const shifted = shiftCues(xs, hookSec)
@@ -658,7 +702,7 @@ export async function produceEdit(i: ProduceInput, overrides: Partial<PipelineDe
     if (i.sfx === 'on' && soundReport?.sfxCount === 0) {
       extraFindings.push({ id: 'sfx-none', severity: 'info', message: '효과음을 켰지만 넣을 곳(컷이 바뀌는 순간·제목 카드)이 없어서 넣지 않았어요.', fixHint: 'none' })
     }
-    const finalQa: QaReport = { ...qa, findings: [...qa.findings, ...extraFindings, ...cropFindings, ...suggestionFindings] }
+    const finalQa: QaReport = { ...qa, findings: [...qa.findings, ...extraFindings, ...lengthFindings, ...cropFindings, ...suggestionFindings] }
     const resultPath = path.join(outDir, 'result.mp4')
     // 소리만 다시 섞을 수 있게 소리 없는 렌더와 섞는 방법을 남긴다(remixFiles 일 때만). 이번에 소리를 안 썼다면 같은 폴더의 옛 파일을 지운다(다시 섞기가 열리면 안 된다).
     const dryOut = path.join(outDir, 'dry.mp4')

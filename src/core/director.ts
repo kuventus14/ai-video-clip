@@ -27,6 +27,8 @@ export interface DirectInput {
   workDir: string
   /** 사용자가 자막에서 뺀 구간(말은 있다) — 훅·덜어내기로 고르지 않게 알려 준다 */
   deletedSpans?: { start: number; end: number }[]
+  /** 결과 영상 길이 상한(릴스·숏츠는 60초). 원본이 더 길면 핵심만 남기게 하고, 짧으면 길이를 그대로 둔다 */
+  maxOutputSec?: number
 }
 
 /** 내 영상에서 사진을 뽑을 시각: 영상 전체에서 고르게(0.1초 단위). */
@@ -78,7 +80,22 @@ function referenceBlock(refCount: number, firstRefImage: number, spec?: StyleSpe
 }
 
 /** 편집 감독에게 보내는 지시문. 순수 함수 — 시험이 내용을 확인한다. */
-export function buildDirectorPrompt(i: { info: VideoInfo; transcript: Transcript; summary: VideoSummary; spec?: StyleSpec; refCount: number; frameTimes: number[]; deletedSpans?: { start: number; end: number }[] }): string {
+/** 9번 규칙(drop): 길이 상한이 없으면 군더더기만, 원본이 상한보다 길면 핵심 요약, 상한 안이면 비워 둔다 */
+function dropRule(dur: number, maxOutputSec?: number): string {
+  const L = SCRIPT_LIMITS
+  if (maxOutputSec === undefined) return `9. **drop**: 군더더기·반복·딴소리인 약한 구간(원본 시각 start~end). 합계는 전체 길이의 ${Math.round(L.dropMaxFraction * 100)}% 이하. 중요한 설명은 빼지 않습니다.`
+  if (dur <= maxOutputSec) return `9. **drop**: 이 영상은 ${f1(dur)}초로 ${maxOutputSec}초 이하라 **길이를 그대로 둡니다** — drop 은 빈 배열([])로 두세요.`
+  const keep = Math.max(maxOutputSec / 2, maxOutputSec - L.hookMaxSec - 6)
+  return [
+    `9. **drop (가장 중요)**: 이 영상은 ${f1(dur)}초인데 결과는 **반드시 ${maxOutputSec}초 이하**여야 합니다. 영상 전체를 요약하듯 **핵심만 남기고** 나머지를 drop 으로 빼세요.`,
+    `   - 남기는 부분(전체 − drop 합계)이 **${Math.round(keep)}초 안팎**이 되게 하세요(훅 장면이 앞에 붙고, 말 사이 쉼은 따로 잘립니다). 대략 ${Math.round(dur - keep)}초를 빼야 합니다.`,
+    '   - 남길 것: 핵심 설명(무엇을·왜·어떻게), 핵심 시범 동작, 결과 장면. 뺄 것: 인사·자기소개·반복 설명·준비 동작·딴소리·마무리 인사.',
+    '   - 문장 중간을 자르지 말고 대본의 문장 경계(앞뒤 시각)에서 자르세요. 남은 부분만 이어 봐도 말이 자연스럽게 이어져야 합니다.',
+    '   - sections·questions·reactions·hook 은 **남기는 부분 안의 시각**에 두세요.',
+  ].join('\n')
+}
+
+export function buildDirectorPrompt(i: { info: VideoInfo; transcript: Transcript; summary: VideoSummary; spec?: StyleSpec; refCount: number; frameTimes: number[]; deletedSpans?: { start: number; end: number }[]; maxOutputSec?: number }): string {
   const dur = i.info.durationSec
   const L = SCRIPT_LIMITS
   const n = i.frameTimes.length
@@ -101,7 +118,7 @@ export function buildDirectorPrompt(i: { info: VideoInfo; transcript: Transcript
     `6. **reactions**: 결과가 가장 인상적으로 나오는 순간에 리액션 자막 0~${L.maxReactions}개(text, ${L.reaction}자 이하). 예시 패턴: "와.. 이렇게 뻗는다고?!".`,
     `7. **emphasis**: 대사에 **실제로 나온** 핵심 단어(명사·수치·핵심 행동)만 최대 ${L.maxEmphasis}개 — 자막에서 노란색으로 강조됩니다.`,
     `8. **speed**: ${L.speedMin.toFixed(1)}~${L.speedMax} (말이 느슨하면 1.1 정도, 이미 빠르면 1.0).`,
-    `9. **drop**: 군더더기·반복·딴소리인 약한 구간(원본 시각 start~end). 합계는 전체 길이의 ${Math.round(L.dropMaxFraction * 100)}% 이하. 중요한 설명은 빼지 않습니다.`,
+    dropRule(dur, i.maxOutputSec),
     '10. **사실 규칙**: 영상의 대사와 화면에서 확인되는 내용만 씁니다. 숫자·기록·인물·브랜드를 지어내지 마세요. 과장·단정("100% 성공")도 금지.',
     '11. 모든 문구는 짧은 한국어. 시각은 모두 **원본 영상 기준 초**(소수 가능)이고 영상 길이 안이어야 합니다.',
     dur <= L.shortVideoSec ? `12. 이 영상은 ${L.shortVideoSec}초 이하로 짧습니다 — hook·openingLines·sections·questions·reactions·drop 은 비워 두고 title 과 emphasis, speed 만 채우세요.` : '12. 영상이 아주 짧거나 말이 없으면 억지로 채우지 말고 해당 항목을 비워 두세요(훅·소제목을 억지로 만들면 영상이 더 나빠집니다).',
@@ -124,7 +141,7 @@ export async function directEdit(i: DirectInput, deps: { ask?: typeof askClaude;
   const dir = path.join(i.workDir, 'director-frames')
   try {
     const own = await frames(i.sourcePath, times, dir)
-    const prompt = buildDirectorPrompt({ info: i.info, transcript: i.transcript, summary: i.summary, spec: i.spec, refCount: refFrames.length, frameTimes: times, deletedSpans: i.deletedSpans })
+    const prompt = buildDirectorPrompt({ info: i.info, transcript: i.transcript, summary: i.summary, spec: i.spec, refCount: refFrames.length, frameTimes: times, deletedSpans: i.deletedSpans, maxOutputSec: i.maxOutputSec })
     const text = await ask({ prompt, images: [...own, ...refFrames], effort: 'medium', model: process.env.VAE_DIRECTOR_MODEL || undefined })
     let raw: unknown = null
     try {
@@ -133,7 +150,7 @@ export async function directEdit(i: DirectInput, deps: { ask?: typeof askClaude;
       raw = null
     }
     if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) throw new LlmError('invalid-json', 'AI 가 편집 대본을 읽을 수 있는 형식으로 주지 않았어요')
-    return normalizeScript(raw, { durationSec: i.info.durationSec, fallbackTitle: i.summary.hookTitle || i.summary.genre || i.summary.topic })
+    return normalizeScript(raw, { durationSec: i.info.durationSec, fallbackTitle: i.summary.hookTitle || i.summary.genre || i.summary.topic, maxOutputSec: i.maxOutputSec })
   } finally {
     fs.rmSync(dir, { recursive: true, force: true })
   }

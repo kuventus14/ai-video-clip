@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { applyScriptEdits, emptyScript, normalizeScript, SCRIPT_LIMITS, scriptCardLines, toRenderScript, type EditScript } from '../src/core/script.ts'
+import { applyScriptEdits, dropBudgetSec, emptyScript, normalizeScript, SCRIPT_LIMITS, scriptCardLines, toRenderScript, type EditScript, type ScriptContext } from '../src/core/script.ts'
 
 const ctx = { durationSec: 60, fallbackTitle: '골프 레슨' }
 const good = (over: Record<string, unknown> = {}) => ({
@@ -15,7 +15,7 @@ const good = (over: Record<string, unknown> = {}) => ({
   drop: [{ start: 30, end: 33 }],
   ...over,
 })
-const run = (raw: unknown, c = ctx) => normalizeScript(raw, c)
+const run = (raw: unknown, c: ScriptContext = ctx) => normalizeScript(raw, c)
 
 describe('normalizeScript — 편집 대본을 정리한다(던지지 않는다)', () => {
   test('정상 대본은 그대로 통과하고 notes 가 비어 있다', () => {
@@ -221,5 +221,25 @@ describe('applyScriptEdits — 사용자가 고친 문구를 대본에 덮어쓴
     const r = applyScriptEdits(sc, { title: '가'.repeat(19), hookQuestion: '나'.repeat(23) }, ctx)
     expect(Array.from(r.title).length).toBeLessThanOrEqual(SCRIPT_LIMITS.title)
     expect(r.hook).toBeUndefined() // 질문을 못 쓰면 훅 자체를 두지 않는다(정리 규칙)
+  })
+})
+
+describe('릴스·숏츠 60초 상한 — drop 한도', () => {
+  test('상한이 없으면 전체의 25%, 상한 안의 영상이면 0, 상한보다 길면 상한의 절반만 남길 만큼까지', () => {
+    expect(dropBudgetSec(100)).toBe(25)
+    expect(dropBudgetSec(45, 60)).toBe(0)
+    expect(dropBudgetSec(180, 60)).toBe(150)
+    expect(dropBudgetSec(70, 60)).toBe(40)
+  })
+
+  test('60초 이하 릴스는 drop 을 비우고 이유를 남긴다', () => {
+    const r = run(good({ drop: [{ start: 30, end: 33 }] }), { ...ctx, durationSec: 59, maxOutputSec: 60 })
+    expect(r.script.drop).toEqual([])
+    expect(r.notes.join('\n')).toContain('길이를 그대로')
+  })
+
+  test('3분 릴스는 2분 넘게 빼도 그대로 쓴다', () => {
+    const r = run(good({ drop: [{ start: 0, end: 60 }, { start: 100, end: 180 }] }), { ...ctx, durationSec: 180, maxOutputSec: 60 })
+    expect(r.script.drop).toEqual([{ start: 0, end: 60 }, { start: 100, end: 180 }])
   })
 })

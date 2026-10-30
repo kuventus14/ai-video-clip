@@ -19,6 +19,8 @@ export const SCRIPT_LIMITS = {
   speedMax: 1.25,
   dropMaxFraction: 0.25,
   shortVideoSec: 10,
+  /** 릴스·숏츠 결과 영상의 최대 길이. 원본이 이보다 길면 핵심만 남겨 줄이고, 짧으면 길이를 그대로 둔다 */
+  shortMaxSec: 60,
   /** 같은 종류의 오버레이 사이 최소 간격 */
   minGapSec: 2,
 } as const
@@ -107,7 +109,26 @@ function timedList(raw: unknown, key: 'label' | 'text', max: number, textMax: nu
   return spaced(items, max, notes, what)
 }
 
-function normalizeDrop(raw: unknown, durationSec: number, notes: string[]): Span[] {
+/** 대본 정리에 필요한 정보. maxOutputSec 는 결과 길이 상한(릴스·숏츠면 60초) */
+export interface ScriptContext {
+  durationSec: number
+  fallbackTitle: string
+  maxOutputSec?: number
+}
+
+/**
+ * 빼는 구간에 쓸 수 있는 최대 길이(초). 보통은 전체의 25%.
+ * 결과 길이 상한이 있고 원본이 그보다 길면 핵심만 남기도록 상한까지 줄일 만큼 허용한다(그래도 상한의 절반은 남긴다).
+ * 상한이 있고 원본이 그 안이면 0 — 길이를 그대로 두고 편집만 한다.
+ */
+export function dropBudgetSec(durationSec: number, maxOutputSec?: number): number {
+  const usual = durationSec * SCRIPT_LIMITS.dropMaxFraction
+  if (maxOutputSec === undefined) return usual
+  if (durationSec <= maxOutputSec) return 0
+  return Math.max(usual, durationSec - maxOutputSec / 2)
+}
+
+function normalizeDrop(raw: unknown, durationSec: number, notes: string[], maxOutputSec?: number): Span[] {
   if (!Array.isArray(raw)) return []
   const spans: Span[] = []
   for (const r of raw) {
@@ -126,17 +147,21 @@ function normalizeDrop(raw: unknown, durationSec: number, notes: string[]): Span
     if (last && sp.start <= last.end) last.end = Math.max(last.end, sp.end)
     else merged.push({ ...sp })
   }
-  let budget = durationSec * SCRIPT_LIMITS.dropMaxFraction
+  let budget = dropBudgetSec(durationSec, maxOutputSec)
+  if (merged.length && budget <= 0.05) {
+    notes.push(`영상이 ${maxOutputSec}초 이하라 길이를 그대로 두고 빼는 구간은 쓰지 않아요`)
+    return []
+  }
   const out: Span[] = []
   for (const sp of merged) {
     if (budget <= 0.05) {
-      notes.push('빼도 되는 구간이 전체의 25%를 넘어서 뒤쪽은 뺐어요')
+      notes.push('빼도 되는 구간이 한도를 넘어서 뒤쪽은 뺐어요')
       break
     }
     const length = sp.end - sp.start
     if (length > budget) {
       out.push({ start: sp.start, end: round3(sp.start + budget) })
-      notes.push('빼도 되는 구간이 전체의 25%를 넘어서 줄였어요')
+      notes.push('빼도 되는 구간이 한도를 넘어서 줄였어요')
       budget = 0
     } else {
       out.push(sp)
@@ -150,7 +175,7 @@ function normalizeDrop(raw: unknown, durationSec: number, notes: string[]): Span
  * AI 가 낸 대본(무엇이든)을 쓸 수 있는 편집 대본으로 정리한다. **던지지 않는다**: 못 쓰는 항목만 빼고 이유를 notes(한국어)에 남긴다.
  * 10초 이하 영상은 제목만 남긴다(훅·소제목을 억지로 만들면 영상이 더 나빠진다).
  */
-export function normalizeScript(raw: unknown, ctx: { durationSec: number; fallbackTitle: string }): { script: EditScript; notes: string[] } {
+export function normalizeScript(raw: unknown, ctx: ScriptContext): { script: EditScript; notes: string[] } {
   const notes: string[] = []
   const d = ctx.durationSec
   const o = isObj(raw) ? raw : {}
@@ -208,7 +233,7 @@ export function normalizeScript(raw: unknown, ctx: { durationSec: number; fallba
   script.sections = timedList(o.sections, 'label', SCRIPT_LIMITS.maxSections, SCRIPT_LIMITS.section, d, '소제목', notes) as EditScript['sections']
   script.questions = timedList(o.questions, 'text', SCRIPT_LIMITS.maxQuestions, SCRIPT_LIMITS.question, d, '중간 질문', notes) as EditScript['questions']
   script.reactions = timedList(o.reactions, 'text', SCRIPT_LIMITS.maxReactions, SCRIPT_LIMITS.reaction, d, '리액션', notes) as EditScript['reactions']
-  script.drop = normalizeDrop(o.drop, d, notes)
+  script.drop = normalizeDrop(o.drop, d, notes, ctx.maxOutputSec)
   return { script, notes }
 }
 
@@ -256,7 +281,7 @@ export function scriptCardLines(sc: EditScript): string[] {
 }
 
 /** 사용자가 승인 화면에서 고친 문구(제목·훅 질문·소개 줄)를 대본에 덮어쓴다. 상한을 넘는 값은 정리 규칙에 따라 빠진다. */
-export function applyScriptEdits(script: EditScript, edits: ScriptEdits | null | undefined, ctx: { durationSec: number; fallbackTitle: string }): EditScript {
+export function applyScriptEdits(script: EditScript, edits: ScriptEdits | null | undefined, ctx: ScriptContext): EditScript {
   if (!edits || (edits.title === undefined && edits.hookQuestion === undefined && edits.openingLines === undefined)) return script
   return normalizeScript(
     {
