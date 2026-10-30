@@ -211,6 +211,18 @@ chmod +x deep-filter
 
 맨 위 "처음 시작하기"의 명령으로 설치하고, `npm run setup` 으로 점검해요(빠진 것은 설치 방법을 알려 줘요). 음성 인식 모델(`~/.cache/hyperframes/whisper/models/ggml-small.bin`, 약 465MB)은 `npm run setup` 이 보여 주는 `curl` 명령으로 받아요.
 
+## 영상만 넣으면 자동 편집 + 업로드
+
+폴더에 영상을 넣으면 승인 없이 편집하고(AI 가 제목을 지어요), 켜 두었으면 유튜브 숏츠·인스타그램 릴스에도 올려요.
+
+```bash
+npm run autopilot -- install                       # 맥을 켜면 자동으로 지켜보게 등록
+npm run connect -- youtube --client client_secret.json   # 업로드 계정 연결(선택)
+npm run connect -- instagram --token <토큰>
+```
+
+폴더 구조, `설정.json`, 계정 준비 방법은 [docs/autopilot.md](docs/autopilot.md) 를 보세요.
+
 ## 명령줄로 쓰기 (화면 없이)
 
 ```bash
