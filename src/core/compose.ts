@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import { brandLayout, brandParts, installBrandFonts, type BrandBand, type BrandLayout } from './brandBand.ts'
 import { run } from './exec.ts'
 import type { AppliedStyle } from './interpret.ts'
 import type { Canvas, CaptionCue, CropKeyframe, ReframeMode, Span, VideoInfo } from './types.ts'
@@ -85,6 +86,13 @@ const OV_SIZES = (c: Canvas) => {
   return { title: Math.round(u * 0.042), hook: Math.round(u * 0.058), open: Math.round(u * 0.037), sec: Math.round(u * 0.05), q: Math.round(u * 0.046), react: Math.round(u * 0.052), pad: Math.round(u * 0.012) }
 }
 
+/** 채널 띠를 입힐 때의 자리: 대본 묶음(훅 질문·소개 줄·소제목)은 영상 안쪽 위, 자막은 영상 안쪽 아래, 리액션은 자막 바로 위 */
+export function brandOverlayLayout(b: BrandLayout, canvas: Canvas): OverlayLayout {
+  const z = OV_SIZES(canvas)
+  const stackHeight = Math.round(z.sec * 1.25) + 6 + Math.round(z.q * 1.25) + 3 * Math.round(z.open * 1.3)
+  return { band: true, videoTop: b.videoTop, videoBottom: b.videoBottom, titleTop: b.stackTop, stackHeight, captionTop: b.captionTop, reactionTop: Math.round(b.captionTop - z.react * 1.7 - 24) }
+}
+
 /** 영상이 놓이는 사각형과 제목·자막·리액션의 자리를 정한다. */
 export function overlayLayout(reframe: ReframeMode, info: Pick<VideoInfo, 'width' | 'height'>, canvas: Canvas, captionPosition: 'top' | 'middle' | 'bottom'): OverlayLayout {
   const H = canvas.height
@@ -131,6 +139,8 @@ export interface BuildInput {
   style: AppliedStyle
   /** 편집 대본(오버레이 층). 없으면 지금 방식(자막과 선택적 제목 카드)만 그린다 */
   script?: RenderScript
+  /** 세로 캔버스에 채널 띠(위: 제목, 아래: 채널명)를 입힌다. 있으면 흐린 배경 대신 검은 띠를 쓰고 제목 박스는 위 띠로 옮긴다 */
+  brand?: BrandBand
 }
 
 function escapeHtml(s: string): string {
@@ -174,12 +184,12 @@ function captionHtml(cue: CaptionCue, i: number, start: number, dur: number, hig
   return `    <div id="cap-${i}" class="clip caption" data-start="${fmt(start)}" data-duration="${fmt(dur)}" data-track-index="2"><span class="text">${words.join(' ')}</span></div>`
 }
 
-/** 대본의 오버레이 층(제목·훅 질문·소개 줄·소제목·질문·리액션)을 HTML 과 타임라인 트윈으로 만든다. */
-function overlayParts(sc: RenderScript, totalSec: number, c: Canvas, layout: OverlayLayout): { stack: string; reactions: string; js: string[]; css: string } {
+/** 대본의 오버레이 층(제목·훅 질문·소개 줄·소제목·질문·리액션)을 HTML 과 타임라인 트윈으로 만든다. noTitle 이면 제목 박스를 빼고(채널 띠가 그린다) 나머지를 위로 올린다. */
+function overlayParts(sc: RenderScript, totalSec: number, c: Canvas, layout: OverlayLayout, noTitle = false): { stack: string; reactions: string; js: string[]; css: string } {
   const z = OV_SIZES(c)
   const maxW = c.width * 0.88
   const titleBoxH = Math.round(z.title * 1.25 + 2 * z.pad)
-  const slotB = titleBoxH + 14
+  const slotB = noTitle ? 0 : titleBoxH + 14
   const slotC = slotB + Math.round(z.sec * 1.25) + 6
   const fs = (text: string, base: number) => fitFontPx(text, base, maxW)
   const hookSec = Math.min(sc.hookSec, totalSec)
@@ -187,7 +197,7 @@ function overlayParts(sc: RenderScript, totalSec: number, c: Canvas, layout: Ove
   const js: string[] = []
   const enter = (id: string, start: number) => js.push(`tl.fromTo("#${id} .ov", { y: -12, opacity: 0 }, { y: 0, opacity: 1, duration: 0.22, ease: "power3.out", immediateRender: false }, ${fmt(start)});`)
 
-  stackParts.push(`      <div id="ov-title" class="clip ovc" style="top:0" data-start="0" data-duration="${fmt(totalSec)}" data-track-index="4"><div class="ov title-box" style="font-size:${fs(sc.title, z.title)}px">${escapeHtml(sc.title)}</div></div>`)
+  if (!noTitle) stackParts.push(`      <div id="ov-title" class="clip ovc" style="top:0" data-start="0" data-duration="${fmt(totalSec)}" data-track-index="4"><div class="ov title-box" style="font-size:${fs(sc.title, z.title)}px">${escapeHtml(sc.title)}</div></div>`)
 
   if (sc.hook && hookSec > 0.2) {
     stackParts.push(`      <div id="ov-hook" class="clip ovc" style="top:${slotB}px" data-start="0" data-duration="${fmt(hookSec)}" data-track-index="5"><div class="ov hook-q" style="font-size:${fs(sc.hook.question, z.hook)}px">${escapeHtml(sc.hook.question)}</div></div>`)
@@ -265,7 +275,9 @@ export async function buildProject(i: BuildInput): Promise<{ projectDir: string;
   fs.mkdirSync(path.join(projectDir, 'lib'), { recursive: true })
   linkOrCopy(i.sourcePath, path.join(projectDir, 'source.mp4'))
   fs.copyFileSync(GSAP, path.join(projectDir, 'lib/gsap.min.js'))
-  const fontFaces = installFonts(projectDir)
+  // 채널 띠는 세로 캔버스에만 입힌다
+  const band = i.brand && c.height > c.width ? brandLayout(info, c) : null
+  const fontFaces = installFonts(projectDir) + (band ? `\n${installBrandFonts(projectDir)}` : '')
 
   const totalSec = i.kept.reduce((s, k) => s + (k.end - k.start), 0)
   const portrait = c.height > c.width
@@ -273,8 +285,9 @@ export async function buildProject(i: BuildInput): Promise<{ projectDir: string;
   // 영상 요소들: 남은 구간마다 하나(blur-fill 은 배경 + 앞 영상 두 개)
   const audioAttr = info.hasAudio ? 'data-has-audio="true"' : 'muted'
   const scaledW = c.height * (info.width / info.height) // track: 높이를 캔버스에 맞춘 영상 폭
-  const fgStyle =
-    i.reframe === 'track'
+  const fgStyle = band
+    ? `position:absolute;left:0;top:${band.videoTop}px;width:100%;height:${band.videoBottom - band.videoTop}px;object-fit: cover`
+    : i.reframe === 'track'
       ? `position:absolute;left:0;top:0;width:${px(scaledW)};height:${px(c.height)}`
       : i.reframe === 'blur-fill'
         ? 'position:absolute;inset:0;width:100%;height:100%;object-fit: contain'
@@ -288,7 +301,7 @@ export async function buildProject(i: BuildInput): Promise<{ projectDir: string;
     const len = k.end - k.start
     segStarts.push(outStart)
     const timing = `data-start="${fmt(outStart)}" data-duration="${fmt(len)}" data-media-start="${fmt(k.start)}"`
-    if (i.reframe === 'blur-fill') {
+    if (i.reframe === 'blur-fill' && !band) {
       videos.push(`      <video id="seg-${n}-bg" src="source.mp4" ${timing} data-track-index="0" playsinline muted style="${bgStyle}"></video>`)
       videos.push(`      <video id="seg-${n}" src="source.mp4" ${timing} data-track-index="1" playsinline ${audioAttr} style="${fgStyle}"></video>`)
     } else {
@@ -307,7 +320,7 @@ export async function buildProject(i: BuildInput): Promise<{ projectDir: string;
   const capIds = captions.map((c) => c.match(/id="cap-(\d+)"/)![1]!)
 
   // 대본이 있으면 옛 제목 카드는 그리지 않는다(대본의 제목·훅 질문이 그 역할을 한다)
-  const hook = style.hookTitle && !i.script
+  const hook = style.hookTitle && !i.script && !band
     ? `    <div id="hook" class="clip hook" data-start="0" data-duration="${fmt(Math.min(style.hookTitle.durationSec, totalSec))}" data-track-index="3"><div class="hook-box">${escapeHtml(style.hookTitle.text)}</div></div>`
     : ''
 
@@ -330,9 +343,11 @@ export async function buildProject(i: BuildInput): Promise<{ projectDir: string;
       js.push(`tl.fromTo("#punch", { scale: 1.06 }, { scale: 1, duration: 0.18, ease: "power2.out", immediateRender: false }, ${fmt(t)});`)
     }
   }
-  if (style.hookTitle && !i.script) js.push('tl.from("#hook .hook-box", { y: -30, opacity: 0, duration: 0.35, ease: "power3.out" }, 0.1);')
-  const layout = i.script ? overlayLayout(i.reframe, info, c, style.captions.position) : null
-  const ov = i.script && layout ? overlayParts(i.script, totalSec, c, layout) : null
+  if (style.hookTitle && !i.script && !band) js.push('tl.from("#hook .hook-box", { y: -30, opacity: 0, duration: 0.35, ease: "power3.out" }, 0.1);')
+  const layout = band ? brandOverlayLayout(band, c) : i.script ? overlayLayout(i.reframe, info, c, style.captions.position) : null
+  const ov = i.script && layout ? overlayParts(i.script, totalSec, c, layout, !!band) : null
+  // 채널 띠: 제목은 대본의 제목, 대본이 없으면 옛 제목 카드 문구
+  const bb = band && i.brand ? brandParts({ title: i.script?.title ?? style.hookTitle?.text ?? '', brand: i.brand, totalSec, canvas: c, layout: band }) : null
   if (ov) {
     // 자막 팝업: 큐마다 톡 튀어나온다(타이밍이 걸린 클립이 아니라 안쪽 글자를 움직인다)
     for (const id of capIds) {
@@ -341,6 +356,7 @@ export async function buildProject(i: BuildInput): Promise<{ projectDir: string;
     }
     js.push(...ov.js)
   }
+  if (bb) js.push(...bb.js)
   js.push('window.__timelines["main"] = tl;')
 
   const cap = style.captions
@@ -370,6 +386,7 @@ ${fontFaces}
       .caption .text { font-family: 'Noto Sans KR', sans-serif; font-weight: 700; font-size: ${cap.sizePx}px; line-height: 1.25; text-align: center; color: ${cap.color}; word-break: keep-all; -webkit-text-stroke: ${Math.max(4, Math.round(cap.sizePx / 10))}px rgba(0,0,0,0.85); paint-order: stroke fill; text-shadow: 0 4px 14px rgba(0,0,0,0.6); }
       .hook { position: absolute; inset: 0; display: flex; justify-content: center; align-items: flex-start; padding-top: ${Math.round(c.height * (portrait ? 0.1 : 0.08))}px; pointer-events: none; }
       ${ov ? ov.css : ''}
+      ${bb ? bb.css : ''}
       .hook-box { font-family: 'Noto Sans KR', sans-serif; font-weight: 700; font-size: ${hookSize}px; line-height: 1.2; color: #fff; background: rgba(0,0,0,0.62); padding: 0.35em 0.7em; border-radius: 0.3em; text-align: center; word-break: keep-all; max-width: 88%; }
     </style>
   </head>
@@ -378,7 +395,7 @@ ${fontFaces}
     <div id="punch"><div id="inner">
 ${videos.join('\n')}
     </div></div>
-${captions.join('\n')}
+${bb ? `${bb.html}\n` : ''}${captions.join('\n')}
 ${ov ? `${ov.stack}\n${ov.reactions}\n` : ''}${hook}
     </div>
     <script>

@@ -2,7 +2,8 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { beforeAll, describe, expect, test } from 'vitest'
-import { buildProject, chooseReframeMode, fitFontPx, isEmphasized, overlayLayout, type BuildInput, type RenderScript } from '../src/core/compose.ts'
+import { brandLayout, type BrandBand } from '../src/core/brandBand.ts'
+import { brandOverlayLayout, buildProject, chooseReframeMode, fitFontPx, isEmphasized, overlayLayout, type BuildInput, type RenderScript } from '../src/core/compose.ts'
 import { run } from '../src/core/exec.ts'
 import type { AppliedStyle } from '../src/core/interpret.ts'
 import { probeVideo } from '../src/core/media.ts'
@@ -217,6 +218,55 @@ describe('buildProject + script', () => {
 
   test('hyperframes check 를 통과한다(오버레이 포함)', async () => {
     const { projectDir } = await buildProject(input())
+    await run('hyperframes', ['check'], { cwd: projectDir, timeoutMs: 5 * 60_000 })
+  }, 300_000)
+})
+
+const BRAND: BrandBand = { channelKo: '골프구조', channelEn: 'GOLF STRUCTURE', accent: '#e3262f' }
+
+describe('채널 띠(brand) — 위 띠 제목·아래 띠 채널명', () => {
+  test('16:9 원본: 영상은 자르지 않고 가운데(608px), 제목은 위 띠·채널명은 아래 띠, 대본 묶음·자막·리액션은 영상 안쪽', () => {
+    const b = brandLayout(LAND, SHORT)
+    expect(b.videoBottom - b.videoTop).toBe(608)
+    expect(b.titleTop).toBeGreaterThan(0)
+    expect(b.titleTop + 150).toBeLessThanOrEqual(b.videoTop)
+    expect(b.channelTop).toBeGreaterThanOrEqual(b.videoBottom)
+    expect(b.channelTop + 94 + 150).toBeLessThanOrEqual(1920 * (1 - 0.17)) // 이름표 + 영문 채널명이 플랫폼 UI 위에서 끝난다
+    const o = brandOverlayLayout(b, SHORT)
+    expect(o.titleTop).toBeGreaterThanOrEqual(b.videoTop)
+    expect(o.captionTop! + 0.085 * 1920).toBeLessThanOrEqual(b.videoBottom)
+    expect(o.reactionTop + 90).toBeLessThanOrEqual(o.captionTop!) // 리액션이 자막을 가리지 않는다
+  })
+  test('세로 원본은 가운데 800px 만 보여 주고 위·아래 띠를 남긴다', () => {
+    const b = brandLayout(PORT, SHORT)
+    expect(b.videoTop).toBe(560)
+    expect(b.videoBottom).toBe(1360)
+  })
+  test('brand 를 주면 흐린 배경 대신 띠·제목·채널명을 그리고, 흰 제목 박스는 빠진다', async () => {
+    const { projectDir } = await buildProject(input({ brand: BRAND }))
+    const h = html(projectDir)
+    expect(h).toContain('id="bb-top"')
+    expect(h).toContain('id="bb-bot"')
+    expect(h).toContain('골프구조')
+    expect(h).toContain('>프로님의 롱아이언 꿀팁</div>') // 빛이 지나가는 층은 제목 전체 글자
+    expect(h).not.toContain('id="ov-title"')
+    expect(h).not.toMatch(/id="seg-\d+-bg"/)
+    expect(h).toContain('id="ov-hook"') // 나머지 대본 층은 그대로
+    expect(fs.readdirSync(path.join(projectDir, 'fonts')).some((f) => f.startsWith('black-han-sans'))).toBe(true)
+  })
+  test('가로 캔버스(post)에는 brand 를 줘도 띠를 그리지 않는다', async () => {
+    const { projectDir } = await buildProject(input({ brand: BRAND, canvas: POST }))
+    expect(html(projectDir)).not.toContain('id="bb-top"')
+  })
+  test('대본이 없으면 옛 제목 카드 문구를 위 띠 제목으로 쓰고 제목 카드는 그리지 않는다', async () => {
+    const style = { ...STYLE, hookTitle: { text: '롱아이언 잘치는 법', durationSec: 3 } }
+    const { projectDir } = await buildProject(input({ brand: BRAND, script: undefined, style }))
+    const h = html(projectDir)
+    expect(h).toContain('>롱아이언 잘치는 법</div>')
+    expect(h).not.toContain('id="hook"')
+  })
+  test('hyperframes check 를 통과한다(채널 띠 포함)', async () => {
+    const { projectDir } = await buildProject(input({ brand: BRAND }))
     await run('hyperframes', ['check'], { cwd: projectDir, timeoutMs: 5 * 60_000 })
   }, 300_000)
 })
