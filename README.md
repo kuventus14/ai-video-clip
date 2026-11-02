@@ -1,6 +1,40 @@
-# 영상 자동 편집
+# auto_reels_generater — 릴스·숏츠 자동 편집
+
+영상을 폴더에 넣으면 레퍼런스를 따라 컷·자막·제목 띠·소리까지 자동으로 편집해 60초 이하 릴스·숏츠를 만들고, Claude Code 에서 **수락 / 거절 / 다시 만들기**로 검토해요. 수락한 영상은 다음 편집의 레퍼런스가 돼요.
+
+- **설치 가이드:** 아래 [Claude Code 로 한 번에 설치하기](#claude-code-로-한-번에-설치하기) · [맥](docs/install-mac.md) · [윈도우](docs/install-windows.md)
+- **사용 가이드:** [docs/사용-가이드.md](docs/사용-가이드.md) (폴더 흐름, 검토, 기본 편집 규칙, 바꾸는 법)
+- 자동 편집 폴더 자세히: [docs/autopilot.md](docs/autopilot.md)
+
 
 영상 1개를 올리고 따라 하고 싶은 레퍼런스를 고르면, 컷·자막·제목 카드·구도를 레퍼런스처럼 맞춰 자동으로 편집하고, 자막 오타·화질·오디오까지 검수한 결과를 돌려줍니다. 내 컴퓨터(맥·윈도우·리눅스)에서만 도는 웹앱이에요(로그인 없음). 설계: `docs/superpowers/specs/`, 계획: `docs/superpowers/plans/`.
+
+## Claude Code 로 한 번에 설치하기
+
+Claude Code 를 쓰고 있다면 이 저장소 링크를 주고 이렇게 말하면 돼요.
+
+> https://github.com/kuventus14/auto_reels_generater 설치해 줘
+
+Claude Code 는 아래 **설치 순서**를 그대로 따라 해요. 시스템 프로그램을 깔기 전에는 한 줄로 물어보고, Claude 로그인은 직접 해요.
+
+스킬만 먼저 넣고 싶으면 Claude Code 에서 아래 두 줄을 입력해요(그다음 "영상 편집 앱 설치해 줘"라고 하면 스킬이 나머지를 도와요).
+
+```
+/plugin marketplace add kuventus14/auto_reels_generater
+/plugin install autoframes@auto_reels_generater
+```
+
+### 설치 순서 (Claude Code 가 따라 하는 순서)
+
+1. **컴퓨터 확인** — `node -p process.platform` 으로 맥(darwin)·윈도우(win32)·리눅스를 확인해요. `node -v` 가 22 미만이거나 없으면 Node.js 부터(맥 `brew install node`, 윈도우 `winget install OpenJS.NodeJS`).
+2. **받기** — `git clone https://github.com/kuventus14/auto_reels_generater.git ~/auto_reels_generater` (이미 있으면 그 폴더에서 `git pull`).
+3. **프로그램 설치** — 맥은 [docs/install-mac.md](docs/install-mac.md), 윈도우는 [docs/install-windows.md](docs/install-windows.md), 리눅스는 아래 "처음 시작하기"를 순서대로 따라 해요(ffmpeg, whisper-cli, hyperframes, yt-dlp, Claude Code 로그인).
+4. **앱 준비** — 저장소 폴더에서 `npm install` → `npm run setup`. `✗` 가 없어질 때까지 setup 이 알려 주는 대로 고쳐요(음성 인식 모델 받기 포함).
+5. **스킬 넣기** — 위 `/plugin` 두 줄, 또는 `mkdir -p ~/.claude/skills && cp -R skills/autoframes ~/.claude/skills/` (윈도우는 아래 "Claude Code 스킬로 쓰기"). Claude Code 를 새로 시작하면 보여요.
+6. **자동 편집 폴더(맥)** — 사용자에게 물어보고 `npm run autopilot -- install`. 홈에 `릴스 자동편집` 폴더(편집할 영상 / 레퍼런스 / 완성 / 수락)가 생기고 바탕화면에 바로가기가 생겨요. 맥이 아니면 `npm run autopilot` 을 켜 두면 돼요. 자세한 건 [docs/autopilot.md](docs/autopilot.md).
+7. **확인** — 짧은 영상 하나를 `편집할 영상` 폴더에 넣고, 끝나면 Claude Code 에서 "검토해 줘"라고 해요.
+
+**설치하면 그대로 들어 있는 것:** 릴스는 항상 60초 이하(길면 핵심만, 말 없는 장면은 빼고), 원본 소리 그대로 크기만 맞춤, 위 띠에 AI 제목·아래 띠에 채널명 "골프구조 GOLF STRUCTURE", 기본 레퍼런스(`assets/default-reference`). 채널명을 바꾸려면 `assets/brand/brand.json`, 기본 레퍼런스를 바꾸려면 `npm run autopilot -- set-default-reference <영상>` 이에요. 유튜브·인스타 업로드는 기본으로 꺼져 있어요.
 
 ## 처음 시작하기
 
@@ -31,8 +65,8 @@ whisper-cli 는 [whisper.cpp 릴리스](https://github.com/ggml-org/whisper.cpp/
 **공통** — 도구를 다 깔았으면:
 
 ```bash
-git clone https://github.com/kuventus14/ai-video-clip.git
-cd ai-video-clip
+git clone https://github.com/kuventus14/auto_reels_generater.git
+cd auto_reels_generater
 npm install
 npm run setup     # 빠진 게 있으면 이 컴퓨터에 맞는 설치 방법을 알려 줘요(음성 인식 모델을 받는 명령도 나와요)
 npm run app       # 그다음 http://127.0.0.1:4848
@@ -53,7 +87,7 @@ npm run app
 
 ## Claude Code 스킬로 쓰기 (autoframes)
 
-화면 대신 **Claude Code 에게 말로 시켜서** 쓸 수도 있어요. `skills/autoframes` 를 Claude Code 의 스킬로 넣으면, "이 영상을 릴스로 편집해 줘"처럼 말할 때 Claude 가 이 앱을 대신 운전해요 — 프로그램 설치 점검, 앱 켜기, 영상 올리기, 자막 확인·수정, 계획 승인, 제작, 검수 결과 확인, 소리 크기 조절, 확정·수정 요청·다른 버전까지요. 사용자가 정해야 하는 세 곳(자막 확인 → 계획 승인 → 결과 확인)에서는 멈춰서 물어봐요. 아직 없는 기능(강조 검토, 박힌 자막 읽기, 긴 영상 줄이기, 자동 업로드)은 없다고 먼저 말해요.
+화면 대신 **Claude Code 에게 말로 시켜서** 쓸 수도 있어요. `skills/autoframes` 를 Claude Code 의 스킬로 넣으면, "이 영상을 릴스로 편집해 줘"처럼 말할 때 Claude 가 이 앱을 대신 운전해요 — 프로그램 설치 점검, 앱 켜기, 영상 올리기, 자막 확인·수정, 계획 승인, 제작, 검수 결과 확인, 소리 크기 조절, 확정·수정 요청·다른 버전까지요. 사용자가 정해야 하는 세 곳(자막 확인 → 계획 승인 → 결과 확인)에서는 멈춰서 물어봐요. 아직 없는 기능(강조 검토, 박힌 자막 읽기)은 없다고 먼저 말해요. 자동 편집 폴더의 완성 영상은 "검토해 줘"라고 하면 하나씩 열어 주고 수락·거절·다시 만들기를 골라요.
 
 저장소를 받은 뒤 스킬 폴더를 Claude Code 의 스킬 폴더로 복사하세요(복사 뒤 Claude Code 를 새로 시작해야 보여요):
 
@@ -70,16 +104,16 @@ New-Item -ItemType Directory -Force "$HOME\.claude\skills" | Out-Null; Copy-Item
 저장소를 통째로 받지 않고 **스킬 폴더만** 받으려면(맥·리눅스는 GitHub 에서 받아 설치본과 같은지 확인했어요):
 
 ```bash
-mkdir -p ~/.claude/skills && curl -sL https://github.com/kuventus14/ai-video-clip/archive/refs/heads/main.tar.gz | tar -xz -C ~/.claude/skills --strip-components=2 ai-video-clip-main/skills/autoframes
+mkdir -p ~/.claude/skills && curl -sL https://github.com/kuventus14/auto_reels_generater/archive/refs/heads/main.tar.gz | tar -xz -C ~/.claude/skills --strip-components=2 auto_reels_generater-main/skills/autoframes
 ```
 
 ```powershell
 # 윈도우 (PowerShell) — 직접 돌려 보지는 못했어요. 파이프(|) 대신 파일로 받아요(PowerShell 5.1 은 바이너리 파이프가 깨져요)
-New-Item -ItemType Directory -Force "$HOME\.claude\skills" | Out-Null; curl.exe -sL -o "$env:TEMP\af.tar.gz" https://github.com/kuventus14/ai-video-clip/archive/refs/heads/main.tar.gz; tar -xzf "$env:TEMP\af.tar.gz" -C "$HOME\.claude\skills" --strip-components=2 ai-video-clip-main/skills/autoframes
+New-Item -ItemType Directory -Force "$HOME\.claude\skills" | Out-Null; curl.exe -sL -o "$env:TEMP\af.tar.gz" https://github.com/kuventus14/auto_reels_generater/archive/refs/heads/main.tar.gz; tar -xzf "$env:TEMP\af.tar.gz" -C "$HOME\.claude\skills" --strip-components=2 auto_reels_generater-main/skills/autoframes
 ```
 
 - 스킬은 편집 엔진이 아니라 **운전석**이에요. 엔진(이 저장소의 앱)은 그대로이고, 스킬은 앱의 로컬 API 를 부르는 작은 도구(`skills/autoframes/scripts/autoframes.mjs`)로 결과를 짧게 요약해서 읽어요 — 긴 대본을 대화창에 올리지 않아 사용량이 크게 늘지 않게요.
-- 저장소가 홈 폴더 아래(`~/ai-video-clip` 등)에 없으면 환경변수 `AUTOFRAMES_HOME` 에 저장소 경로를 주세요. 저장소가 아직 없으면 스킬이 설치부터 도와줘요.
+- 저장소가 홈 폴더 아래(`~/auto_reels_generater` 등)에 없으면 환경변수 `AUTOFRAMES_HOME` 에 저장소 경로를 주세요. 저장소가 아직 없으면 스킬이 설치부터 도와줘요.
 - 화면(웹)과 스킬은 같은 앱·같은 데이터를 써요. 스킬로 만든 작업도 화면의 기록에 보여요.
 
 ## 화면 사용 순서
@@ -211,9 +245,9 @@ chmod +x deep-filter
 
 맨 위 "처음 시작하기"의 명령으로 설치하고, `npm run setup` 으로 점검해요(빠진 것은 설치 방법을 알려 줘요). 음성 인식 모델(`~/.cache/hyperframes/whisper/models/ggml-small.bin`, 약 465MB)은 `npm run setup` 이 보여 주는 `curl` 명령으로 받아요.
 
-## 영상만 넣으면 자동 편집 + 업로드
+## 영상만 넣으면 자동 편집 → 검토 → 업로드
 
-폴더에 영상을 넣으면 승인 없이 편집하고(AI 가 제목을 지어요), 켜 두었으면 유튜브 숏츠·인스타그램 릴스에도 올려요.
+`편집할 영상` 폴더에 넣으면 자동으로 편집해 `완성` 폴더에 두고(AI 가 제목을 지어요), Claude Code 에서 "검토해 줘"로 수락·거절·다시 만들기를 골라요. 수락한 영상은 `수락`·`레퍼런스` 폴더로 가고, 켜 두었으면 그때 유튜브 숏츠·인스타그램 릴스에도 올려요. 사용법은 [docs/사용-가이드.md](docs/사용-가이드.md).
 
 ```bash
 npm run autopilot -- install                       # 맥을 켜면 자동으로 지켜보게 등록

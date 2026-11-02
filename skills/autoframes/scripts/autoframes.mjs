@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// autoframes — 영상 자동 편집 앱(ai-video-clip)의 로컬 API 를 대화로 쓰게 해 주는 작은 도구. 맥·윈도우·리눅스, Node 22+.
+// autoframes — 영상 자동 편집 앱(auto_reels_generater)의 로컬 API 를 대화로 쓰게 해 주는 작은 도구. 맥·윈도우·리눅스, Node 22+.
 // 출력은 일부러 짧게 요약한다(Claude Code 가 긴 JSON 을 읽느라 토큰을 쓰지 않게). 자세한 사용은 SKILL.md.
 import { spawn, spawnSync } from 'node:child_process'
 import fs from 'node:fs'
@@ -127,7 +127,7 @@ export function findRepo(o = {}) {
     cands.push(d)
     if (path.dirname(d) === d) break
   }
-  cands.push(...['ai-video-clip', 'dev/ai-video-clip', 'Desktop/ai-video-clip', 'Documents/ai-video-clip', 'Desktop/클로드 작업/video-autoeditor'].map((p) => path.join(home, p)))
+  cands.push(...['auto_reels_generater', 'ai-video-clip', 'dev/auto_reels_generater', 'Desktop/auto_reels_generater', 'dev/ai-video-clip', 'Desktop/ai-video-clip', 'Documents/ai-video-clip', 'Desktop/클로드 작업/video-autoeditor'].map((p) => path.join(home, p)))
   return cands.filter(Boolean).find(isRepo) ?? null
 }
 

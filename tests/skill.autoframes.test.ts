@@ -77,8 +77,11 @@ describe('findRepo — 저장소 위치', () => {
     const inner = path.join(make(path.join(tmp(), 'repo')), 'src')
     expect(lib.findRepo({ env: {}, home: tmp(), cwd: inner })).toBe(path.dirname(inner))
     const home = tmp()
-    const cloned = make(path.join(home, 'ai-video-clip'))
+    const cloned = make(path.join(home, 'auto_reels_generater'))
     expect(lib.findRepo({ env: {}, home, cwd: tmp() })).toBe(cloned)
+    const oldHome = tmp()
+    const oldClone = make(path.join(oldHome, 'ai-video-clip')) // 예전 이름으로 받은 저장소도 찾는다
+    expect(lib.findRepo({ env: {}, home: oldHome, cwd: tmp() })).toBe(oldClone)
   })
   test('다른 프로젝트나 없으면 null', () => {
     const other = make(path.join(tmp(), 'o'), 'something-else')

@@ -236,6 +236,10 @@ describe('채널 띠(brand) — 위 띠 제목·아래 띠 채널명', () => {
     expect(o.titleTop).toBeGreaterThanOrEqual(b.videoTop)
     expect(o.captionTop! + 0.085 * 1920).toBeLessThanOrEqual(b.videoBottom)
     expect(o.reactionTop + 90).toBeLessThanOrEqual(o.captionTop!) // 리액션이 자막을 가리지 않는다
+    // 자막은 아래를 기준으로 위로 자란다: 아랫줄이 영상 경계에서 떨어져 있고, 가장 큰 자막 두 줄도 영상 안에 들어간다
+    expect(1920 - o.captionBottom! - b.videoBottom).toBeLessThanOrEqual(-30)
+    expect(1920 - o.captionBottom! - 2 * 1.25 * 80).toBeGreaterThanOrEqual(o.captionTop!)
+    expect(o.captionTop!).toBeGreaterThan(b.videoTop)
   })
   test('세로 원본은 가운데 800px 만 보여 주고 위·아래 띠를 남긴다', () => {
     const b = brandLayout(PORT, SHORT)
@@ -252,6 +256,7 @@ describe('채널 띠(brand) — 위 띠 제목·아래 띠 채널명', () => {
     expect(h).not.toContain('id="ov-title"')
     expect(h).not.toMatch(/id="seg-\d+-bg"/)
     expect(h).toContain('id="ov-hook"') // 나머지 대본 층은 그대로
+    expect(h).toMatch(/\.caption \{[^}]*align-items: flex-end; padding-bottom: \d+px/) // 자막은 영상 안쪽 아래를 기준으로 위로 자란다
     expect(fs.readdirSync(path.join(projectDir, 'fonts')).some((f) => f.startsWith('black-han-sans'))).toBe(true)
   })
   test('가로 캔버스(post)에는 brand 를 줘도 띠를 그리지 않는다', async () => {
