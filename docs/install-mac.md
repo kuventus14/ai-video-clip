@@ -21,8 +21,8 @@ Claude Code 는 터미널에서 `curl -fsSL https://claude.ai/install.sh | bash`
 ## 2. 앱 받아서 켜기
 
 ```bash
-git clone https://github.com/kuventus14/ai-video-clip.git
-cd ai-video-clip
+git clone https://github.com/kuventus14/auto_reels_generater.git
+cd auto_reels_generater
 npm install
 npm run setup     # 빠진 게 있으면 설치 방법을 알려 줘요(음성 인식 모델 465MB 를 받는 명령도 나와요)
 npm run app       # 그다음 브라우저에서 http://127.0.0.1:4848

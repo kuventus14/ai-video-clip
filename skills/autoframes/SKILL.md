@@ -1,11 +1,11 @@
 ---
 name: autoframes
-description: 영상 1개를 올리면 레퍼런스(유튜브·인스타 링크나 파일)를 따라 컷·자막·제목 카드·구도(가운데 + 블러 띠, 릴스는 제목·채널명 띠)·소리(배경음악·효과음, AI 가 크기 추천)를 자동으로 편집하고 검수까지 해서 릴스·숏츠·게시물용 영상을 만들어 주는 영상 자동 편집 앱(autoframes, ai-video-clip)을 Claude Code 안에서 대화로 쓰게 해 주는 스킬. 사용자가 영상 편집, 릴스·숏츠 만들기, 레퍼런스처럼 편집, 자막 넣기·고치기, 컷 편집, 배경음악·효과음 넣기·볼륨 조절, 목소리 또렷하게, 가로↔세로 변환, 긴 영상 줄이기를 말하거나, 자동 편집 폴더(릴스 자동편집)의 완성 영상을 검토·수락·거절·다시 만들기 하자고 하거나("검토해 줘"), 영상 파일·링크를 주면서 편집을 부탁하면 — 'autoframes'라고 부르지 않아도 — 반드시 이 스킬을 쓰세요. 맥·윈도우·리눅스 설치와 앱 켜기도 이 스킬이 도와줍니다.
+description: 영상 1개를 올리면 레퍼런스(유튜브·인스타 링크나 파일)를 따라 컷·자막·제목 카드·구도(가운데 + 블러 띠, 릴스는 제목·채널명 띠)·소리(배경음악·효과음, AI 가 크기 추천)를 자동으로 편집하고 검수까지 해서 릴스·숏츠·게시물용 영상을 만들어 주는 영상 자동 편집 앱(autoframes, auto_reels_generater)을 Claude Code 안에서 대화로 쓰게 해 주는 스킬. 사용자가 영상 편집, 릴스·숏츠 만들기, 레퍼런스처럼 편집, 자막 넣기·고치기, 컷 편집, 배경음악·효과음 넣기·볼륨 조절, 목소리 또렷하게, 가로↔세로 변환, 긴 영상 줄이기를 말하거나, 자동 편집 폴더(릴스 자동편집)의 완성 영상을 검토·수락·거절·다시 만들기 하자고 하거나("검토해 줘"), 영상 파일·링크를 주면서 편집을 부탁하면 — 'autoframes'라고 부르지 않아도 — 반드시 이 스킬을 쓰세요. 맥·윈도우·리눅스 설치와 앱 켜기도 이 스킬이 도와줍니다.
 ---
 
 # autoframes — 레퍼런스처럼 자동 편집
 
-영상을 올리면 분석·컷·자막·구도·소리·검수까지 하는 편집 엔진은 **저장소(ai-video-clip)의 앱** 안에 있고, 이 스킬은 그 앱을 **대화로 운전**하게 해 줘요. 화면(웹)으로 보고 싶은 사람에게는 앱을 켜 줄 수도 있어요(`http://127.0.0.1:4848`).
+영상을 올리면 분석·컷·자막·구도·소리·검수까지 하는 편집 엔진은 **저장소(auto_reels_generater)의 앱** 안에 있고, 이 스킬은 그 앱을 **대화로 운전**하게 해 줘요. 화면(웹)으로 보고 싶은 사람에게는 앱을 켜 줄 수도 있어요(`http://127.0.0.1:4848`).
 
 ## 기본 규칙
 
@@ -19,7 +19,7 @@ description: 영상 1개를 올리면 레퍼런스(유튜브·인스타 링크�
 
 0. 이 스킬의 도구는 Node.js 로 돌아가요. `node -v` 가 22 이상이 아니면(없거나 낮으면) **먼저 Node.js 를 설치**해요(허락받고: 맥 `brew install node`, 윈도우 `winget install OpenJS.NodeJS`, 리눅스는 <https://nodejs.org>). 설치 뒤 새 터미널에서 이어가요.
 1. `AF where` — 저장소 경로가 나오면 2번으로. **못 찾으면 설치부터** 도와요:
-   - 사용자 OS 를 확인하고(`node -p process.platform`), `git clone https://github.com/kuventus14/ai-video-clip.git ~/ai-video-clip` 으로 받은 뒤, 저장소의 `docs/install-mac.md` / `docs/install-windows.md`(리눅스는 `README.md`)를 읽고 순서대로 따라 해요.
+   - 사용자 OS 를 확인하고(`node -p process.platform`), `git clone https://github.com/kuventus14/auto_reels_generater.git ~/auto_reels_generater` 으로 받은 뒤, 저장소의 `docs/install-mac.md` / `docs/install-windows.md`(리눅스는 `README.md`)를 읽고 순서대로 따라 해요.
    - `brew`·`winget`·`apt` 같은 **시스템 프로그램을 설치하기 전에는 한 줄로 알리고 허락**을 받으세요. Claude 로그인·토큰은 사용자가 직접 해요(대신 입력하지 않아요).
    - 끝나면 저장소에서 `npm install` → `npm run setup`. `✗` 가 없어질 때까지 고쳐요(음성 인식 모델 465MB, whisper-cli, hyperframes, yt-dlp 등). 막히면 `references/troubleshooting.md`.
 2. `AF app up` — 앱을 켜요(처음엔 화면 빌드로 몇 분). 이미 켜져 있으면 그대로예요. 끌 때는 `AF app down`.
