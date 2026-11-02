@@ -5,7 +5,8 @@ import { beforeEach, describe, expect, test } from 'vitest'
 import { ensureFixtures } from './helpers/fixtures.ts'
 import { run } from '../src/core/exec.ts'
 import { probeVideo } from '../src/core/media.ts'
-import { enhanceVoice, VOICE_FILTER, VoiceError, type VoiceDeps } from '../src/core/voice.ts'
+import { enhanceVoice, normalizeLoudness, VOICE_FILTER, VoiceError, type VoiceDeps } from '../src/core/voice.ts'
+import { measureAudio } from '../src/core/sound.ts'
 import { findDeepFilter, VOICE_TOOL_MISSING } from '../src/shared/voice.ts'
 
 let work: string
@@ -119,4 +120,19 @@ describe('enhanceVoice — 실제 도구(INTEGRATION=1, deep-filter 설치 필�
     expect([b.width, b.height, b.videoCodec]).toEqual([a.width, a.height, a.videoCodec])
     await run('ffmpeg', ['-v', 'error', '-i', out, '-f', 'null', '-']) // 끝까지 읽힌다
   }, 120_000)
+})
+
+describe('normalizeLoudness — 목소리 보정 없이 소리 크기만 맞추기', () => {
+  test('작은 소리(-40 LUFS 안팎)를 -16 LUFS 근처로 키우고, 화면은 다시 인코딩하지 않으며 길이는 그대로다', async () => {
+    const src = path.join(work, 'quiet.mp4')
+    await run('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=size=320x240:rate=30:duration=4', '-f', 'lavfi', '-i', 'sine=f=440:duration=4,volume=0.01', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', src])
+    const before = await measureAudio(src)
+    expect(before.lufs!).toBeLessThan(-35)
+    const out = await normalizeLoudness({ sourcePath: src, outPath: path.join(work, 'loud.mp4'), durationSec: 4 })
+    const after = await measureAudio(out)
+    expect(Math.abs(after.lufs! - -16)).toBeLessThan(1.5)
+    const info = await probeVideo(out)
+    expect(info.durationSec).toBeCloseTo(4, 0)
+    expect([info.width, info.height]).toEqual([320, 240])
+  })
 })

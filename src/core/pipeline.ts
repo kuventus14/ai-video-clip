@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { loadBrandBand, type BrandBand } from './brandBand.ts'
 import { buildProject, chooseReframeMode, renderProject } from './compose.ts'
-import { detectSilences, planCuts } from './cuts.ts'
+import { detectQuietSpans, detectSilences, planCuts } from './cuts.ts'
 import { deriveAppliedStyle, interpretRequest, planCardLines, type EditPlan } from './interpret.ts'
 import { ensureH264, probeVideo } from './media.ts'
 import { trackPeople, type PersonTrack } from './person.ts'
@@ -21,7 +21,7 @@ import { directEdit, extractReferenceFrames } from './director.ts'
 import { cropToContent, detectContentRect } from './letterbox.ts'
 import { emptyScript, normalizeScript, SCRIPT_LIMITS, scriptCardLines, toRenderScript, type EditScript } from './script.ts'
 import { applyTempo, scaleSec } from './tempo.ts'
-import { enhanceVoice } from './voice.ts'
+import { enhanceVoice, normalizeLoudness } from './voice.ts'
 import type { SfxMode } from '../shared/sound.ts'
 import type { CaptionPosition } from '../shared/types.ts'
 import type { AudioMode } from '../shared/voice.ts'
@@ -49,7 +49,7 @@ export interface EditOptions {
   request?: string
   quality?: Quality
   captions?: 'auto' | 'off'
-  /** 소리: 'original' 은 원본 그대로(기본), 'voice' 는 소음을 줄이고 목소리 크기를 맞춘다 */
+  /** 소리: 'original' 은 원본 소리 그대로 두고 크기만 맞춘다(기본), 'voice' 는 소음을 줄이고 목소리 크기를 맞춘다 */
   audio?: AudioMode
   /** 배경음악 곡 id (없거나 null 이면 넣지 않는다) / 효과음 켜기·끄기(기본 끄기) */
   bgm?: string | null
@@ -83,6 +83,8 @@ export interface PipelineDeps {
   ensureH264: typeof ensureH264
   transcribe: typeof transcribe
   detectSilences: typeof detectSilences
+  /** 소리 크기로 본 조용한 구간(목소리만 남길 때 음성 인식의 헛단어를 거른다) */
+  detectQuietSpans: typeof detectQuietSpans
   detectSceneCuts: typeof detectSceneCuts
   describeVideo: typeof describeVideo
   fetchReference: typeof fetchReference
@@ -94,6 +96,8 @@ export interface PipelineDeps {
   renderProject: typeof renderProject
   runQa: typeof runQa
   enhanceVoice: typeof enhanceVoice
+  /** 목소리 보정을 안 할 때 소리 크기만 맞춘다 */
+  normalizeLoudness: typeof normalizeLoudness
   applySound: typeof applySound
   /** 음악·효과음 크기를 AI 가 정한다(실패하면 기본 규칙 그대로). 제작 앞에서 한 번만 부른다 */
   balanceSound: typeof balanceSound
@@ -109,8 +113,8 @@ export interface PipelineDeps {
 }
 
 const DEFAULTS: PipelineDeps = {
-  probeVideo, ensureH264, transcribe, detectSilences, detectSceneCuts, describeVideo, fetchReference, analyzeReference,
-  interpretRequest, trackPeople, proofreadCues, buildProject, renderProject, runQa, enhanceVoice, applySound, balanceSound, directEdit, extractReferenceFrames, applyTempo, detectContentRect, cropToContent,
+  probeVideo, ensureH264, transcribe, detectSilences, detectQuietSpans, detectSceneCuts, describeVideo, fetchReference, analyzeReference,
+  interpretRequest, trackPeople, proofreadCues, buildProject, renderProject, runQa, enhanceVoice, normalizeLoudness, applySound, balanceSound, directEdit, extractReferenceFrames, applyTempo, detectContentRect, cropToContent,
 }
 
 const MIN_SEC = 1
@@ -486,7 +490,16 @@ export async function produceEdit(i: ProduceInput, overrides: Partial<PipelineDe
     const maxOutputSec = maxOutputSecFor(purpose)
     const cutTranscript = i.cutTranscript ?? transcript
     const voiceOnly = maxOutputSec !== undefined && info.durationSec > maxOutputSec && cutTranscript.hasSpeech
-    if (voiceOnly) kept = keepOnlyVoice(kept, cutTranscript.words)
+    if (voiceOnly) {
+      kept = keepOnlyVoice(kept, cutTranscript.words)
+      // 음성 인식이 말 없는 장면(걸어오는 장면 등)에 단어를 잘못 붙이기도 해서, 소리 크기로도 조용한 장면을 뺀다.
+      // 조용한 구간 앞뒤 0.15초는 남겨 말끝·말머리가 잘리지 않게 한다
+      if (info.hasAudio) {
+        const quiet = (await d.detectQuietSpans(src)).map((q) => ({ start: q.start + 0.15, end: q.end - 0.15 })).filter((q) => q.end > q.start)
+        const trimmed = subtractSpans(kept, quiet)
+        if (trimmed.length) kept = trimmed
+      }
+    }
     // 훅 장면을 맨 앞에 붙인 출력 타임라인(훅이 없으면 kept 그대로)
     // 훅이 영상 맨 앞 장면이면 앞에 또 붙이지 않고(같은 말이 연달아 두 번 나온다) 질문만 본편 첫머리 위에 띄운다.
     // 목소리만 남기는 경우도 훅 장면(대개 말 없는 스윙)은 붙이지 않고 질문만 첫머리 위에 띄운다
@@ -558,6 +571,10 @@ export async function produceEdit(i: ProduceInput, overrides: Partial<PipelineDe
     if (i.audio === 'voice' && info.hasAudio) {
       stage('voice')
       renderSrc = await d.enhanceVoice({ sourcePath: src, outPath: path.join(work, 'source-voice.mp4'), workDir: path.join(work, 'voice'), durationSec: info.durationSec })
+    } else if (info.hasAudio) {
+      // 원본 소리 그대로 쓸 때도 크기만은 맞춘다(폰 영상은 소리가 작은 경우가 많다)
+      stage('voice')
+      renderSrc = await d.normalizeLoudness({ sourcePath: src, outPath: path.join(work, 'source-loud.mp4'), durationSec: info.durationSec })
     }
 
     // 9) 만들고 검수하고, 필요하면 최대 2번 다시 만든다

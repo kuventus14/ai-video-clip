@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { beforeAll, describe, expect, test } from 'vitest'
-import { detectSilences, parseSilences, planCuts, type CutPlan } from '../src/core/cuts.ts'
+import { detectQuietSpans, detectSilences, parseMomentary, parseSilences, planCuts, quietSpansFrom, type CutPlan } from '../src/core/cuts.ts'
 import { run } from '../src/core/exec.ts'
 import type { Transcript, Word } from '../src/core/types.ts'
 import { ensureFixtures, type Fixtures } from './helpers/fixtures.ts'
@@ -138,5 +138,53 @@ describe('planCuts', () => {
     const p = plan(t, [{ start: 1, end: 4 }, { start: 4.2, end: 8 }], 0)
     for (const x of p.removed) expect(x.start < 4.15 && x.end > 4.05).toBe(false) // '네' 는 살아 있다
     for (const k of p.kept) expect(k.end - k.start).toBeGreaterThanOrEqual(0.3 - 1e-9)
+  })
+})
+
+describe('소리 크기로 본 조용한 구간', () => {
+  const STDERR = [
+    '[Parsed_ebur128_0 @ 0x1] t: 0.1    TARGET:-23 LUFS    M: -30.0 S: -30.0     I: -30.0 LUFS       LRA:   0.0 LU',
+    '[Parsed_ebur128_0 @ 0x1] t: 0.2    TARGET:-23 LUFS    M:-120.7 S: -30.0     I: -30.0 LUFS       LRA:   0.0 LU',
+    '[Parsed_ebur128_0 @ 0x1] t: 0.3    TARGET:-23 LUFS    M: -inf S: -30.0     I: -30.0 LUFS       LRA:   0.0 LU',
+    '[Parsed_ebur128_0 @ 0x1] Summary:',
+    '  Integrated loudness:',
+    '    I:         -31.5 LUFS',
+  ].join('\n')
+
+  test('parseMomentary 는 0.1초마다의 순간 음량과 통합 음량을 읽는다(-inf 는 아주 작은 값)', () => {
+    expect(parseMomentary(STDERR)).toEqual({ frames: [{ t: 0.1, m: -30 }, { t: 0.2, m: -120.7 }, { t: 0.3, m: -120 }], integrated: -31.5 })
+  })
+
+  const frames = (from: number, to: number, m: (t: number) => number) => {
+    const out: { t: number; m: number }[] = []
+    for (let k = Math.round(from * 10); k <= Math.round(to * 10); k++) out.push({ t: k / 10, m: m(k / 10) })
+    return out
+  }
+
+  test('전체 음량보다 12dB 넘게 작은 상태가 0.8초 이상 이어지면 조용한 구간이다(짧은 숨은 남긴다)', () => {
+    // 0~10초: 말(-30), 3~3.5초 짧은 숨, 6~9초 조용(-50)
+    const f = frames(0.1, 10, (t) => ((t > 3 && t <= 3.5) || (t > 6 && t <= 9) ? -50 : -30))
+    const q = quietSpansFrom(f, -30)
+    expect(q).toHaveLength(1)
+    expect(q[0]!.start).toBeCloseTo(5.7, 5) // 0.4초 창이라 조용함이 시작된 곳은 창의 시작
+    expect(q[0]!.end).toBeCloseTo(9, 5)
+  })
+
+  test('영상 끝까지 조용하면 끝까지를 구간으로 잡고, 통합 음량을 못 재면 빈 목록', () => {
+    const f = frames(0.1, 5, (t) => (t > 3 ? -60 : -25))
+    const q = quietSpansFrom(f, -25)
+    expect(q.at(-1)!.end).toBeCloseTo(5, 5)
+    expect(quietSpansFrom(f, null)).toEqual([])
+  })
+
+  test('detectQuietSpans 는 실제 ffmpeg 로 말소리 뒤 무음 구간을 찾는다', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'quiet-'))
+    const wav = path.join(dir, 'tone.wav')
+    await run('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'sine=f=300:d=2,volume=0.3', '-af', 'apad=pad_dur=2', '-t', '4', wav])
+    const q = await detectQuietSpans(wav)
+    expect(q).toHaveLength(1)
+    expect(q[0]!.start).toBeGreaterThan(1.8)
+    expect(q[0]!.start).toBeLessThan(2.2)
+    expect(q[0]!.end).toBeGreaterThan(3.8)
   })
 })

@@ -59,6 +59,8 @@ function setup(over: Partial<PipelineDeps> = {}, videoInfo: VideoInfo = info()) 
     ensureH264: async (p, i) => ({ path: p, info: i, converted: false }),
     transcribe: async () => TR,
     detectSilences: async () => [],
+    detectQuietSpans: async () => [],
+    normalizeLoudness: async (v) => v.sourcePath,
     detectSceneCuts: async () => [],
     describeVideo: async () => SUMMARY,
     fetchReference: async () => ({ path: '/ref/reference.mp4', info: info({ width: 1080, height: 1920, durationSec: 30 }), origin: 'file', cleanup: async () => {} }),
@@ -312,6 +314,31 @@ describe('produceEdit — 대본대로 만들기', () => {
     expect(kept[1]!.end).toBeCloseTo(80, 3)
   })
 
+  test('1분 넘는 원본을 줄일 때 음성 인식이 말 없는 장면에 단어를 붙였어도 소리가 조용하면 그 장면을 뺀다', async () => {
+    const long = info({ durationSec: 180 })
+    const quietAsked: string[] = []
+    const s = setup({
+      transcribe: async () => LONG_TR,
+      // 70~75초에는 인식된 단어가 있지만 소리 크기로는 조용하다(걸어오는 장면에 붙은 헛단어)
+      detectQuietSpans: async (p) => (quietAsked.push(p), [{ start: 70, end: 75 }]),
+      directEdit: async () => ({ script: { ...SCRIPT, hook: undefined, speed: 1, drop: [{ start: 0, end: 30 }, { start: 80, end: 180 }] }, notes: [] }),
+    }, long)
+    await produce(s, {}, await prepare(s))
+    expect(quietAsked).toHaveLength(1)
+    const kept = s.builds[0]!.kept
+    expect(kept).toHaveLength(3)
+    expect(kept[1]!.end).toBeCloseTo(70.15, 3) // 조용한 구간 앞뒤 0.15초는 남긴다
+    expect(kept[2]!.start).toBeCloseTo(74.85, 3)
+    expect(kept[2]!.end).toBeCloseTo(80, 3)
+  })
+
+  test('60초 이하 원본은 소리 크기로 조용한 장면을 찾지 않는다(길이 그대로 편집만)', async () => {
+    const quietAsked: string[] = []
+    const s = setup({ detectQuietSpans: async (p) => (quietAsked.push(p), [{ start: 1, end: 3 }]) })
+    await produce(s, {}, await prepare(s))
+    expect(quietAsked).toHaveLength(0)
+  })
+
   test('1분 넘는 원본을 줄일 때 훅 장면(말 없는 스윙)은 앞에 붙이지 않고 질문만 첫머리 위에 띄운다', async () => {
     const long = info({ durationSec: 180 })
     const s = setup({ transcribe: async () => LONG_TR, directEdit: async () => ({ script: { ...SCRIPT, hook: { sourceStart: 42, sourceEnd: 45, question: '어떻게 칠까?' }, speed: 1, drop: [{ start: 60, end: 180 }] }, notes: [] }) }, long)
@@ -348,7 +375,7 @@ describe('produceEdit — 대본대로 만들기', () => {
   test('speed 1.1 이면 렌더 다음·검수(소리) 앞에 tempo 단계가 있고 applyTempo 가 렌더 결과를 입력으로 받는다 (Review Focus 5)', async () => {
     const s = setup()
     await produce(s, { bgm: 'calm-1' })
-    expect(s.stages.slice(s.stages.indexOf('cuts'))).toEqual(['cuts', 'build', 'render', 'tempo', 'mix', 'qa', 'done']) // 가로 원본 → 세로: 자르지 않으니 track 없음
+    expect(s.stages.slice(s.stages.indexOf('cuts'))).toEqual(['cuts', 'voice', 'build', 'render', 'tempo', 'mix', 'qa', 'done']) // 가로 원본 → 세로: 자르지 않으니 track 없음
     expect(s.tempos[0]).toMatchObject({ speed: 1.1, hasAudio: true })
     expect(path.basename(s.tempos[0]!.inputPath)).toBe('render-1.mp4')
   })

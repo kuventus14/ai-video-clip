@@ -87,3 +87,26 @@ function loudnormFrom(stderr: string): string {
     return base
   }
 }
+
+export interface LoudnessInput {
+  sourcePath: string
+  outPath: string
+  durationSec: number
+}
+
+/**
+ * 목소리 보정 없이 소리 크기만 -16 LUFS 로 맞춘다(원본 소리 그대로 쓰는 기본 모드용 — 폰 영상은 소리가 작은 경우가 많다).
+ * 두 번에 걸쳐 정확히 맞추고(linear), 화면은 다시 인코딩하지 않는다. 돌려주는 값은 outPath.
+ */
+export async function normalizeLoudness(i: LoudnessInput, deps: { run?: typeof realRun } = {}): Promise<string> {
+  const run = deps.run ?? realRun
+  const measured = await run('ffmpeg', ['-hide_banner', '-nostats', '-nostdin', '-i', i.sourcePath, '-vn', '-af', `loudnorm=${LOUDNESS}:print_format=json`, '-f', 'null', '-'], { timeoutMs: TIMEOUT_MS })
+  await run('ffmpeg', [
+    '-v', 'error', '-nostdin', '-y', '-i', i.sourcePath,
+    '-map', '0:v:0', '-map', '0:a:0', '-c:v', 'copy',
+    '-af', `${loudnormFrom(measured.stderr)},apad=whole_dur=${i.durationSec}`,
+    '-c:a', 'aac', '-b:a', '192k', '-t', String(i.durationSec),
+    i.outPath,
+  ], { timeoutMs: TIMEOUT_MS })
+  return i.outPath
+}

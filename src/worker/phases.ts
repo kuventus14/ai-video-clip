@@ -24,7 +24,7 @@ const STAGE_LABEL: Record<Stage, string> = {
   plan: '편집 계획',
   cuts: '컷 계산',
   track: '사람 위치 추적',
-  voice: '목소리 보정',
+  voice: '소리 정리',
   direct: '편집 구성 짜기',
   tempo: '속도 맞추기',
   build: '편집 프로젝트 만들기',

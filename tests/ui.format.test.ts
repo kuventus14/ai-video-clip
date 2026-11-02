@@ -255,6 +255,8 @@ describe('목소리 보정 단계 표시', () => {
     expect(stageVisual('producing', '목소리 보정')).toBe('listen')
     expect(stageVisual('producing', '목소리 보정 — 처리 중')).toBe('listen')
     expect(currentStageIndex('producing', '목소리 보정')).toBe(phaseStages('producing').findIndex((s) => s.label === '편집 구성'))
+    expect(stageVisual('producing', '소리 정리')).toBe('listen')
+    expect(currentStageIndex('producing', '소리 정리')).toBe(phaseStages('producing').findIndex((s) => s.label === '편집 구성'))
   })
 })
 

@@ -152,3 +152,48 @@ export function planCuts(i: { transcript: Transcript; silences: Span[]; duration
   const kept = complement(removed, durationSec)
   return { kept, removed, keptDurationSec: kept.reduce((s, k) => s + (k.end - k.start), 0) }
 }
+
+/** ffmpeg ebur128 의 0.1초마다 찍히는 순간 음량(M, 0.4초 창) 줄과 통합 음량(I)을 읽는다. 순수 함수. */
+export function parseMomentary(ffmpegStderr: string): { frames: { t: number; m: number }[]; integrated: number | null } {
+  const frames: { t: number; m: number }[] = []
+  for (const line of ffmpegStderr.split('\n')) {
+    const f = line.match(/\bt:\s*([0-9.]+)\s+.*?\bM:\s*(-?[0-9.]+|-?inf)/)
+    if (f) frames.push({ t: Number(f[1]), m: /inf/.test(f[2]!) ? -120 : Number(f[2]) })
+  }
+  const at = ffmpegStderr.lastIndexOf('Summary:')
+  const iv = at >= 0 ? ffmpegStderr.slice(at).match(/I:\s+(-?[\d.]+)\s+LUFS/)?.[1] : undefined
+  const integrated = iv === undefined || Number(iv) <= -70 ? null : Number(iv)
+  return { frames, integrated }
+}
+
+/**
+ * 소리 크기로 본 조용한 구간: 순간 음량이 영상 전체 음량(말소리가 대부분)보다 belowDb 이상 작은 상태가 minSec 이상 이어지는 곳.
+ * 음성 인식이 말 없는 장면에 단어를 잘못 붙이는 경우가 있어서, 목소리만 남길 때 이것으로 한 번 더 거른다. 순수 함수.
+ */
+export function quietSpansFrom(frames: { t: number; m: number }[], integrated: number | null, o: { belowDb?: number; minSec?: number } = {}): Span[] {
+  if (integrated === null || !frames.length) return []
+  const limit = integrated - (o.belowDb ?? 12)
+  const minSec = o.minSec ?? 0.8
+  const out: Span[] = []
+  let open: number | null = null
+  let lastT = 0
+  const close = (end: number) => {
+    if (open !== null && end - open >= minSec) out.push({ start: open, end })
+    open = null
+  }
+  for (const f of frames) {
+    // M 은 t 까지의 0.4초 창이라, 조용함이 시작된 곳은 그 창의 시작이다
+    if (f.m < limit) open ??= Math.max(0, f.t - 0.4)
+    else close(f.t - 0.1)
+    lastT = f.t
+  }
+  close(lastT)
+  return out
+}
+
+export async function detectQuietSpans(mediaPath: string, o: { belowDb?: number; minSec?: number } = {}): Promise<Span[]> {
+  if (!(await hasAudioStream(mediaPath))) return []
+  const { stderr } = await run('ffmpeg', ['-hide_banner', '-nostats', '-nostdin', '-i', mediaPath, '-vn', '-af', 'ebur128', '-f', 'null', '-'])
+  const { frames, integrated } = parseMomentary(stderr)
+  return quietSpansFrom(frames, integrated, o)
+}

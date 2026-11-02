@@ -70,6 +70,8 @@ function setup(over: Partial<PipelineDeps> = {}, o: { qaQueue?: QaReport[]; vide
       return o.transcript ?? TR
     },
     detectSilences: async () => [],
+    detectQuietSpans: async () => [],
+    normalizeLoudness: async (v) => v.sourcePath,
     detectSceneCuts: async () => [],
     describeVideo: async () => SUMMARY,
     fetchReference: async () => ({
@@ -120,7 +122,7 @@ describe('runEdit — 흐름', () => {
   test('(a) 세로 영상(크롭 없음)의 단계 순서와 산출물', async () => {
     const { rec, run } = setup()
     const r = await run()
-    expect(rec.stages).toEqual(['probe', 'transcribe', 'purpose', 'understand', 'plan', 'cuts', 'build', 'render', 'qa', 'done'])
+    expect(rec.stages).toEqual(['probe', 'transcribe', 'purpose', 'understand', 'plan', 'cuts', 'voice', 'build', 'render', 'qa', 'done'])
     expect(r.delivered).toBe(true)
     expect(r.purpose).toBe('short')
     expect(r.attempts).toBe(1)
@@ -135,7 +137,7 @@ describe('runEdit — 흐름', () => {
     const r = await run({ purpose: 'short' })
     expect(r.planCard.join('\n')).toContain('위아래를 흐린(블러) 배경으로 채워요') // 카드가 실제 동작을 말한다
     expect(r.planCard.join('\n')).not.toContain('사람이 가운데')
-    expect(rec.stages).toEqual(['probe', 'transcribe', 'purpose', 'understand', 'plan', 'cuts', 'build', 'render', 'qa', 'done'])
+    expect(rec.stages).toEqual(['probe', 'transcribe', 'purpose', 'understand', 'plan', 'cuts', 'voice', 'build', 'render', 'qa', 'done'])
     expect(rec.builds[0]!.reframe).toBe('blur-fill')
     expect(rec.builds[0]!.canvas).toEqual({ width: 1080, height: 1920 })
     expect(rec.trackCalls).toEqual([])
