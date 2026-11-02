@@ -6,6 +6,7 @@ import { hashtagsOf, instagramCaption, titleFromReport, youtubeTitle } from '../
 import { CONFIG_FILE, ConfigError, ensureFolders, FOLDERS, loadConfig } from '../src/autopilot/config.ts'
 import { listVideos, StabilityTracker, uniquePath } from '../src/autopilot/folders.ts'
 import { launchdPlist } from '../src/autopilot/launchd.ts'
+import { accept, listPending, redo, reject, ReviewError, setDefaultReference } from '../src/autopilot/review.ts'
 import { pickReference, processVideo, sweep, type AutopilotDeps } from '../src/autopilot/run.ts'
 import type { UploadSecrets } from '../src/autopilot/secrets.ts'
 import type { EditOptions, EditResult } from '../src/core/pipeline.ts'
@@ -122,58 +123,56 @@ describe('글·제목', () => {
 })
 
 describe('영상 하나 처리', () => {
-  test('편집 결과는 완성 폴더에, 원본은 원본 폴더로 옮기고 설정값으로 편집한다', async () => {
+  test('편집 결과는 완성 폴더에(검토 기다림), 원본은 숨김 원본 폴더로 옮기고 설정값으로 편집한다. 업로드는 하지 않는다', async () => {
+    setConfig({ upload: { youtube: { enabled: true } } })
     const v = put(`${FOLDERS.inbox}/스윙.mp4`)
     const { deps, calls } = fakes()
     const r = await processVideo(root, v, deps)
     expect(r.ok).toBe(true)
     expect(r.title).toBe('롱아이언 꿀팁')
+    expect(calls.edit[0]!.reference).toBe(pickReference(root, loadConfig(root))) // 레퍼런스 폴더가 비면 기본 레퍼런스
     expect(fs.readFileSync(path.join(root, FOLDERS.done, '스윙_릴스.mp4'), 'utf8')).toBe('edited')
     expect(fs.existsSync(path.join(root, FOLDERS.originals, '스윙.mp4'))).toBe(true)
     expect(fs.existsSync(v)).toBe(false)
-    expect(calls.edit[0]).toMatchObject({ purpose: 'short', audio: 'original', reference: undefined })
-    expect(calls.yt).toHaveLength(0) // 업로드는 기본으로 꺼져 있다
+    expect(calls.edit[0]).toMatchObject({ purpose: 'short', audio: 'original' })
+    expect(calls.yt).toHaveLength(0) // 업로드는 수락할 때
+    expect(listPending(root)).toMatchObject([{ name: '스윙_릴스.mp4', title: '롱아이언 꿀팁', original: path.join(root, FOLDERS.originals, '스윙.mp4') }])
   })
 
-  test('편집이 실패하면 원본과 오류 설명을 실패 폴더에 둔다', async () => {
+  test('편집이 실패하면 원본은 보관하고 완성 폴더에 이유를 남긴다 — 검토 목록에 실패로 나온다', async () => {
     const v = put(`${FOLDERS.inbox}/스윙.mp4`)
     const r = await processVideo(root, v, fakes({ fail: '음성 인식 모델이 없어요' }).deps)
     expect(r.ok).toBe(false)
-    expect(fs.existsSync(path.join(root, FOLDERS.failed, '스윙.mp4'))).toBe(true)
-    expect(fs.readFileSync(path.join(root, FOLDERS.failed, '스윙_오류.txt'), 'utf8')).toContain('음성 인식 모델이 없어요')
+    expect(fs.existsSync(path.join(root, FOLDERS.originals, '스윙.mp4'))).toBe(true)
+    expect(fs.readFileSync(path.join(root, FOLDERS.done, '스윙_편집실패.txt'), 'utf8')).toContain('음성 인식 모델이 없어요')
+    expect(listPending(root)).toMatchObject([{ name: '스윙_편집실패.txt', failed: '음성 인식 모델이 없어요' }])
   })
 
-  test('레퍼런스 폴더의 영상을 레퍼런스로 쓴다(설정의 링크가 먼저)', () => {
-    const ref = put(`${FOLDERS.reference}/롱아이언.mp4`)
-    expect(pickReference(root, loadConfig(root))).toBe(ref)
+  test('레퍼런스: 설정의 링크 → 레퍼런스 폴더에서 가장 최근에 들어온 영상 → 기본 레퍼런스 → 없음', async () => {
+    const noBundle = path.join(root, '없는폴더')
+    expect(pickReference(root, loadConfig(root), noBundle)).toBeUndefined()
+    const bundled = put('저장소/기본.mp4')
+    expect(pickReference(root, loadConfig(root), path.dirname(bundled))).toBe(bundled)
+    const def = setDefaultReference(root, put('바탕화면/IMG_3725_릴스 (3).mp4'))
+    expect(pickReference(root, loadConfig(root))).toBe(def)
+    put(`${FOLDERS.reference}/b-예전.mp4`)
+    await new Promise((r) => setTimeout(r, 50))
+    // 수정 시각이 오래된 파일이어도(파인더로 복사하면 원래 수정 시각이 남는다) 폴더에 늦게 들어왔으면 최근 것으로 본다
+    const src = put('바탕화면/a-최근.mp4')
+    fs.utimesSync(src, new Date(Date.now() - 86_400_000), new Date(Date.now() - 86_400_000))
+    const recent = path.join(root, FOLDERS.reference, 'a-최근.mp4')
+    fs.renameSync(src, recent)
+    expect(pickReference(root, loadConfig(root))).toBe(recent)
     setConfig({ edit: { reference: 'https://youtu.be/x' } })
     expect(pickReference(root, loadConfig(root))).toBe('https://youtu.be/x')
   })
 
-  test('업로드를 켜면 유튜브·인스타에 AI 제목으로 올리고, 오래된 인스타 토큰은 연장해 저장한다', async () => {
-    setConfig({ upload: { caption: '{title}\n\n#골프 #골프구조', youtube: { enabled: true }, instagram: { enabled: true } } })
-    const secrets: UploadSecrets = { youtube: { clientId: 'c', clientSecret: 's', refreshToken: 'r' }, instagram: { userId: '1', accessToken: 'old', refreshedAt: '2026-01-01T00:00:00Z' } }
-    const { deps, calls } = fakes({ secrets })
-    const r = await processVideo(root, put(`${FOLDERS.inbox}/스윙.mp4`), deps)
-    expect(r.upload).toEqual({ youtube: { ok: true, url: 'https://youtube.com/shorts/v1' }, instagram: { ok: true, id: 'ig1' } })
-    expect(calls.yt[0]).toMatchObject({ title: '롱아이언 꿀팁 #shorts', tags: ['골프', '골프구조'], privacy: 'private' })
-    expect(calls.ig[0]).toMatchObject({ caption: '롱아이언 꿀팁\n\n#골프 #골프구조', shareToFeed: true })
-    expect(calls.saved[0]?.instagram?.accessToken).toBe('new')
-  })
-
-  test('업로드가 실패해도 편집 결과는 남고 실패 이유를 옆에 적어 둔다', async () => {
-    setConfig({ upload: { youtube: { enabled: true } } })
-    const { deps } = fakes({ secrets: { youtube: { clientId: 'c', clientSecret: 's', refreshToken: 'r' } }, ytFail: '할당량 초과' })
-    const r = await processVideo(root, put(`${FOLDERS.inbox}/스윙.mp4`), deps)
-    expect(r.ok).toBe(true)
-    expect(fs.existsSync(path.join(root, FOLDERS.done, '스윙_릴스.mp4'))).toBe(true)
-    expect(fs.readFileSync(path.join(root, FOLDERS.done, '스윙_릴스_업로드실패.txt'), 'utf8')).toContain('할당량 초과')
-  })
-
-  test('연결하지 않은 계정은 업로드 실패로 기록한다', async () => {
-    setConfig({ upload: { instagram: { enabled: true } } })
-    const r = await processVideo(root, put(`${FOLDERS.inbox}/스윙.mp4`), fakes().deps)
-    expect(r.upload?.instagram).toMatchObject({ ok: false, error: expect.stringContaining('npm run connect -- instagram') })
+  test('기본 레퍼런스를 다시 정하면 예전 것을 바꾼다', () => {
+    setDefaultReference(root, put('a.mp4'))
+    const d = setDefaultReference(root, put('b.mp4'))
+    expect(fs.readdirSync(path.join(root, FOLDERS.defaultReference))).toEqual(['b.mp4'])
+    expect(() => setDefaultReference(root, path.join(root, '없음.mp4'))).toThrow(ReviewError)
+    expect(d).toBe(path.join(root, FOLDERS.defaultReference, 'b.mp4'))
   })
 
   test('sweep 은 복사가 끝난 영상만 처리한다', async () => {
@@ -185,6 +184,90 @@ describe('영상 하나 처리', () => {
     expect(await sweep(root, t, deps)).toBe(1)
     expect(calls.edit).toHaveLength(1)
   })
+
+  test('예전 폴더(넣기·원본)에 있던 영상은 새 폴더로 옮기고 빈 예전 폴더는 지운다', () => {
+    put('넣기/새영상.mp4')
+    put('원본/옛원본.mov')
+    ensureFolders(root)
+    expect(fs.existsSync(path.join(root, FOLDERS.inbox, '새영상.mp4'))).toBe(true)
+    expect(fs.existsSync(path.join(root, FOLDERS.originals, '옛원본.mov'))).toBe(true)
+    expect(fs.existsSync(path.join(root, '넣기'))).toBe(false)
+    expect(fs.existsSync(path.join(root, '원본'))).toBe(false)
+  })
+})
+
+describe('검토: 수락·거절·다시 만들기', () => {
+  const edited = async (deps = fakes().deps, name = '스윙.mp4') => (await processVideo(root, put(`${FOLDERS.inbox}/${name}`), deps)).resultPath!
+
+  test('수락하면 수락 폴더로 옮기고 레퍼런스 폴더에 복사해, 다음 편집이 그것을 따라 한다', async () => {
+    const res = await edited()
+    const { deps, calls } = fakes()
+    const r = await accept(root, path.basename(res), deps)
+    expect(r.acceptedPath).toBe(path.join(root, FOLDERS.accepted, '스윙_릴스.mp4'))
+    expect(fs.readFileSync(r.referencePath, 'utf8')).toBe('edited')
+    expect(fs.existsSync(res)).toBe(false)
+    expect(listPending(root)).toEqual([])
+    expect(calls.yt).toHaveLength(0) // 업로드는 기본으로 꺼져 있다
+    await processVideo(root, put(`${FOLDERS.inbox}/다음.mp4`), deps)
+    expect(calls.edit[0]!.reference).toBe(r.referencePath)
+  })
+
+  test('업로드를 켜 두면 수락할 때 유튜브·인스타에 AI 제목으로 올리고, 오래된 인스타 토큰은 연장해 저장한다', async () => {
+    const res = await edited()
+    setConfig({ upload: { caption: '{title}\n\n#골프 #골프구조', youtube: { enabled: true }, instagram: { enabled: true } } })
+    const secrets: UploadSecrets = { youtube: { clientId: 'c', clientSecret: 's', refreshToken: 'r' }, instagram: { userId: '1', accessToken: 'old', refreshedAt: '2026-01-01T00:00:00Z' } }
+    const { deps, calls } = fakes({ secrets })
+    const r = await accept(root, res, deps)
+    expect(r.upload).toEqual({ youtube: { ok: true, url: 'https://youtube.com/shorts/v1' }, instagram: { ok: true, id: 'ig1' } })
+    expect(calls.yt[0]).toMatchObject({ file: r.acceptedPath, title: '롱아이언 꿀팁 #shorts', tags: ['골프', '골프구조'], privacy: 'private' })
+    expect(calls.ig[0]).toMatchObject({ caption: '롱아이언 꿀팁\n\n#골프 #골프구조', shareToFeed: true })
+    expect(calls.saved[0]?.instagram?.accessToken).toBe('new')
+  })
+
+  test('업로드가 실패해도 수락은 되고, 연결하지 않은 계정은 실패로 알려 준다', async () => {
+    const res = await edited()
+    setConfig({ upload: { youtube: { enabled: true }, instagram: { enabled: true } } })
+    const { deps } = fakes({ secrets: { youtube: { clientId: 'c', clientSecret: 's', refreshToken: 'r' } }, ytFail: '할당량 초과' })
+    const r = await accept(root, res, deps)
+    expect(fs.existsSync(r.acceptedPath)).toBe(true)
+    expect(r.upload.youtube).toEqual({ ok: false, error: '할당량 초과' })
+    expect(r.upload.instagram).toMatchObject({ ok: false, error: expect.stringContaining('npm run connect -- instagram') })
+  })
+
+  test('거절하면 결과를 치우고 원본은 보관한다', async () => {
+    const res = await edited()
+    reject(root, res)
+    expect(fs.existsSync(res)).toBe(false)
+    expect(fs.existsSync(path.join(root, FOLDERS.originals, '스윙.mp4'))).toBe(true)
+    expect(listVideos(path.join(root, FOLDERS.reference))).toEqual([])
+    expect(listPending(root)).toEqual([])
+  })
+
+  test('다시 만들기는 원본을 편집할 영상 폴더로 돌려놓고, 고칠 점을 다음 편집 요청에 한 번 덧붙인다', async () => {
+    setConfig({ edit: { request: '자막 크게' } })
+    const res = await edited()
+    const back = redo(root, path.basename(res), '앞부분 설명을 살려 줘')
+    expect(back).toBe(path.join(root, FOLDERS.inbox, '스윙.mp4'))
+    expect(fs.existsSync(res)).toBe(false)
+    const { deps, calls } = fakes()
+    await processVideo(root, back, deps)
+    expect(calls.edit[0]!.request).toBe('자막 크게\n앞부분 설명을 살려 줘')
+    // 고칠 점은 한 번만 쓴다
+    const again = redo(root, '스윙_릴스.mp4')
+    await processVideo(root, again, deps)
+    expect(calls.edit[1]!.request).toBe('자막 크게')
+  })
+
+  test('편집에 실패한 항목은 다시 만들 수 있지만 수락은 안 된다', async () => {
+    await processVideo(root, put(`${FOLDERS.inbox}/스윙.mp4`), fakes({ fail: '오류' }).deps)
+    await expect(accept(root, '스윙_편집실패.txt', fakes().deps)).rejects.toThrow(ReviewError)
+    expect(redo(root, '스윙_편집실패.txt')).toBe(path.join(root, FOLDERS.inbox, '스윙.mp4'))
+    expect(fs.existsSync(path.join(root, FOLDERS.done, '스윙_편집실패.txt'))).toBe(false)
+  })
+
+  test('없는 이름은 알아듣기 쉬운 오류로 알려 준다', () => {
+    expect(() => reject(root, '없는영상_릴스.mp4')).toThrow(/찾지 못했어요/)
+  })
 })
 
 test('launchd 설정은 로그인 때 켜지고, 꺼지면 다시 켜지며, PATH 를 넘긴다', () => {
@@ -193,4 +276,13 @@ test('launchd 설정은 로그인 때 켜지고, 꺼지면 다시 켜지며, PAT
   expect(xml).toContain('<string>/u/릴스 자동편집</string>')
   expect(xml).toContain('<key>KeepAlive</key><true/>')
   expect(xml).toContain('/opt/homebrew/bin:/usr/bin')
+})
+
+test('Claude Code 플러그인 설정: 마켓플레이스가 저장소 자체를 autoframes 플러그인으로 내놓고, 스킬 폴더가 있다', () => {
+  const repo = path.resolve(import.meta.dirname, '..')
+  const market = JSON.parse(fs.readFileSync(path.join(repo, '.claude-plugin', 'marketplace.json'), 'utf8'))
+  const plugin = JSON.parse(fs.readFileSync(path.join(repo, '.claude-plugin', 'plugin.json'), 'utf8'))
+  expect(market.plugins).toMatchObject([{ name: plugin.name, source: './' }])
+  expect(market.owner.name).toBeTruthy()
+  expect(fs.existsSync(path.join(repo, 'skills', plugin.name, 'SKILL.md'))).toBe(true)
 })
