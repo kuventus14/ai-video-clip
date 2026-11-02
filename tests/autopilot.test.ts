@@ -130,10 +130,11 @@ describe('영상 하나 처리', () => {
     const r = await processVideo(root, v, deps)
     expect(r.ok).toBe(true)
     expect(r.title).toBe('롱아이언 꿀팁')
+    expect(calls.edit[0]!.reference).toBe(pickReference(root, loadConfig(root))) // 레퍼런스 폴더가 비면 기본 레퍼런스
     expect(fs.readFileSync(path.join(root, FOLDERS.done, '스윙_릴스.mp4'), 'utf8')).toBe('edited')
     expect(fs.existsSync(path.join(root, FOLDERS.originals, '스윙.mp4'))).toBe(true)
     expect(fs.existsSync(v)).toBe(false)
-    expect(calls.edit[0]).toMatchObject({ purpose: 'short', audio: 'original', reference: undefined })
+    expect(calls.edit[0]).toMatchObject({ purpose: 'short', audio: 'original' })
     expect(calls.yt).toHaveLength(0) // 업로드는 수락할 때
     expect(listPending(root)).toMatchObject([{ name: '스윙_릴스.mp4', title: '롱아이언 꿀팁', original: path.join(root, FOLDERS.originals, '스윙.mp4') }])
   })
@@ -148,7 +149,10 @@ describe('영상 하나 처리', () => {
   })
 
   test('레퍼런스: 설정의 링크 → 레퍼런스 폴더에서 가장 최근에 들어온 영상 → 기본 레퍼런스 → 없음', async () => {
-    expect(pickReference(root, loadConfig(root))).toBeUndefined()
+    const noBundle = path.join(root, '없는폴더')
+    expect(pickReference(root, loadConfig(root), noBundle)).toBeUndefined()
+    const bundled = put('저장소/기본.mp4')
+    expect(pickReference(root, loadConfig(root), path.dirname(bundled))).toBe(bundled)
     const def = setDefaultReference(root, put('바탕화면/IMG_3725_릴스 (3).mp4'))
     expect(pickReference(root, loadConfig(root))).toBe(def)
     put(`${FOLDERS.reference}/b-예전.mp4`)
@@ -272,4 +276,13 @@ test('launchd 설정은 로그인 때 켜지고, 꺼지면 다시 켜지며, PAT
   expect(xml).toContain('<string>/u/릴스 자동편집</string>')
   expect(xml).toContain('<key>KeepAlive</key><true/>')
   expect(xml).toContain('/opt/homebrew/bin:/usr/bin')
+})
+
+test('Claude Code 플러그인 설정: 마켓플레이스가 저장소 자체를 autoframes 플러그인으로 내놓고, 스킬 폴더가 있다', () => {
+  const repo = path.resolve(import.meta.dirname, '..')
+  const market = JSON.parse(fs.readFileSync(path.join(repo, '.claude-plugin', 'marketplace.json'), 'utf8'))
+  const plugin = JSON.parse(fs.readFileSync(path.join(repo, '.claude-plugin', 'plugin.json'), 'utf8'))
+  expect(market.plugins).toMatchObject([{ name: plugin.name, source: './' }])
+  expect(market.owner.name).toBeTruthy()
+  expect(fs.existsSync(path.join(repo, 'skills', plugin.name, 'SKILL.md'))).toBe(true)
 })

@@ -1,0 +1,11 @@
+{
+  "name": "ai-video-clip",
+  "owner": { "name": "kuventus14" },
+  "plugins": [
+    {
+      "name": "autoframes",
+      "source": "./",
+      "description": "영상 자동 편집(릴스·숏츠) — 레퍼런스 따라 편집, 자동 편집 폴더, 수락·거절·다시 만들기 검토"
+    }
+  ]
+}

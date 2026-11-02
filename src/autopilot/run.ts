@@ -51,12 +51,18 @@ function arrivedAt(file: string): number {
   return Math.max(st.mtimeMs, st.ctimeMs)
 }
 
-/** 레퍼런스: 설정의 링크 → 레퍼런스 폴더에서 가장 최근에 들어온 영상 → 기본 레퍼런스 → 없음(앱 기본 스타일) */
-export function pickReference(root: string, cfg: AutopilotConfig): string | undefined {
+/** 저장소에 같이 들어 있는 기본 레퍼런스(사용자가 기본 레퍼런스를 따로 정하지 않았을 때) */
+export const BUNDLED_REFERENCE_DIR = path.resolve(import.meta.dirname, '..', '..', 'assets', 'default-reference')
+
+/**
+ * 레퍼런스: 설정의 링크 → 레퍼런스 폴더에서 가장 최근에 들어온 영상 → 내가 정한 기본 레퍼런스 → 저장소의 기본 레퍼런스
+ * → 없음(앱 기본 스타일)
+ */
+export function pickReference(root: string, cfg: AutopilotConfig, bundledDir = BUNDLED_REFERENCE_DIR): string | undefined {
   if (cfg.edit.reference.trim()) return cfg.edit.reference.trim()
   const refs = listVideos(path.join(root, FOLDERS.reference))
   if (refs.length) return refs.map((f) => ({ f, t: arrivedAt(f) })).sort((a, b) => b.t - a.t || a.f.localeCompare(b.f))[0]!.f
-  return listVideos(path.join(root, FOLDERS.defaultReference))[0]
+  return listVideos(path.join(root, FOLDERS.defaultReference))[0] ?? listVideos(bundledDir)[0]
 }
 
 const now = () => new Date().toISOString().replace('T', ' ').slice(0, 19)
