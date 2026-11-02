@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { buildTimeline, groupWordsIntoCues, hookRepeatsOpening, remapKeyframes, remapSpans, remapTime, remapWords, shiftCues, srcToOut, subtractSpans } from '../src/core/timeline.ts'
+import { buildTimeline, groupWordsIntoCues, hookRepeatsOpening, keepOnlyVoice, remapKeyframes, remapSpans, remapTime, remapWords, shiftCues, srcToOut, subtractSpans } from '../src/core/timeline.ts'
 import type { Word } from '../src/core/types.ts'
 
 const w = (text: string, start: number, end: number): Word => ({ text, start, end, confidence: 0.9 })
@@ -211,5 +211,28 @@ describe('hookRepeatsOpening — 훅이 본편 첫머리와 같은 장면이라 
   })
   test('남은 구간이 없으면 false', () => {
     expect(hookRepeatsOpening({ start: 0, end: 3 }, [], 4)).toBe(false)
+  })
+})
+
+describe('keepOnlyVoice — 목소리 있는 부분만 남기기', () => {
+  const v = (start: number, end: number): Word => ({ text: '말', start, end, confidence: 0.9 })
+  test('단어 사이가 0.6초 이하면 잇고, 그보다 긴 말 없는 장면은 빼며, 앞 0.15초·뒤 0.3초 여유를 둔다', () => {
+    const out = keepOnlyVoice([{ start: 0, end: 30 }], [v(1, 2), v(2.5, 3), v(10, 11)])
+    expect(out).toEqual([{ start: 0.85, end: 3.3 }, { start: 9.85, end: 11.3 }])
+  })
+  test('남긴 구간(kept) 밖으로는 넓히지 않는다', () => {
+    expect(keepOnlyVoice([{ start: 1.5, end: 2.8 }], [v(1, 2), v(2.5, 3)])).toEqual([{ start: 1.5, end: 2.8 }])
+  })
+  test('말이 하나도 없으면 kept 그대로', () => {
+    expect(keepOnlyVoice([{ start: 0, end: 5 }], [])).toEqual([{ start: 0, end: 5 }])
+  })
+  test('결과에는 말 없는 장면이 1초 넘게 이어지지 않는다', () => {
+    const words = [v(0, 0.4), v(5, 5.4), v(5.9, 6.3), v(20, 20.5)]
+    const out = keepOnlyVoice([{ start: 0, end: 30 }], words)
+    for (const k of out) {
+      const inside = words.filter((x) => x.start < k.end && x.end > k.start)
+      const gaps = [inside[0]!.start - k.start, ...inside.slice(1).map((x, j) => x.start - inside[j]!.end), k.end - inside.at(-1)!.end]
+      for (const g of gaps) expect(g).toBeLessThan(1)
+    }
   })
 })

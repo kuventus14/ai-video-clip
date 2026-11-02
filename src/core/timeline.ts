@@ -98,6 +98,40 @@ export function srcToOut(t: number, kept: Span[], hookSec: number): number | nul
   return next < 0 ? null : round6(off[next]! + hookSec)
 }
 
+/**
+ * 목소리가 나오는 부분만 남긴다. 단어 사이가 joinGapSec 이하면 한 덩어리로 잇고(자연스러운 쉼), 덩어리 앞뒤로 조금 여유를 둔다
+ * (말 시작 padBeforeSec, 말끝 padAfterSec — 말끝이 잘리지 않게 뒤를 더 둔다). 그 밖의 목소리 없는 장면은 모두 뺀다.
+ * 그래서 결과에는 목소리 없는 장면이 joinGapSec + 앞뒤 여유(약 1초)보다 길게 이어지지 않는다. 말이 하나도 없으면 kept 그대로.
+ */
+export function keepOnlyVoice(kept: Span[], words: Word[], o: { joinGapSec?: number; padBeforeSec?: number; padAfterSec?: number } = {}): Span[] {
+  const join = o.joinGapSec ?? 0.6
+  const before = o.padBeforeSec ?? 0.15
+  const after = o.padAfterSec ?? 0.3
+  const sorted = [...words].filter((w) => w.end > w.start).sort((a, b) => a.start - b.start)
+  if (!sorted.length) return kept
+  const islands: Span[] = []
+  for (const w of sorted) {
+    const last = islands.at(-1)
+    if (last && w.start - last.end <= join) last.end = Math.max(last.end, w.end)
+    else islands.push({ start: w.start, end: w.end })
+  }
+  const padded = islands.map((s) => ({ start: Math.max(0, s.start - before), end: s.end + after }))
+  const out: Span[] = []
+  for (const k of kept) {
+    for (const s of padded) {
+      const a = Math.max(k.start, s.start)
+      const b = Math.min(k.end, s.end)
+      if (b - a >= 0.2) {
+        const last = out.at(-1)
+        // 여유를 붙여 겹치거나 맞닿은 조각은 하나로 잇는다
+        if (last && a <= last.end + 1e-6) last.end = round6(Math.max(last.end, b))
+        else out.push({ start: round6(a), end: round6(b) })
+      }
+    }
+  }
+  return out.length ? out : kept
+}
+
 /** 남은 구간(kept)에서 빼도 되는 구간(drop)을 뺀다. 0.3초보다 짧게 남는 조각은 버린다. */
 export function subtractSpans(kept: Span[], drop: Span[]): Span[] {
   const MIN_PIECE = 0.3

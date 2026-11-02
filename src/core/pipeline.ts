@@ -12,7 +12,7 @@ import { canvasFor, detectPurpose, resolvePurpose, type PurposeGuess } from './p
 import { computeCropPath, cropReversalsPerSec, type CropPath } from './reframe.ts'
 import { analyzeReference, detectSceneCuts, FEASIBILITY, type StyleSpec } from './styleSpec.ts'
 import { fetchReference } from './reference.ts'
-import { buildTimeline, groupWordsIntoCues, hookRepeatsOpening, remapKeyframes, remapWords, shiftCues, subtractSpans } from './timeline.ts'
+import { buildTimeline, groupWordsIntoCues, hookRepeatsOpening, keepOnlyVoice, remapKeyframes, remapWords, shiftCues, subtractSpans } from './timeline.ts'
 import { echoesPrompt, transcribe } from './transcribe.ts'
 import { applySound, type MixRecipe, type SoundReport } from './sound.ts'
 import { clampGainDb } from '../shared/soundGain.ts'
@@ -339,7 +339,7 @@ export const maxOutputSecFor = (purpose: Purpose): number | undefined => (purpos
 export function lengthCardLines(durationSec: number, maxOutputSec?: number): string[] {
   if (maxOutputSec === undefined) return []
   return durationSec > maxOutputSec
-    ? [`• 길이: ${Math.round(durationSec)}초라서 핵심만 골라 ${maxOutputSec}초 이하로 줄여요`]
+    ? [`• 길이: ${Math.round(durationSec)}초라서 핵심만 골라 ${maxOutputSec}초 이하로 줄여요. 목소리 없는 장면은 모두 빼고 말끼리 이어요`]
     : [`• 길이: ${maxOutputSec}초 이하라 길이는 그대로 두고 편집만 해요`]
 }
 
@@ -482,15 +482,20 @@ export async function produceEdit(i: ProduceInput, overrides: Partial<PipelineDe
       const trimmed = subtractSpans(kept, script.drop)
       if (trimmed.length) kept = trimmed
     }
+    // 1분이 넘는 원본을 1분 릴스로 줄일 때는 목소리 없는 장면을 모두 빼고 말끼리 잇는다(말 없는 장면이 길게 이어지지 않게)
+    const maxOutputSec = maxOutputSecFor(purpose)
+    const cutTranscript = i.cutTranscript ?? transcript
+    const voiceOnly = maxOutputSec !== undefined && info.durationSec > maxOutputSec && cutTranscript.hasSpeech
+    if (voiceOnly) kept = keepOnlyVoice(kept, cutTranscript.words)
     // 훅 장면을 맨 앞에 붙인 출력 타임라인(훅이 없으면 kept 그대로)
-    // 훅이 영상 맨 앞 장면이면 앞에 또 붙이지 않고(같은 말이 연달아 두 번 나온다) 질문만 본편 첫머리 위에 띄운다
+    // 훅이 영상 맨 앞 장면이면 앞에 또 붙이지 않고(같은 말이 연달아 두 번 나온다) 질문만 본편 첫머리 위에 띄운다.
+    // 목소리만 남기는 경우도 훅 장면(대개 말 없는 스윙)은 붙이지 않고 질문만 첫머리 위에 띄운다
     const hookSpan = script?.hook ? { start: script.hook.sourceStart, end: script.hook.sourceEnd } : undefined
-    const hookInPlace = hookSpan !== undefined && hookRepeatsOpening(hookSpan, kept, SCRIPT_LIMITS.hookMaxSec)
+    const hookInPlace = hookSpan !== undefined && (voiceOnly || hookRepeatsOpening(hookSpan, kept, SCRIPT_LIMITS.hookMaxSec))
     const speed = script?.speed ?? 1
     const tempoOn = speed > 1.001 && d.applyTempo !== undefined
     const effSpeed = tempoOn ? speed : 1
     // 릴스·숏츠는 결과가 60초를 넘지 않게: 감독이 덜 뺐으면 넘치는 뒤쪽을 자른다
-    const maxOutputSec = maxOutputSecFor(purpose)
     const lengthFindings: Finding[] = []
     if (maxOutputSec !== undefined) {
       const hookLen = hookSpan && !hookInPlace ? hookSpan.end - hookSpan.start : 0
