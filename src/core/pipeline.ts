@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { loadBrandBand, type BrandBand } from './brandBand.ts'
 import { buildProject, chooseReframeMode, renderProject } from './compose.ts'
-import { detectSilences, planCuts } from './cuts.ts'
+import { detectQuietSpans, detectSilences, planCuts } from './cuts.ts'
 import { deriveAppliedStyle, interpretRequest, planCardLines, type EditPlan } from './interpret.ts'
 import { ensureH264, probeVideo } from './media.ts'
 import { trackPeople, type PersonTrack } from './person.ts'
@@ -12,7 +12,7 @@ import { canvasFor, detectPurpose, resolvePurpose, type PurposeGuess } from './p
 import { computeCropPath, cropReversalsPerSec, type CropPath } from './reframe.ts'
 import { analyzeReference, detectSceneCuts, FEASIBILITY, type StyleSpec } from './styleSpec.ts'
 import { fetchReference } from './reference.ts'
-import { buildTimeline, groupWordsIntoCues, hookRepeatsOpening, remapKeyframes, remapWords, shiftCues, subtractSpans } from './timeline.ts'
+import { buildTimeline, groupWordsIntoCues, hookRepeatsOpening, keepOnlyVoice, remapKeyframes, remapWords, shiftCues, subtractSpans } from './timeline.ts'
 import { echoesPrompt, transcribe } from './transcribe.ts'
 import { applySound, type MixRecipe, type SoundReport } from './sound.ts'
 import { clampGainDb } from '../shared/soundGain.ts'
@@ -21,7 +21,7 @@ import { directEdit, extractReferenceFrames } from './director.ts'
 import { cropToContent, detectContentRect } from './letterbox.ts'
 import { emptyScript, normalizeScript, SCRIPT_LIMITS, scriptCardLines, toRenderScript, type EditScript } from './script.ts'
 import { applyTempo, scaleSec } from './tempo.ts'
-import { enhanceVoice } from './voice.ts'
+import { enhanceVoice, normalizeLoudness } from './voice.ts'
 import type { SfxMode } from '../shared/sound.ts'
 import type { CaptionPosition } from '../shared/types.ts'
 import type { AudioMode } from '../shared/voice.ts'
@@ -49,7 +49,7 @@ export interface EditOptions {
   request?: string
   quality?: Quality
   captions?: 'auto' | 'off'
-  /** 소리: 'original' 은 원본 그대로(기본), 'voice' 는 소음을 줄이고 목소리 크기를 맞춘다 */
+  /** 소리: 'original' 은 원본 소리 그대로 두고 크기만 맞춘다(기본), 'voice' 는 소음을 줄이고 목소리 크기를 맞춘다 */
   audio?: AudioMode
   /** 배경음악 곡 id (없거나 null 이면 넣지 않는다) / 효과음 켜기·끄기(기본 끄기) */
   bgm?: string | null
@@ -83,6 +83,8 @@ export interface PipelineDeps {
   ensureH264: typeof ensureH264
   transcribe: typeof transcribe
   detectSilences: typeof detectSilences
+  /** 소리 크기로 본 조용한 구간(목소리만 남길 때 음성 인식의 헛단어를 거른다) */
+  detectQuietSpans: typeof detectQuietSpans
   detectSceneCuts: typeof detectSceneCuts
   describeVideo: typeof describeVideo
   fetchReference: typeof fetchReference
@@ -94,6 +96,8 @@ export interface PipelineDeps {
   renderProject: typeof renderProject
   runQa: typeof runQa
   enhanceVoice: typeof enhanceVoice
+  /** 목소리 보정을 안 할 때 소리 크기만 맞춘다 */
+  normalizeLoudness: typeof normalizeLoudness
   applySound: typeof applySound
   /** 음악·효과음 크기를 AI 가 정한다(실패하면 기본 규칙 그대로). 제작 앞에서 한 번만 부른다 */
   balanceSound: typeof balanceSound
@@ -109,8 +113,8 @@ export interface PipelineDeps {
 }
 
 const DEFAULTS: PipelineDeps = {
-  probeVideo, ensureH264, transcribe, detectSilences, detectSceneCuts, describeVideo, fetchReference, analyzeReference,
-  interpretRequest, trackPeople, proofreadCues, buildProject, renderProject, runQa, enhanceVoice, applySound, balanceSound, directEdit, extractReferenceFrames, applyTempo, detectContentRect, cropToContent,
+  probeVideo, ensureH264, transcribe, detectSilences, detectQuietSpans, detectSceneCuts, describeVideo, fetchReference, analyzeReference,
+  interpretRequest, trackPeople, proofreadCues, buildProject, renderProject, runQa, enhanceVoice, normalizeLoudness, applySound, balanceSound, directEdit, extractReferenceFrames, applyTempo, detectContentRect, cropToContent,
 }
 
 const MIN_SEC = 1
@@ -332,6 +336,38 @@ export interface PrepareInput {
   deletedSpans?: Span[]
 }
 
+/** 결과 영상 길이 상한: 릴스·숏츠(세로)는 60초, 게시물(가로)은 없음 */
+export const maxOutputSecFor = (purpose: Purpose): number | undefined => (purpose === 'short' ? SCRIPT_LIMITS.shortMaxSec : undefined)
+
+/** "이렇게 이해했어요" 카드의 길이 안내 줄 */
+export function lengthCardLines(durationSec: number, maxOutputSec?: number): string[] {
+  if (maxOutputSec === undefined) return []
+  return durationSec > maxOutputSec
+    ? [`• 길이: ${Math.round(durationSec)}초라서 핵심만 골라 ${maxOutputSec}초 이하로 줄여요. 목소리 없는 장면은 모두 빼고 말끼리 이어요`]
+    : [`• 길이: ${maxOutputSec}초 이하라 길이는 그대로 두고 편집만 해요`]
+}
+
+/**
+ * 결과가 상한을 넘지 않게 남길 구간을 줄인다(편집 감독이 덜 뺐거나 대본이 없을 때의 안전장치).
+ * 훅이 결과를 앞에서 보여 주므로 본편은 앞에서부터 이어 붙이고 넘치는 뒤쪽을 자른다. 출력 길이 = (훅 + 본편) / 속도.
+ */
+export function capKeptToOutput(kept: Span[], o: { maxOutputSec: number; hookSec: number; speed: number }): Span[] {
+  let room = o.maxOutputSec * o.speed - o.hookSec
+  const out: Span[] = []
+  for (const k of kept) {
+    if (room <= 0.3) break
+    const len = k.end - k.start
+    if (len <= room) {
+      out.push(k)
+      room -= len
+    } else {
+      out.push({ start: k.start, end: Math.round((k.start + room) * 1000) / 1000 })
+      room = 0
+    }
+  }
+  return out.length ? out : kept.slice(0, 1)
+}
+
 /** 2단계: (레퍼런스 받기·분석) → 용도 확정 → 요청 해석 → "이렇게 이해했어요" 카드 */
 export async function prepareEdit(i: PrepareInput, overrides: Partial<PipelineDeps> = {}): Promise<Prepared> {
   const d: PipelineDeps = { ...DEFAULTS, ...overrides }
@@ -361,7 +397,8 @@ export async function prepareEdit(i: PrepareInput, overrides: Partial<PipelineDe
         '• 자막: 말하는 대로 넣고, 오타·오인식은 검수에서 고쳐요',
       ]
     : planCardLines(plan, specUsed)
-  const planCard = [...baseCard, ...reframeCardLines(reframe, a.info, canvas)]
+  const maxOutputSec = maxOutputSecFor(purpose)
+  const planCard = [...baseCard, ...reframeCardLines(reframe, a.info, canvas), ...lengthCardLines(a.info.durationSec, maxOutputSec)]
   const captionPosition = deriveAppliedStyle(plan, specUsed, a.summary, purpose).captions.position
 
   // 편집 감독: 영상·대본·(레퍼런스 사진)을 보고 편집 대본을 짠다. 실패해도 작업을 막지 않고 지금 방식으로 되돌아간다.
@@ -371,9 +408,9 @@ export async function prepareEdit(i: PrepareInput, overrides: Partial<PipelineDe
   if (d.directEdit) {
     stage('direct')
     try {
-      const out = await d.directEdit({ info: a.info, transcript: a.transcript, summary: a.summary, sourcePath: a.sourcePath, spec, refFrames: spec ? readRefFrames(i.workDir) : [], workDir: i.workDir, deletedSpans: i.deletedSpans })
+      const out = await d.directEdit({ info: a.info, transcript: a.transcript, summary: a.summary, sourcePath: a.sourcePath, spec, refFrames: spec ? readRefFrames(i.workDir) : [], workDir: i.workDir, deletedSpans: i.deletedSpans, maxOutputSec })
       // 감독 구현이 무엇을 돌려주든 대본을 한 번 더 정리한다(영상이 10초 이하면 제목만 등) — 정리는 여러 번 해도 같다
-      const clean = normalizeScript(out.script, { durationSec: a.info.durationSec, fallbackTitle: a.summary.hookTitle || a.summary.genre || a.summary.topic })
+      const clean = normalizeScript(out.script, { durationSec: a.info.durationSec, fallbackTitle: a.summary.hookTitle || a.summary.genre || a.summary.topic, maxOutputSec })
       script = clean.script
       directorNotes = [...out.notes, ...clean.notes]
     } catch {
@@ -449,10 +486,38 @@ export async function produceEdit(i: ProduceInput, overrides: Partial<PipelineDe
       const trimmed = subtractSpans(kept, script.drop)
       if (trimmed.length) kept = trimmed
     }
+    // 1분이 넘는 원본을 1분 릴스로 줄일 때는 목소리 없는 장면을 모두 빼고 말끼리 잇는다(말 없는 장면이 길게 이어지지 않게)
+    const maxOutputSec = maxOutputSecFor(purpose)
+    const cutTranscript = i.cutTranscript ?? transcript
+    const voiceOnly = maxOutputSec !== undefined && info.durationSec > maxOutputSec && cutTranscript.hasSpeech
+    if (voiceOnly) {
+      kept = keepOnlyVoice(kept, cutTranscript.words)
+      // 음성 인식이 말 없는 장면(걸어오는 장면 등)에 단어를 잘못 붙이기도 해서, 소리 크기로도 조용한 장면을 뺀다.
+      // 조용한 구간 앞뒤 0.15초는 남겨 말끝·말머리가 잘리지 않게 한다
+      if (info.hasAudio) {
+        const quiet = (await d.detectQuietSpans(src)).map((q) => ({ start: q.start + 0.15, end: q.end - 0.15 })).filter((q) => q.end > q.start)
+        const trimmed = subtractSpans(kept, quiet)
+        if (trimmed.length) kept = trimmed
+      }
+    }
     // 훅 장면을 맨 앞에 붙인 출력 타임라인(훅이 없으면 kept 그대로)
-    // 훅이 영상 맨 앞 장면이면 앞에 또 붙이지 않고(같은 말이 연달아 두 번 나온다) 질문만 본편 첫머리 위에 띄운다
+    // 훅이 영상 맨 앞 장면이면 앞에 또 붙이지 않고(같은 말이 연달아 두 번 나온다) 질문만 본편 첫머리 위에 띄운다.
+    // 목소리만 남기는 경우도 훅 장면(대개 말 없는 스윙)은 붙이지 않고 질문만 첫머리 위에 띄운다
     const hookSpan = script?.hook ? { start: script.hook.sourceStart, end: script.hook.sourceEnd } : undefined
-    const hookInPlace = hookSpan !== undefined && hookRepeatsOpening(hookSpan, kept, SCRIPT_LIMITS.hookMaxSec)
+    const hookInPlace = hookSpan !== undefined && (voiceOnly || hookRepeatsOpening(hookSpan, kept, SCRIPT_LIMITS.hookMaxSec))
+    const speed = script?.speed ?? 1
+    const tempoOn = speed > 1.001 && d.applyTempo !== undefined
+    const effSpeed = tempoOn ? speed : 1
+    // 릴스·숏츠는 결과가 60초를 넘지 않게: 감독이 덜 뺐으면 넘치는 뒤쪽을 자른다
+    const lengthFindings: Finding[] = []
+    if (maxOutputSec !== undefined) {
+      const hookLen = hookSpan && !hookInPlace ? hookSpan.end - hookSpan.start : 0
+      const before = (hookLen + kept.reduce((a, k) => a + k.end - k.start, 0)) / effSpeed
+      if (before > maxOutputSec + 0.05) {
+        kept = capKeptToOutput(kept, { maxOutputSec, hookSec: hookLen, speed: effSpeed })
+        lengthFindings.push({ id: 'length-capped', severity: 'info', message: `결과가 ${Math.round(before)}초라서 ${maxOutputSec}초에 맞게 뒤쪽을 잘랐어요`, fixHint: 'none' })
+      }
+    }
     const timeline = buildTimeline(kept, hookInPlace ? undefined : hookSpan)
     const hookSec = timeline.hookSec
     let renderScript = script ? toRenderScript(script, kept, hookSec, timeline.totalSec) : undefined
@@ -460,9 +525,6 @@ export async function produceEdit(i: ProduceInput, overrides: Partial<PipelineDe
       const sec = Math.min(script.hook.sourceEnd - script.hook.sourceStart, timeline.totalSec)
       renderScript = { ...renderScript, hook: { sec, question: script.hook.question }, hookSec: sec }
     }
-    const speed = script?.speed ?? 1
-    const tempoOn = speed > 1.001 && d.applyTempo !== undefined
-    const effSpeed = tempoOn ? speed : 1
     // 자막·단어 시각은 본편(kept) 기준으로 만들고, 쓸 때 훅 길이만큼 밀고 속도로 나눈다
     const outTime = <T extends { start: number; end: number }>(xs: T[], toBuild: boolean): T[] => {
       const shifted = shiftCues(xs, hookSec)
@@ -509,6 +571,10 @@ export async function produceEdit(i: ProduceInput, overrides: Partial<PipelineDe
     if (i.audio === 'voice' && info.hasAudio) {
       stage('voice')
       renderSrc = await d.enhanceVoice({ sourcePath: src, outPath: path.join(work, 'source-voice.mp4'), workDir: path.join(work, 'voice'), durationSec: info.durationSec })
+    } else if (info.hasAudio) {
+      // 원본 소리 그대로 쓸 때도 크기만은 맞춘다(폰 영상은 소리가 작은 경우가 많다)
+      stage('voice')
+      renderSrc = await d.normalizeLoudness({ sourcePath: src, outPath: path.join(work, 'source-loud.mp4'), durationSec: info.durationSec })
     }
 
     // 9) 만들고 검수하고, 필요하면 최대 2번 다시 만든다
@@ -658,7 +724,7 @@ export async function produceEdit(i: ProduceInput, overrides: Partial<PipelineDe
     if (i.sfx === 'on' && soundReport?.sfxCount === 0) {
       extraFindings.push({ id: 'sfx-none', severity: 'info', message: '효과음을 켰지만 넣을 곳(컷이 바뀌는 순간·제목 카드)이 없어서 넣지 않았어요.', fixHint: 'none' })
     }
-    const finalQa: QaReport = { ...qa, findings: [...qa.findings, ...extraFindings, ...cropFindings, ...suggestionFindings] }
+    const finalQa: QaReport = { ...qa, findings: [...qa.findings, ...extraFindings, ...lengthFindings, ...cropFindings, ...suggestionFindings] }
     const resultPath = path.join(outDir, 'result.mp4')
     // 소리만 다시 섞을 수 있게 소리 없는 렌더와 섞는 방법을 남긴다(remixFiles 일 때만). 이번에 소리를 안 썼다면 같은 폴더의 옛 파일을 지운다(다시 섞기가 열리면 안 된다).
     const dryOut = path.join(outDir, 'dry.mp4')

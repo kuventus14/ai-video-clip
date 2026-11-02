@@ -41,6 +41,8 @@ function setup(over: Partial<PipelineDeps> = {}, videoInfo: VideoInfo = info()) 
     ensureH264: async (p, i) => ({ path: p, info: i, converted: false }),
     transcribe: async () => TR,
     detectSilences: async () => [],
+    detectQuietSpans: async () => [],
+    normalizeLoudness: async (v) => v.sourcePath,
     detectSceneCuts: async () => [],
     describeVideo: async () => SUMMARY,
     fetchReference: async (src) => {
@@ -185,7 +187,7 @@ describe('produceEdit', () => {
     const report = JSON.parse(fs.readFileSync(path.join(outDir, 'report.json'), 'utf8'))
     expect(report.purpose).toMatchObject({ resolved: 'short', userChoice: 'short' })
     expect(report.planCard).toEqual(prepared.planCard)
-    expect(s.stages).toEqual(['cuts', 'build', 'render', 'qa', 'done']) // 가로 원본 → 세로: 자르지 않으니 사람 인식(track) 단계가 없다
+    expect(s.stages).toEqual(['cuts', 'voice', 'build', 'render', 'qa', 'done']) // 가로 원본 → 세로: 자르지 않으니 사람 인식(track) 단계가 없다
     expect(s.builds[0]).toMatchObject({ sourcePath: '/in/영상.mp4', canvas: { width: 1080, height: 1920 }, reframe: 'blur-fill' })
   })
 
@@ -206,15 +208,27 @@ describe('produceEdit', () => {
       expect(s.builds[0]!.sourcePath).toBe(s.voices[0]!.outPath)
     })
 
-    test("기본(생략)이거나 'original' 이면 보정하지 않고 원본 영상을 그대로 쓴다", async () => {
+    test("기본(생략)이거나 'original' 이면 목소리 보정은 하지 않고 소리 크기만 맞춘 영상을 쓴다", async () => {
       for (const audio of [undefined, 'original' as const]) {
-        const s = setup()
+        const louds: { sourcePath: string; outPath: string; durationSec: number }[] = []
+        const s = setup({ normalizeLoudness: async (v) => (louds.push(v), v.outPath) })
         const { analysis, prepared } = await prepare(s)
         await produceEdit({ analysis, prepared, outDir: path.join(work, `o-${audio}`), audio, onStage: s.onStage }, s.deps)
         expect(s.voices).toHaveLength(0)
-        expect(s.stages).not.toContain('voice')
-        expect(s.builds[0]!.sourcePath).toBe('/in/영상.mp4')
+        expect(louds).toHaveLength(1)
+        expect(louds[0]).toMatchObject({ sourcePath: '/in/영상.mp4', durationSec: 45 })
+        expect(s.builds[0]!.sourcePath).toBe(louds[0]!.outPath)
       }
+    })
+
+    test('원본에 소리가 없으면 소리 크기 맞추기도 건너뛴다', async () => {
+      const louds: unknown[] = []
+      const s = setup({ normalizeLoudness: async (v) => (louds.push(v), v.outPath) }, info({ hasAudio: false }))
+      const { analysis, prepared } = await prepare(s)
+      await produceEdit({ analysis, prepared, outDir: path.join(work, 'noaudio-loud'), onStage: s.onStage }, s.deps)
+      expect(louds).toHaveLength(0)
+      expect(s.stages).not.toContain('voice')
+      expect(s.builds[0]!.sourcePath).toBe('/in/영상.mp4')
     })
 
     test('원본에 소리가 없으면 voice 를 골라도 건너뛴다', async () => {
@@ -259,7 +273,7 @@ describe('produceEdit', () => {
       const { analysis, prepared } = await prepare(s)
       const outDir = path.join(work, 'bgm')
       await produceEdit({ analysis, prepared, outDir, bgm: 'calm-1', onStage: s.onStage }, s.deps)
-      expect(s.stages).toEqual(['cuts', 'build', 'render', 'mix', 'qa', 'done'])
+      expect(s.stages).toEqual(['cuts', 'voice', 'build', 'render', 'mix', 'qa', 'done'])
       expect(s.sounds).toHaveLength(1)
       expect(qaPaths).toEqual([s.sounds[0]!.outPath])
       expect(fs.readFileSync(path.join(outDir, 'result.mp4'), 'utf8')).toBe('mixed')
@@ -481,7 +495,7 @@ describe('runEdit 는 세 단계의 합성', () => {
     const s = setup()
     const cards: string[][] = []
     await runEdit({ videoPath: '/in/영상.mp4', outDir: path.join(work, 'out3'), reference: '/ref.mp4', onStage: s.onStage, onPlan: (c) => cards.push(c) }, s.deps)
-    expect(s.stages).toEqual(['probe', 'transcribe', 'reference', 'purpose', 'understand', 'plan', 'cuts', 'build', 'render', 'qa', 'done'])
+    expect(s.stages).toEqual(['probe', 'transcribe', 'reference', 'purpose', 'understand', 'plan', 'cuts', 'voice', 'build', 'render', 'qa', 'done'])
     expect(cards).toHaveLength(1)
     expect(cards[0]![0]).toContain('레퍼런스의 편집 스타일')
   })
