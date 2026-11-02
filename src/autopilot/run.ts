@@ -4,6 +4,7 @@ import type { EditOptions, EditResult } from '../core/pipeline.ts'
 import { hashtagsOf, instagramCaption, titleFromReport, youtubeDescription, youtubeTitle } from './caption.ts'
 import { FOLDERS, loadConfig, type AutopilotConfig } from './config.ts'
 import { listVideos, moveInto, StabilityTracker, stemOf, uniquePath } from './folders.ts'
+import { failureNotePath, takeRedoNote, writeRecord } from './records.ts'
 import { refreshInstagramIfNeeded, uploadToInstagram } from './instagram.ts'
 import { loadSecrets, saveSecrets, type UploadSecrets } from './secrets.ts'
 import { uploadToYoutube } from './youtube.ts'
@@ -41,37 +42,49 @@ export interface ProcessOutcome {
   /** 완성 폴더에 놓인 결과 영상 */
   resultPath?: string
   title?: string
-  upload?: UploadOutcome
   error?: string
 }
 
-/** 레퍼런스: 설정의 링크 → 레퍼런스 폴더의 첫 영상 → 없음 */
+/** 파일이 폴더에 들어온 시각(복사·이동하면 바뀌는 ctime 과 수정 시각 중 늦은 쪽) */
+function arrivedAt(file: string): number {
+  const st = fs.statSync(file)
+  return Math.max(st.mtimeMs, st.ctimeMs)
+}
+
+/** 레퍼런스: 설정의 링크 → 레퍼런스 폴더에서 가장 최근에 들어온 영상 → 기본 레퍼런스 → 없음(앱 기본 스타일) */
 export function pickReference(root: string, cfg: AutopilotConfig): string | undefined {
   if (cfg.edit.reference.trim()) return cfg.edit.reference.trim()
-  return listVideos(path.join(root, FOLDERS.reference))[0]
+  const refs = listVideos(path.join(root, FOLDERS.reference))
+  if (refs.length) return refs.map((f) => ({ f, t: arrivedAt(f) })).sort((a, b) => b.t - a.t || a.f.localeCompare(b.f))[0]!.f
+  return listVideos(path.join(root, FOLDERS.defaultReference))[0]
 }
 
 const now = () => new Date().toISOString().replace('T', ' ').slice(0, 19)
 
 /**
- * 영상 하나를 처리한다: 편집 → 완성 폴더에 결과 → 원본은 원본 폴더로 → (켜 두었으면) 유튜브·인스타 업로드.
- * 편집이 실패하면 원본과 오류 설명을 실패 폴더에 둔다. 업로드가 실패해도 편집 결과는 그대로 두고 기록만 남긴다.
+ * 영상 하나를 처리한다: 편집 → 완성 폴더에 결과(검토 기다림) → 원본은 숨김 원본 폴더로.
+ * 업로드는 여기서 하지 않고, 사용자가 수락할 때 한다(review.ts).
+ * 편집이 실패하면 원본은 원본 폴더에 두고 완성 폴더에 이유(_편집실패.txt)를 남긴다 — '다시 만들기'로 다시 시도할 수 있다.
  */
 export async function processVideo(root: string, video: string, d: AutopilotDeps): Promise<ProcessOutcome> {
   const cfg = loadConfig(root)
   const stem = stemOf(video)
   const workDir = uniquePath(path.join(root, FOLDERS.work), stem)
   fs.mkdirSync(workDir, { recursive: true })
-  d.log(`[${now()}] ▶ 편집 시작: ${path.basename(video)}`)
+  const reference = pickReference(root, cfg)
+  // 다시 만들기 때 사용자가 적은 고칠 점은 이번 편집 요청에 덧붙인다
+  const note = takeRedoNote(root, path.basename(video))
+  const request = [cfg.edit.request, note].filter((x) => x && x.trim()).join('\n') || undefined
+  d.log(`[${now()}] ▶ 편집 시작: ${path.basename(video)}${reference ? ` (레퍼런스: ${path.basename(reference)})` : ''}${note ? ` (고칠 점: ${note})` : ''}`)
 
   let result: EditResult
   try {
     result = await d.runEdit({
       videoPath: video,
       outDir: workDir,
-      reference: pickReference(root, cfg),
+      reference,
       description: cfg.edit.description || undefined,
-      request: cfg.edit.request || undefined,
+      request,
       purpose: cfg.edit.purpose,
       quality: cfg.edit.quality,
       captions: cfg.edit.captions,
@@ -82,16 +95,17 @@ export async function processVideo(root: string, video: string, d: AutopilotDeps
     })
   } catch (e) {
     const error = (e as Error).message || String(e)
-    const failedDir = path.join(root, FOLDERS.failed)
-    const moved = moveInto(video, failedDir)
-    fs.writeFileSync(path.join(failedDir, `${stemOf(moved)}_오류.txt`), `편집하지 못했어요 (${now()})\n\n${error}\n\n고친 뒤 영상을 다시 '${FOLDERS.inbox}' 폴더에 넣으면 다시 편집해요.\n`)
+    const original = moveInto(video, path.join(root, FOLDERS.originals))
+    const notePath = failureNotePath(root, stem)
+    fs.writeFileSync(notePath, `편집하지 못했어요 (${now()})\n\n${error}\n\n원본은 보관해 두었어요. Claude Code 에서 "검토해 줘"라고 하거나 'npm run autopilot -- redo "${path.basename(notePath)}"' 로 다시 만들 수 있어요.\n`)
+    writeRecord(root, path.basename(notePath), { original, createdAt: new Date().toISOString(), failed: error })
     d.log(`[${now()}] ✖ 편집 실패: ${path.basename(video)} — ${error}`)
     return { ok: false, error }
   }
 
   const resultPath = uniquePath(path.join(root, FOLDERS.done), `${stem}_릴스.mp4`)
   fs.copyFileSync(result.resultPath, resultPath)
-  moveInto(video, path.join(root, FOLDERS.originals))
+  const original = moveInto(video, path.join(root, FOLDERS.originals))
   let report: unknown
   try {
     report = JSON.parse(fs.readFileSync(path.join(workDir, 'report.json'), 'utf8'))
@@ -100,22 +114,21 @@ export async function processVideo(root: string, video: string, d: AutopilotDeps
   }
   const title = titleFromReport(report, stem)
   const highs = result.qa.findings.filter((f) => f.severity === 'high')
-  d.log(`[${now()}] ✔ 편집 완료: ${path.basename(resultPath)} — 제목 "${title}"${highs.length ? ` (검수에서 중요 문제 ${highs.length}건)` : ''}`)
-
-  const upload = await uploadAll(cfg, resultPath, title, d)
-  const record = { createdAt: new Date().toISOString(), source: path.basename(video), result: resultPath, title, qaPassed: result.qa.passed, upload }
-  fs.writeFileSync(path.join(workDir, 'autopilot.json'), JSON.stringify(record, null, 2))
-  const failures = Object.entries(upload).filter(([, v]) => v && !v.ok)
-  if (failures.length) {
-    fs.writeFileSync(
-      resultPath.replace(/\.mp4$/, '_업로드실패.txt'),
-      failures.map(([k, v]) => `${k === 'youtube' ? '유튜브' : '인스타그램'}: ${(v as { error: string }).error}`).join('\n\n') + '\n',
-    )
-  }
-  return { ok: true, resultPath, title, upload }
+  writeRecord(root, path.basename(resultPath), {
+    original,
+    createdAt: new Date().toISOString(),
+    title,
+    reference: reference ? path.basename(reference) : undefined,
+    request,
+    qaPassed: result.qa.passed,
+    qaHigh: highs.map((f) => f.message),
+  })
+  d.log(`[${now()}] ✔ 편집 완료: ${path.basename(resultPath)} — 제목 "${title}"${highs.length ? ` (검수에서 중요 문제 ${highs.length}건)` : ''} — 검토를 기다려요`)
+  return { ok: true, resultPath, title }
 }
 
-async function uploadAll(cfg: AutopilotConfig, file: string, title: string, d: AutopilotDeps): Promise<UploadOutcome> {
+/** 켜 둔 곳(유튜브·인스타)에 올린다. 실패해도 던지지 않고 결과에 적는다 */
+export async function uploadAll(cfg: AutopilotConfig, file: string, title: string, d: AutopilotDeps): Promise<UploadOutcome> {
   const out: UploadOutcome = {}
   const { youtube, instagram } = cfg.upload
   if (!youtube.enabled && !instagram.enabled) return out
@@ -150,14 +163,14 @@ async function uploadAll(cfg: AutopilotConfig, file: string, title: string, d: A
   return out
 }
 
-/** 넣기 폴더를 한 번 훑어 복사가 끝난 영상을 하나씩 처리한다. 처리한 개수를 돌려준다 */
+/** 편집할 영상 폴더를 한 번 훑어 복사가 끝난 영상을 하나씩 처리한다. 처리한 개수를 돌려준다 */
 export async function sweep(root: string, tracker: StabilityTracker, d: AutopilotDeps): Promise<number> {
   const ready = tracker.ready(listVideos(path.join(root, FOLDERS.inbox)))
   for (const v of ready) await processVideo(root, v, d)
   return ready.length
 }
 
-/** 넣기 폴더를 계속 지켜본다. stop() 이 true 를 돌려주면 멈춘다 */
+/** 편집할 영상 폴더를 계속 지켜본다. stop() 이 true 를 돌려주면 멈춘다 */
 export async function watch(root: string, d: AutopilotDeps, o: { intervalMs?: number; stop?: () => boolean; tracker?: StabilityTracker } = {}): Promise<void> {
   const tracker = o.tracker ?? new StabilityTracker()
   const intervalMs = o.intervalMs ?? 5000

@@ -6,15 +6,25 @@ import { z } from 'zod'
 /** 자동 편집 폴더 기본 위치. 바탕화면은 맥이 백그라운드 프로그램의 접근을 막아서 홈 폴더에 두고, 설치할 때 바탕화면에 바로가기를 만든다 */
 export const DEFAULT_ROOT = path.join(os.homedir(), '릴스 자동편집')
 
-/** 폴더 안의 하위 폴더 이름 */
+/** 폴더 안의 하위 폴더 이름. 사용자가 보는 폴더는 앞의 네 개이고, 점으로 시작하는 폴더는 숨김이다 */
 export const FOLDERS = {
-  inbox: '넣기',
-  done: '완성',
-  failed: '실패',
-  originals: '원본',
+  /** 편집할 영상을 넣는 곳 */
+  inbox: '편집할 영상',
+  /** 따라 할 레퍼런스 영상(수락한 영상도 여기에 쌓인다) */
   reference: '레퍼런스',
+  /** 편집이 끝나 검토를 기다리는 영상 */
+  done: '완성',
+  /** 수락한 영상(나중에 업로드할 영상) */
+  accepted: '수락',
+  /** 편집한 원본(다시 만들기에 쓴다) */
+  originals: '.원본',
+  /** 레퍼런스 폴더가 비었을 때 쓰는 기본 레퍼런스 */
+  defaultReference: '.기본 레퍼런스',
   work: '.작업',
 } as const
+
+/** 예전 폴더 이름 → 지금 이름. 예전 폴더에 있던 영상은 처음 켤 때 옮긴다 */
+export const LEGACY_FOLDERS: Record<string, string> = { 넣기: FOLDERS.inbox, 원본: FOLDERS.originals }
 
 export const CONFIG_FILE = '설정.json'
 
@@ -32,7 +42,7 @@ const Config = z.object({
       description: z.string().default(''),
       /** 레퍼런스에서 참고할 부분 */
       request: z.string().default(''),
-      /** 레퍼런스 링크. 비우면 레퍼런스 폴더에 넣어 둔 영상을 쓴다 */
+      /** 레퍼런스 링크. 비우면 레퍼런스 폴더의 가장 최근 영상 → 기본 레퍼런스 순으로 쓴다 */
       reference: z.string().default(''),
     })
     .prefault({}),
@@ -85,7 +95,22 @@ export function loadConfig(root: string): AutopilotConfig {
   return r.data
 }
 
-/** 폴더 구조를 만든다(이미 있으면 그대로) */
+/** 폴더 구조를 만든다(이미 있으면 그대로). 예전 이름의 폴더(넣기·원본)에 영상이 있으면 새 폴더로 옮기고, 비면 지운다 */
 export function ensureFolders(root: string): void {
   for (const name of Object.values(FOLDERS)) fs.mkdirSync(path.join(root, name), { recursive: true })
+  for (const [old, now] of Object.entries(LEGACY_FOLDERS)) {
+    const dir = path.join(root, old)
+    if (!fs.existsSync(dir)) continue
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (!e.isFile() || e.name.startsWith('.')) continue
+      const dest = path.join(root, now, e.name)
+      if (!fs.existsSync(dest)) fs.renameSync(path.join(dir, e.name), dest)
+    }
+    try {
+      for (const e of fs.readdirSync(dir)) if (e === '.DS_Store') fs.rmSync(path.join(dir, e))
+      fs.rmdirSync(dir)
+    } catch {
+      // 옮기지 못한 파일이 남아 있으면 폴더를 그대로 둔다
+    }
+  }
 }
