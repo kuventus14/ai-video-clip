@@ -54,6 +54,11 @@ export interface OverlayLayout {
   stackHeight: number
   /** 자막 글자 영역의 위쪽 y(px). null 이면 지금처럼 화면 가장자리 기준으로 둔다 */
   captionTop: number | null
+  /**
+   * 있으면 자막을 위가 아니라 아래쪽 끝에 맞춘다(화면 아래에서 이만큼 위, px). 채널 띠를 쓸 때 영상 안쪽 아래에 두는데,
+   * 위에서 잡으면 자막이 두 줄이 될 때 아래 줄이 영상 경계(띠)에 닿아서 아래를 기준으로 위로 자라게 한다
+   */
+  captionBottom?: number
   /** 리액션 박스의 위쪽 y(px) */
   reactionTop: number
 }
@@ -90,7 +95,10 @@ const OV_SIZES = (c: Canvas) => {
 export function brandOverlayLayout(b: BrandLayout, canvas: Canvas): OverlayLayout {
   const z = OV_SIZES(canvas)
   const stackHeight = Math.round(z.sec * 1.25) + 6 + Math.round(z.q * 1.25) + 3 * Math.round(z.open * 1.3)
-  return { band: true, videoTop: b.videoTop, videoBottom: b.videoBottom, titleTop: b.stackTop, stackHeight, captionTop: b.captionTop, reactionTop: Math.round(b.captionTop - z.react * 1.7 - 24) }
+  // 자막은 영상 아래 경계에서 36px(1920 기준) 위에 아랫줄이 오게 두고 위로 자란다. 가장 큰 자막(80px) 두 줄까지 들어갈 자리를 비우고 그 위에 리액션을 둔다
+  const captionBottom = canvas.height - b.videoBottom + Math.round(36 * b.scale)
+  const captionTop = Math.round(b.videoBottom - 36 * b.scale - 2 * 1.25 * 80 * b.scale)
+  return { band: true, videoTop: b.videoTop, videoBottom: b.videoBottom, titleTop: b.stackTop, stackHeight, captionTop, captionBottom, reactionTop: Math.round(captionTop - z.react * 1.7 - 24) }
 }
 
 /** 영상이 놓이는 사각형과 제목·자막·리액션의 자리를 정한다. */
@@ -364,7 +372,9 @@ export async function buildProject(i: BuildInput): Promise<{ projectDir: string;
   const edgePad = Math.round(c.height * (portrait ? 0.17 : 0.09))
   const capPad = cap.position === 'middle' ? '' : `padding-${cap.position === 'top' ? 'top' : 'bottom'}:${edgePad}px;`
   // 대본이 있으면 자막 위치를 영상 사각형·제목 묶음에 맞춰 위에서부터 잡는다(위·아래 띠 안, 또는 제목 묶음 아래)
-  const capRule = layout && layout.captionTop !== null
+  const capRule = layout?.captionBottom !== undefined
+    ? `.caption { position: absolute; inset: 0; display: flex; justify-content: center; align-items: flex-end; padding-bottom: ${layout.captionBottom}px; padding-left: 6%; padding-right: 6%; pointer-events: none; }`
+    : layout && layout.captionTop !== null
     ? `.caption { position: absolute; inset: 0; display: flex; justify-content: center; align-items: flex-start; padding-top: ${layout.captionTop}px; padding-left: 6%; padding-right: 6%; pointer-events: none; }`
     : `.caption { position: absolute; inset: 0; display: flex; justify-content: center; align-items: ${align}; ${capPad} padding-left: 6%; padding-right: 6%; pointer-events: none; }`
   const hookSize = Math.round(cap.sizePx * 0.9)
